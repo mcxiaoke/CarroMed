@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -53,8 +54,9 @@ fun StatsScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // 1. 顶部 Header
@@ -94,7 +96,8 @@ fun StatsScreen(
                     SegmentedButton(
                         shape = SegmentedButtonDefaults.itemShape(index = index, count = periods.size),
                         onClick = { viewModel.selectPeriod(index) },
-                        selected = uiState.selectedPeriod == index
+                        selected = uiState.selectedPeriod == index,
+                        icon = {}
                     ) {
                         Text(label, fontSize = 13.sp, fontWeight = if (uiState.selectedPeriod == index) FontWeight.Bold else FontWeight.Normal)
                     }

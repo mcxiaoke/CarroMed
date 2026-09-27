@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -29,9 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,6 +41,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
+import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,8 +56,9 @@ fun CabinetScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // 1. 顶部 Header
@@ -88,33 +90,43 @@ fun CabinetScreen(
             }
         }
 
-        // 2. Tab 分段选择器
+        // 2. Tab 分段胶囊选择器
         item {
-            PrimaryTabRow(
-                selectedTabIndex = uiState.selectedTab,
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.clip(RoundedCornerShape(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Tab(
-                    selected = uiState.selectedTab == 0,
-                    onClick = { viewModel.selectTab(0) },
-                    text = {
+                val tabs = listOf(
+                    "正在服用 (${uiState.activeList.size})",
+                    "已停药归档 (${uiState.archivedList.size})"
+                )
+                tabs.forEachIndexed { index, title ->
+                    val selected = uiState.selectedTab == index
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.surface
+                                else Color.Transparent
+                            )
+                            .clickable { viewModel.selectTab(index) }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = "正在服用 (${uiState.activeList.size})",
-                            fontWeight = if (uiState.selectedTab == 0) FontWeight.Bold else FontWeight.Normal
+                            text = title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                )
-                Tab(
-                    selected = uiState.selectedTab == 1,
-                    onClick = { viewModel.selectTab(1) },
-                    text = {
-                        Text(
-                            text = "已停药归档 (${uiState.archivedList.size})",
-                            fontWeight = if (uiState.selectedTab == 1) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                )
+                }
             }
         }
 
@@ -249,7 +261,7 @@ fun CabinetMedCard(
                 val isLow = med.currentStock <= med.minStockAlert && med.minStockAlert > 0f
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = if (isLow) MaterialTheme.colorScheme.tertiaryContainer
+                    color = if (isLow) WarningAmberContainer
                     else MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     val stockText = if (med.currentStock % 1f == 0f) {
@@ -262,7 +274,7 @@ fun CabinetMedCard(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = if (isLow) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isLow) MaterialTheme.colorScheme.onTertiaryContainer
+                        color = if (isLow) OnWarningAmberContainer
                         else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

@@ -52,6 +52,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -59,7 +61,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
+import com.mcxiaoke.carromed.ui.theme.WarningAmber
+import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -76,6 +81,7 @@ fun TodayScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
+        contentWindowInsets = WindowInsets.statusBars,
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onNavigateToManualDose,
@@ -91,7 +97,7 @@ fun TodayScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 1. 顶部 Header
@@ -146,7 +152,7 @@ fun TodayScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                            containerColor = WarningAmberContainer
                         ),
                         shape = RoundedCornerShape(12.dp)
                     ) {
@@ -164,14 +170,14 @@ fun TodayScreen(
                                 Icon(
                                     imageVector = Icons.Default.WarningAmber,
                                     contentDescription = "库存告警",
-                                    tint = MaterialTheme.colorScheme.tertiary
+                                    tint = WarningAmber
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "${med.name} 仅剩 ${med.currentStock.toInt()} 片 (低于警戒线 ${med.minStockAlert.toInt()} 片)",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    color = OnWarningAmberContainer
                                 )
                             }
                             TextButton(
@@ -181,7 +187,7 @@ fun TodayScreen(
                                 Text(
                                     text = "去补药 >",
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = WarningAmber
                                 )
                             }
                         }
@@ -371,17 +377,20 @@ fun PendingDoseCard(
                 }
             }
 
-            // 右侧大号打卡确认圆环按钮
+            // 右侧打卡确认按钮
             IconButton(
                 onClick = onTakeDose,
                 modifier = Modifier
-                    .size(44.dp)
-                    .border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                    .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), CircleShape)
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.RadioButtonUnchecked,
+                    imageVector = Icons.Default.Check,
                     contentDescription = "确认服药",
-                    tint = MaterialTheme.colorScheme.outline
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
@@ -490,11 +499,11 @@ fun DateSelectorRow(
     selectedDate: LocalDate,
     onSelectDate: (LocalDate) -> Unit
 ) {
-    LazyRow(
+    Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        items(dates) { date ->
+        dates.forEach { date ->
             val isSelected = date == selectedDate
             val dayOfWeekChinese = when (date.dayOfWeek.value) {
                 1 -> "一"
@@ -509,47 +518,38 @@ fun DateSelectorRow(
 
             Column(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .width(44.dp)
+                    .clip(RoundedCornerShape(16.dp))
                     .background(
-                        if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                        else Color.Transparent
+                        if (isSelected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     )
                     .clickable { onSelectDate(date) }
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    .padding(vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
                     text = dayOfWeekChinese,
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
                     else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = date.dayOfMonth.toString(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(6.dp))
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(5.dp)
                         .clip(CircleShape)
                         .background(
-                            if (isSelected) MaterialTheme.colorScheme.primary
-                            else Color.Transparent
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = date.dayOfMonth.toString(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Box(
-                    modifier = Modifier
-                        .size(4.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (isSelected) SuccessGreen
+                            if (isSelected) MaterialTheme.colorScheme.onPrimary
                             else MaterialTheme.colorScheme.outlineVariant
                         )
                 )

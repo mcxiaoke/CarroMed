@@ -59,7 +59,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.core.data.model.TransactionType
+import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
+import com.mcxiaoke.carromed.ui.theme.WarningAmber
+import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -325,21 +328,21 @@ fun MedicationDetailScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f))
+                        colors = CardDefaults.cardColors(containerColor = WarningAmberContainer)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Default.WarningAmber,
                                     contentDescription = "注意事项",
-                                    tint = MaterialTheme.colorScheme.tertiary
+                                    tint = WarningAmber
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = "注意事项与禁忌 (重点关注)",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    color = OnWarningAmberContainer
                                 )
                             }
                             Spacer(modifier = Modifier.height(10.dp))
@@ -438,7 +441,7 @@ fun MedicationDetailScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Text(
-                            text = "最近流水账本 (双向可追溯)",
+                            text = "最近库存流水记录 (双向可追溯)",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -483,10 +486,13 @@ fun MedicationDetailScreen(
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
                         onClick = { viewModel.toggleArchive() },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Icon(
@@ -500,6 +506,9 @@ fun MedicationDetailScreen(
 
                     Button(
                         onClick = { viewModel.deleteMedication(onDeleted = onNavigateBack) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                         shape = RoundedCornerShape(10.dp)
                     ) {

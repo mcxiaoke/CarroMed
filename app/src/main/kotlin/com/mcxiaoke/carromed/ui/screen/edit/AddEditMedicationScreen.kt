@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -100,8 +101,9 @@ fun AddEditMedicationScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .imePadding()
                 .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 80.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 0. 低门槛录入提示条
@@ -257,7 +259,8 @@ fun AddEditMedicationScreen(
                                 SegmentedButton(
                                     shape = SegmentedButtonDefaults.itemShape(index = index, count = policyTypes.size),
                                     onClick = { viewModel.onPolicyTypeChange(type) },
-                                    selected = uiState.policyType == type
+                                    selected = uiState.policyType == type,
+                                    icon = {}
                                 ) {
                                     Text(label, fontSize = 12.sp)
                                 }
@@ -346,7 +349,7 @@ fun AddEditMedicationScreen(
                         ) {
                             Icon(Icons.Default.Add, contentDescription = "添加", modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("+ 添加一个提醒时点", fontSize = 13.sp)
+                            Text("添加一个提醒时点", fontSize = 13.sp)
                         }
                     }
                 }

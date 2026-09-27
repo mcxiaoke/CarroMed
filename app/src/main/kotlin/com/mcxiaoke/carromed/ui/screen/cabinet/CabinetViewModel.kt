@@ -68,7 +68,10 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
         val timeStr = times.joinToString(", ") { it.timeOfDay }
         val freqDesc = when (policy?.policyType) {
             PolicyType.DAILY -> "每天 ${times.size} 次 · $timeStr"
-            PolicyType.INTERVAL -> "隔 ${policy.intervalDays - 1} 天 1 次 · $timeStr"
+            PolicyType.INTERVAL -> {
+                val intervalText = if (policy.intervalDays <= 2) "隔天" else "每隔 ${policy.intervalDays - 1} 天"
+                "$intervalText 1 次 · $timeStr"
+            }
             PolicyType.DAYS_OF_WEEK -> "每周 ${policy.daysOfWeek.size} 天 · $timeStr"
             PolicyType.CYCLE -> "周期轮换 (${policy.cycleOnDays}天服/${policy.cycleOffDays}天停) · $timeStr"
             PolicyType.PRN -> "按需服用 (不设闹钟)"

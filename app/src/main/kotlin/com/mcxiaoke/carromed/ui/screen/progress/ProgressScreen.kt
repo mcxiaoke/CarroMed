@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.ui.screen.progress
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -29,8 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Tab
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -56,8 +57,9 @@ fun ProgressScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // 1. 顶部 Header
@@ -91,31 +93,38 @@ fun ProgressScreen(
 
         // 2. Tab 分段控制: 7天打卡矩阵 vs 时间轴服药流水
         item {
-            PrimaryTabRow(
-                selectedTabIndex = uiState.selectedTab,
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.clip(RoundedCornerShape(12.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Tab(
-                    selected = uiState.selectedTab == 0,
-                    onClick = { viewModel.selectTab(0) },
-                    text = {
+                val tabs = listOf("7 天打卡矩阵", "时间轴服药流水")
+                tabs.forEachIndexed { index, title ->
+                    val selected = uiState.selectedTab == index
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.surface
+                                else Color.Transparent
+                            )
+                            .clickable { viewModel.selectTab(index) }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            text = "7 天打卡矩阵",
-                            fontWeight = if (uiState.selectedTab == 0) FontWeight.Bold else FontWeight.Normal
+                            text = title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                )
-                Tab(
-                    selected = uiState.selectedTab == 1,
-                    onClick = { viewModel.selectTab(1) },
-                    text = {
-                        Text(
-                            text = "时间轴服药流水",
-                            fontWeight = if (uiState.selectedTab == 1) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                )
+                }
             }
         }
 
@@ -166,7 +175,10 @@ fun ProgressScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             item.days.forEach { day ->
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Column(
+                                    modifier = Modifier.width(36.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
                                     Text(
                                         text = day.dayLabel,
                                         style = MaterialTheme.typography.labelSmall,
@@ -219,7 +231,7 @@ fun ProgressScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "今天流水账",
+                            text = "今日服药流水",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface

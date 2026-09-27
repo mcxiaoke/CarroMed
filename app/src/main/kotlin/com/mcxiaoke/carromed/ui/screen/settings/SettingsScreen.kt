@@ -122,12 +122,13 @@ fun SettingsScreen(
                             ExposedDropdownMenuBox(
                                 expanded = snoozeExpanded,
                                 onExpandedChange = { snoozeExpanded = it },
-                                modifier = Modifier.width(120.dp)
+                                modifier = Modifier.width(140.dp)
                             ) {
                                 OutlinedTextField(
                                     value = "${uiState.snoozeMinutes} 分钟",
                                     onValueChange = {},
                                     readOnly = true,
+                                    singleLine = true,
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = snoozeExpanded) },
                                     modifier = Modifier.menuAnchor()
                                 )

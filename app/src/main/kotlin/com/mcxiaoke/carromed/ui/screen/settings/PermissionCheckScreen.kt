@@ -121,7 +121,10 @@ fun PermissionItemCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
@@ -131,11 +134,16 @@ fun PermissionItemCard(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
+                Spacer(modifier = Modifier.width(8.dp))
                 if (isGranted) {
                     Text(statusText, color = SuccessGreen, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 } else {
-                    OutlinedButton(onClick = {}, shape = RoundedCornerShape(8.dp)) {
-                        Text(statusText, fontSize = 12.sp)
+                    OutlinedButton(
+                        onClick = {},
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text(statusText, fontSize = 12.sp, maxLines = 1)
                     }
                 }
             }
