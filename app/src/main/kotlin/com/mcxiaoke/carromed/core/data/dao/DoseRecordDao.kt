@@ -46,4 +46,13 @@ interface DoseRecordDao {
 
     @Query("SELECT COUNT(*) FROM dose_records WHERE medication_id = :medicationId AND status = 'COMPLETED' AND actual_ts BETWEEN :startTs AND :endTs")
     suspend fun countDoseRecordsForMedication(medicationId: Long, startTs: Long, endTs: Long): Int
+
+    @Query("SELECT * FROM dose_records ORDER BY actual_ts ASC")
+    suspend fun getAllRecords(): List<DoseRecordEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(records: List<DoseRecordEntity>): List<Long>
+
+    @Query("DELETE FROM dose_records")
+    suspend fun deleteAllRecords()
 }

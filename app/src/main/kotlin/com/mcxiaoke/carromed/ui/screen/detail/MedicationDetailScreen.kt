@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -45,11 +46,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -83,6 +88,10 @@ fun MedicationDetailScreen(
 
     val med = uiState.medication
 
+    var showArchiveDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -489,7 +498,7 @@ fun MedicationDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
-                        onClick = { viewModel.toggleArchive() },
+                        onClick = { showArchiveDialog = true },
                         modifier = Modifier
                             .weight(1f)
                             .height(46.dp),
@@ -505,7 +514,7 @@ fun MedicationDetailScreen(
                     }
 
                     Button(
-                        onClick = { viewModel.deleteMedication(onDeleted = onNavigateBack) },
+                        onClick = { showDeleteDialog = true },
                         modifier = Modifier
                             .weight(1f)
                             .height(46.dp),
@@ -524,5 +533,55 @@ fun MedicationDetailScreen(
                 }
             }
         }
+    }
+
+    // 停药归档 / 恢复在服 二次确认
+    if (showArchiveDialog && med != null) {
+        AlertDialog(
+            onDismissRequest = { showArchiveDialog = false },
+            title = { Text(if (med.isArchived) "恢复在服" else "停药归档", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    if (med.isArchived) "确认将该药品恢复为在服状态？恢复后其提醒计划将重新生效。"
+                    else "确认对该药品停药归档？归档后其未来提醒将被取消，历史打卡与库存流水完整保留，可随时恢复。"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showArchiveDialog = false
+                    viewModel.toggleArchive()
+                }) {
+                    Text("确认", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showArchiveDialog = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // 删除药品 二次确认 (不可恢复)
+    if (showDeleteDialog && med != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("删除药品", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "确认删除「${med.name}」？其全部排班槽位、打卡记录与库存流水将一并删除，且不可恢复。\n\n如只是不再服用，建议使用「停药归档」保留历史数据。"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    viewModel.deleteMedication(onDeleted = onNavigateBack)
+                }) {
+                    Text("永久删除", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("取消") }
+            }
+        )
+    }
     }
 }

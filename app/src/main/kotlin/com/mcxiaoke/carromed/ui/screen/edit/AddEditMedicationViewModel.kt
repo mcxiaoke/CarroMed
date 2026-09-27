@@ -88,10 +88,31 @@ class AddEditMedicationViewModel(
         }
     }
 
-    fun onNameChange(name: String) { _uiState.value = _uiState.value.copy(name = name) }
+    fun onNameChange(name: String) {
+        val s = _uiState.value
+        // 输入名称后清除"请输入药品名称"错误提示
+        val clearedError = if (s.error == "请输入药品名称") null else s.error
+        _uiState.value = s.copy(name = name, error = clearedError)
+    }
     fun onCategoryChange(cat: String) { _uiState.value = _uiState.value.copy(category = cat) }
     fun onFormChange(form: String) { _uiState.value = _uiState.value.copy(form = form) }
     fun onPolicyTypeChange(type: PolicyType) { _uiState.value = _uiState.value.copy(policyType = type) }
+
+    /** 隔天/隔N天: 步进器调节间隔天数 (2=隔天, N=每隔N-1天), 范围 2..30 */
+    fun onIntervalDaysChange(days: Int) {
+        val clamped = days.coerceIn(2, 30)
+        _uiState.value = _uiState.value.copy(intervalDays = clamped)
+    }
+
+    /** 每周特定天: 多选胶囊切换 (1=周一 .. 7=周日) */
+    fun onToggleDayOfWeek(day: Int) {
+        val s = _uiState.value
+        val current = s.daysOfWeek
+        val updated = if (day in current) current - day else (current + day).sorted()
+        val clearedError = if (s.error == "请至少选择一个每周服药日") null else s.error
+        _uiState.value = s.copy(daysOfWeek = updated, error = clearedError)
+    }
+
     fun onCurrentStockChange(stock: String) { _uiState.value = _uiState.value.copy(currentStock = stock) }
     fun onMinStockAlertChange(min: String) { _uiState.value = _uiState.value.copy(minStockAlert = min) }
     fun onDescriptionChange(desc: String) { _uiState.value = _uiState.value.copy(description = desc) }
@@ -122,6 +143,14 @@ class AddEditMedicationViewModel(
         val state = _uiState.value
         if (state.name.isBlank()) {
             _uiState.value = state.copy(error = "请输入药品名称")
+            return
+        }
+        if (state.policyType == PolicyType.DAYS_OF_WEEK && state.daysOfWeek.isEmpty()) {
+            _uiState.value = state.copy(error = "请至少选择一个每周服药日")
+            return
+        }
+        if (state.timeSlots.isEmpty()) {
+            _uiState.value = state.copy(error = "请至少设置一个提醒时点")
             return
         }
 
@@ -181,6 +210,13 @@ class AddEditMedicationViewModel(
 
             // 平滑对齐未来排班 (保留历史打卡不变，重投影未来槽位)
             trackingService.reconcileSchedule(finalMedId)
+
+            // 按最新计划重排全部精确闹钟
+            runCatching {
+                com.mcxiaoke.carromed.core.alarm.AlarmReconciler.rescheduleAll(
+                    getApplication<Application>(), db
+                )
+            }
 
             _uiState.value = state.copy(isSaving = false)
             onSuccess(finalMedId)

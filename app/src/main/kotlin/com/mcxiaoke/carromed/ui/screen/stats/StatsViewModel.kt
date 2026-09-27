@@ -1,16 +1,21 @@
 package com.mcxiaoke.carromed.ui.screen.stats
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
+import com.mcxiaoke.carromed.core.data.DataExporter
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class MedicationConsumption(
     val rank: Int,
@@ -64,5 +69,23 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectPeriod(period: Int) {
         _selectedPeriod.value = period
+    }
+
+    /** 导出完整服药报告 CSV (生成 + 系统分享面板) */
+    fun exportReport() {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            try {
+                val file = DataExporter.exportDoseRecordsCsv(app, db)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(app, "已导出 ${file.name}", Toast.LENGTH_LONG).show()
+                }
+                DataExporter.shareFile(app, file, "text/csv")
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(app, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 }

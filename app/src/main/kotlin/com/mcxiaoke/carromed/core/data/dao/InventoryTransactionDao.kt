@@ -38,4 +38,7 @@ interface InventoryTransactionDao {
 
     @Query("SELECT * FROM inventory_transactions ORDER BY id DESC")
     suspend fun getAllTransactions(): List<InventoryTransactionEntity>
+
+    @Query("DELETE FROM inventory_transactions")
+    suspend fun deleteAllTransactions()
 }

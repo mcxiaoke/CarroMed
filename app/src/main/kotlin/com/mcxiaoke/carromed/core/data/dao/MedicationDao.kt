@@ -56,4 +56,7 @@ interface MedicationDao {
 
     @Query("UPDATE medications SET is_archived = :isArchived, updated_at = :updatedAt WHERE id = :id")
     suspend fun updateArchiveStatus(id: Long, isArchived: Boolean, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM medications")
+    suspend fun deleteAllMedications()
 }

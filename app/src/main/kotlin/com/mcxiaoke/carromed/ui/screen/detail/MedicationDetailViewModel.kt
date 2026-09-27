@@ -74,6 +74,7 @@ class MedicationDetailViewModel(
         viewModelScope.launch {
             val newPaused = !med.isPaused
             medDao.updatePauseStatus(med.id, newPaused)
+            rescheduleAlarms()
             loadData()
         }
     }
@@ -83,6 +84,7 @@ class MedicationDetailViewModel(
         viewModelScope.launch {
             val newArchived = !med.isArchived
             medDao.updateArchiveStatus(med.id, newArchived)
+            rescheduleAlarms()
             loadData()
         }
     }
@@ -91,7 +93,17 @@ class MedicationDetailViewModel(
         val med = _uiState.value.medication ?: return
         viewModelScope.launch {
             medDao.delete(med)
+            rescheduleAlarms()
             onDeleted()
+        }
+    }
+
+    /** 状态变更后按当前库内数据全量重排闹钟 */
+    private suspend fun rescheduleAlarms() {
+        runCatching {
+            com.mcxiaoke.carromed.core.alarm.AlarmReconciler.rescheduleAll(
+                getApplication<Application>(), db
+            )
         }
     }
 }

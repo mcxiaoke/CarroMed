@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
@@ -59,6 +61,13 @@ fun SettingsScreen(
     onNavigateToPermissionCheck: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // 选择 JSON 备份文件 → 覆盖式恢复
+    val backupPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { viewModel.importBackup(it) }
+    }
 
     Scaffold(
         topBar = {
@@ -262,7 +271,11 @@ fun SettingsScreen(
                                 Text("导出服药明细报表 (CSV)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                 Text("明文数据，可用 Excel / WPS 打开分析", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            OutlinedButton(onClick = {}, shape = RoundedCornerShape(8.dp)) {
+                            OutlinedButton(
+                                onClick = { viewModel.exportCsv() },
+                                enabled = !uiState.isExporting,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
                                 Text("导出 CSV", fontSize = 12.sp)
                             }
                         }
@@ -278,8 +291,31 @@ fun SettingsScreen(
                                 Text("备份全量数据库 (JSON)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                 Text("包含药品、计划、打卡与库存流水完整存档", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            OutlinedButton(onClick = {}, shape = RoundedCornerShape(8.dp)) {
+                            OutlinedButton(
+                                onClick = { viewModel.exportBackup() },
+                                enabled = !uiState.isExporting,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
                                 Text("生成备份", fontSize = 12.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("从备份恢复 (覆盖式)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text("整库快照替换还原，当前数据将被完全覆盖", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            OutlinedButton(
+                                onClick = { backupPickerLauncher.launch(arrayOf("application/json")) },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("选择备份", fontSize = 12.sp)
                             }
                         }
                     }

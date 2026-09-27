@@ -1,19 +1,24 @@
 package com.mcxiaoke.carromed.ui.screen.progress
 
 import android.app.Application
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
+import com.mcxiaoke.carromed.core.data.DataExporter
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 data class DayAdherence(
@@ -101,5 +106,23 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
 
     fun selectTab(tab: Int) {
         _selectedTab.value = tab
+    }
+
+    /** 导出服药明细 CSV 报告 (生成 + 系统分享面板) */
+    fun exportReport() {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            try {
+                val file = DataExporter.exportDoseRecordsCsv(app, db)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(app, "已导出 ${file.name}", Toast.LENGTH_LONG).show()
+                }
+                DataExporter.shareFile(app, file, "text/csv")
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(app, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
     }
 }

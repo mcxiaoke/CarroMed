@@ -43,11 +43,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.ui.component.HomeTabHeader
 
 @Composable
 fun StatsScreen(
-    viewModel: StatsViewModel,
-    onExportCsv: () -> Unit = {}
+    viewModel: StatsViewModel
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -56,36 +56,17 @@ fun StatsScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 120.dp),
+        contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. 顶部 Header
+        // 1. 顶部 Header (与其他主 Tab 统一规格)
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "统计报表",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                IconButton(
-                    onClick = onExportCsv,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FileDownload,
-                        contentDescription = "导出报告",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+            HomeTabHeader(
+                title = "统计报表",
+                actionIcon = Icons.Default.FileDownload,
+                actionContentDescription = "导出报告",
+                onActionClick = { viewModel.exportReport() }
+            )
         }
 
         // 2. 周期切换: 过去1个月 vs 过去1整年 (年度汇总)
@@ -241,7 +222,7 @@ fun StatsScreen(
         // 5. 导出报表按钮
         item {
             Button(
-                onClick = onExportCsv,
+                onClick = { viewModel.exportReport() },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),

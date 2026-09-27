@@ -113,18 +113,24 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
     fun takeDose(slotId: Long) {
         viewModelScope.launch {
             trackingService.takeDose(slotId)
+            com.mcxiaoke.carromed.core.alarm.AlarmScheduler.cancel(getApplication<Application>(), slotId)
         }
     }
 
     fun undoDose(slotId: Long) {
         viewModelScope.launch {
             trackingService.undoDose(slotId)
+            // 撤销后槽位回到待服，重新对账恢复其未来闹钟
+            runCatching {
+                com.mcxiaoke.carromed.core.alarm.AlarmReconciler.rescheduleAll(getApplication<Application>(), db)
+            }
         }
     }
 
     fun skipDose(slotId: Long) {
         viewModelScope.launch {
             trackingService.skipDose(slotId)
+            com.mcxiaoke.carromed.core.alarm.AlarmScheduler.cancel(getApplication<Application>(), slotId)
         }
     }
 }

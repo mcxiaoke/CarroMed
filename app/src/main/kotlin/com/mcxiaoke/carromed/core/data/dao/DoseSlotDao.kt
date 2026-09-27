@@ -62,4 +62,16 @@ interface DoseSlotDao {
 
     @Query("SELECT COUNT(*) FROM dose_slots WHERE scheduled_date = :dateStr")
     suspend fun countTotalSlotsForDate(dateStr: String): Int
+
+    @Query("SELECT * FROM dose_slots ORDER BY id ASC")
+    suspend fun getAllSlots(): List<DoseSlotEntity>
+
+    @Query("SELECT * FROM dose_slots WHERE status IN ('PENDING', 'SNOOZED') ORDER BY scheduled_ts ASC")
+    suspend fun getOpenSlots(): List<DoseSlotEntity>
+
+    @Query("SELECT * FROM dose_slots WHERE status = 'PENDING' AND scheduled_ts < :cutoffTs")
+    suspend fun getStalePendingSlots(cutoffTs: Long): List<DoseSlotEntity>
+
+    @Query("DELETE FROM dose_slots")
+    suspend fun deleteAllSlots()
 }

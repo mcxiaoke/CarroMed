@@ -19,6 +19,9 @@ interface SchedulePolicyDao {
     suspend fun insertPolicy(policy: SchedulePolicyEntity): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllPolicies(policies: List<SchedulePolicyEntity>): List<Long>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTimes(times: List<PolicyTimeEntity>): List<Long>
 
     @Update
@@ -35,6 +38,18 @@ interface SchedulePolicyDao {
 
     @Query("UPDATE schedule_policies SET is_active = 0 WHERE medication_id = :medicationId")
     suspend fun deactivatePoliciesForMedication(medicationId: Long)
+
+    @Query("SELECT * FROM schedule_policies ORDER BY id ASC")
+    suspend fun getAllPolicies(): List<SchedulePolicyEntity>
+
+    @Query("SELECT * FROM policy_times ORDER BY id ASC")
+    suspend fun getAllTimes(): List<PolicyTimeEntity>
+
+    @Query("DELETE FROM schedule_policies")
+    suspend fun deleteAllPolicies()
+
+    @Query("DELETE FROM policy_times")
+    suspend fun deleteAllTimes()
 
     @Transaction
     suspend fun savePolicyWithTimes(policy: SchedulePolicyEntity, times: List<PolicyTimeEntity>): Long {
