@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      仅 debug 构建注册调试数据遥控器；release 包内不存在此 receiver。
+      用途：让 tools/app_screenshots.py 等走查脚本能一键播种 / 清空演示数据。
+    -->
+    <application>
+        <receiver
+            android:name=".DevDataReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.mcxiaoke.carromed.dev.SEED" />
+                <action android:name="com.mcxiaoke.carromed.dev.CLEAR" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>
