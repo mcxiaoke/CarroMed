@@ -51,6 +51,14 @@ data class InventoryTransactionEntity(
     @ColumnInfo(name = "note")
     val note: String? = null, // 备注 (如 "每日打卡扣减", "同仁堂药房采购30片", "误触打卡撤销")
 
+    /** schema v2：采购批次号 (仅 REFILL 入库流水有意义) */
+    @ColumnInfo(name = "batch_number")
+    val batchNumber: String? = null,
+
+    /** schema v2：本批入库药品的有效期至 (yyyy-MM-dd)，用于临期提醒 */
+    @ColumnInfo(name = "expiry_date")
+    val expiryDate: String? = null,
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis()
 )

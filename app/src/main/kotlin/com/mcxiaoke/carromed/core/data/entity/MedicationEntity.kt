@@ -55,6 +55,24 @@ data class MedicationEntity(
     @ColumnInfo(name = "is_stock_tracked")
     val isStockTracked: Boolean = false,
 
+    // ---- 以下为 schema v2 新增：按药品维度的提醒行为与有效期 ----
+
+    /** 药品有效期至 (yyyy-MM-dd)，空串表示未记录。用于库存临期提醒 */
+    @ColumnInfo(name = "expiry_date")
+    val expiryDate: String = "",
+
+    /** 重要提醒：置 true 时该药的闹钟走更激进的唤醒策略 (响铃/全屏)，忽略夜间静音 */
+    @ColumnInfo(name = "is_critical_reminder")
+    val isCriticalReminder: Boolean = false,
+
+    /** 该药专属的"稍后提醒"时长 (分钟)。0 表示跟随全局设置 */
+    @ColumnInfo(name = "snooze_minutes")
+    val snoozeMinutes: Int = 0,
+
+    /** 该药专属的"提前提醒"时长 (分钟)。0 表示准点提醒 */
+    @ColumnInfo(name = "advance_minutes")
+    val advanceMinutes: Int = 0,
+
     @ColumnInfo(name = "is_paused")
     val isPaused: Boolean = false,
 

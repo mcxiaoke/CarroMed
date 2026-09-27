@@ -26,7 +26,9 @@ import com.mcxiaoke.carromed.core.data.model.SlotStatus
     indices = [
         Index(value = ["medication_id"]),
         Index(value = ["scheduled_date", "status"]),
-        Index(value = ["scheduled_ts"])
+        Index(value = ["scheduled_ts"]),
+        // v2: 支撑 "按药品 + 计划日期区间" 的聚合统计与打卡矩阵走索引
+        Index(value = ["medication_id", "scheduled_date", "scheduled_time"])
     ]
 )
 data class DoseSlotEntity(

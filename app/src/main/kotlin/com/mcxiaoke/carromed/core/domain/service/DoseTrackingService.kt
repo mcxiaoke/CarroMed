@@ -146,13 +146,19 @@ class DoseTrackingService(private val db: AppDatabase) {
 
     /**
      * 5. 补充录入/临时按需服药 (PRN 或 事后补录)
+     *
+     * @param deductStock 是否联动扣减库存台账。
+     *   补录历史服药时用户常需要"只记事实、不动库存"(例如从别处已经吃过的那一片)，
+     *   开关关闭时仅写服药事实，不产生任何库存流水，台账守恒不受影响。
+     *   服药是不可否认的事实，因此 **绝不因为库存不足而阻止记账**。
      */
     suspend fun logManualDose(
         medicationId: Long,
         actualTs: Long,
         doseAmount: Float,
         isRetrospective: Boolean = false,
-        note: String? = null
+        note: String? = null,
+        deductStock: Boolean = true
     ): Long = db.withTransaction {
         val medication = medDao.getMedicationById(medicationId)
             ?: throw IllegalArgumentException("Medication not found: $medicationId")
@@ -168,7 +174,7 @@ class DoseTrackingService(private val db: AppDatabase) {
         )
         val recordId = recordDao.insert(record)
 
-        if (medication.isStockTracked) {
+        if (deductStock && medication.isStockTracked) {
             val newStock = (medication.currentStock - doseAmount).coerceAtLeast(0f)
             val tx = InventoryTransactionEntity(
                 medicationId = medicationId,
@@ -184,6 +190,70 @@ class DoseTrackingService(private val db: AppDatabase) {
 
         return@withTransaction recordId
     }
+
+    /**
+     * 5b. 库存盘点校准
+     *
+     * 用户手中实物与系统账面不符时 (换了包装 / 之前漏记 / 初次建档修正)，
+     * 通过写入一条 CALIBRATION_ADJUST 流水把账面拉回真实值，
+     * 绝不直接 UPDATE current_stock，保证 `SUM(change_amount) == current_stock` 守恒。
+     */
+    suspend fun calibrateStock(
+        medicationId: Long,
+        actualStock: Float,
+        note: String? = null
+    ): Boolean = db.withTransaction {
+        val medication = medDao.getMedicationById(medicationId) ?: return@withTransaction false
+        val delta = actualStock - medication.currentStock
+        if (kotlin.math.abs(delta) < 0.0001f) return@withTransaction false
+
+        val tx = InventoryTransactionEntity(
+            medicationId = medicationId,
+            changeAmount = delta,
+            balanceAfter = actualStock,
+            txType = TransactionType.CALIBRATION_ADJUST,
+            note = note ?: "库存盘点校准 (账面 ${trimFloat(medication.currentStock)} → 实物 ${trimFloat(actualStock)})"
+        )
+        inventoryDao.insert(tx)
+        medDao.updateStock(medicationId, actualStock)
+        return@withTransaction true
+    }
+
+    /**
+     * 5c. 开启 / 关闭库存追踪
+     * 关闭时不产生任何流水，仅切换开关位；重新开启时以当前账面作为基准写入一条建档流水。
+     */
+    suspend fun setStockTracking(
+        medicationId: Long,
+        enabled: Boolean,
+        currentStock: Float? = null
+    ): Boolean = db.withTransaction {
+        val medication = medDao.getMedicationById(medicationId) ?: return@withTransaction false
+        medDao.updateStockTracking(medicationId, enabled)
+
+        if (enabled) {
+            val target = currentStock ?: medication.currentStock
+            if (target > 0f && medication.currentStock <= 0f) {
+                // 从零建档：写一条建档流水并同步账面，守恒不变量成立
+                inventoryDao.insert(
+                    InventoryTransactionEntity(
+                        medicationId = medicationId,
+                        changeAmount = target,
+                        balanceAfter = target,
+                        txType = TransactionType.CALIBRATION_ADJUST,
+                        note = "开启库存追踪建档"
+                    )
+                )
+                medDao.updateStock(medicationId, target)
+            } else if (target != medication.currentStock) {
+                medDao.updateStock(medicationId, target)
+            }
+        }
+        return@withTransaction true
+    }
+
+    private fun trimFloat(v: Float): String =
+        if (v % 1f == 0f) v.toInt().toString() else v.toString()
 
     /**
      * 6. 药房补货采购入库

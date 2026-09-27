@@ -38,7 +38,9 @@ class AlarmReceiver : BroadcastReceiver() {
                 Log.i("AlarmReceiver", "med loaded: ${med?.name}, paused=${med?.isPaused}, archived=${med?.isArchived}")
                 if (med == null || med.isPaused || med.isArchived) return@launch
 
-                Notifications.showDoseNotification(context, slot, med)
+                // 按药品解析提醒行为 (推迟时长 / 夜间静音 / 重要提醒)，全部读用户真实配置
+                val behavior = ReminderSettings.resolve(context, db, med.id)
+                Notifications.showDoseNotification(context, slot, med, behavior)
                 Log.i("AlarmReceiver", "notification shown for slot=$slotId")
             } catch (t: Throwable) {
                 Log.e("AlarmReceiver", "failed to show notification", t)

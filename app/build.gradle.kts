@@ -66,6 +66,8 @@ android {
 
     buildFeatures {
         compose = true
+        // 供 SampleDataSeeder 判定 debug/release：生产构建必须关闭演示数据播种
+        buildConfig = true
     }
 
     testOptions {

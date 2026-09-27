@@ -25,8 +25,15 @@ object AlarmReconciler {
         Log.i("AlarmReconciler", "rescheduleAll start, now=$now")
 
         // 1. 过期槽位结算: PENDING 且计划时间已过 2 小时 → EXPIRED
-        db.doseSlotDao().getStalePendingSlots(now - EXPIRE_WINDOW_MS).forEach { stale ->
+        //    严格限定为「已排期」的历史槽位：用户此刻新建的药品若时点设为 08:30 而当前已 10:36，
+        //    那是一条排在过去的槽位，同样应结算为逾期；反之未来槽位永不误判。
+        val staleSlots = db.doseSlotDao().getStalePendingSlots(now - EXPIRE_WINDOW_MS)
+        staleSlots.forEach { stale ->
             db.doseSlotDao().updateStatus(stale.id, SlotStatus.EXPIRED, null)
+            AlarmScheduler.cancel(context, stale.id)
+        }
+        if (staleSlots.isNotEmpty()) {
+            Log.i("AlarmReconciler", "expired ${staleSlots.size} overdue slots")
         }
 
         // 2. 活跃药品 (在服且未暂停) 未来 7 天排班幂等补齐
@@ -43,6 +50,7 @@ object AlarmReconciler {
 
         // 3. 全量闹钟对账: 该注册的注册，该取消的取消
         val activeIds = activeMeds.map { it.id }.toSet()
+        val advanceByMed = activeMeds.associate { it.id to it.advanceMinutes }
         val openSlots = db.doseSlotDao().getOpenSlots() // PENDING + SNOOZED
         var scheduled = 0
         var cancelled = 0
@@ -53,11 +61,22 @@ object AlarmReconciler {
                 slot.scheduledTs
             }
             if (slot.medicationId in activeIds && triggerAt > now) {
+                // 提前提醒：药品配置了 advance_minutes 时，在计划时间前 N 分钟额外唤醒一次。
+                // 使用独立 requestCode 槽位 (advance=true)，取消主闹钟不会误伤提前闹钟。
+                val advance = advanceByMed[slot.medicationId] ?: 0
+                if (advance > 0) {
+                    val advanceAt = slot.scheduledTs - advance * 60_000L
+                    if (advanceAt > now) {
+                        runCatching { AlarmScheduler.schedule(context, slot.id, advanceAt, advance = true) }
+                            .onFailure { Log.e("AlarmReconciler", "advance schedule failed slot=${slot.id}", it) }
+                    }
+                }
                 runCatching { AlarmScheduler.schedule(context, slot.id, triggerAt) }
                     .onFailure { Log.e("AlarmReconciler", "schedule failed slot=${slot.id}", it) }
                 scheduled++
             } else {
                 runCatching { AlarmScheduler.cancel(context, slot.id) }
+                    .onFailure { Log.e("AlarmReconciler", "cancel failed slot=${slot.id}", it) }
                 cancelled++
             }
         }

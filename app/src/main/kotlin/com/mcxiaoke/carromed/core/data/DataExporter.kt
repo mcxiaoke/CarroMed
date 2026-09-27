@@ -76,6 +76,44 @@ object DataExporter {
         return file
     }
 
+    /**
+     * 导出库存出入库流水为 CSV。
+     *
+     * 与服药明细 CSV 互补：服药明细回答"哪天吃了什么"，
+     * 本表回答"账面怎么变成现在这样的"，可与药盒实物逐条核对。
+     */
+    suspend fun exportInventoryLedgerCsv(context: Context, db: AppDatabase): File {
+        val medMap = db.medicationDao().getAllMedications().associateBy { it.id }
+        val txs = db.inventoryTransactionDao().getAllTransactions()
+
+        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val sb = StringBuilder()
+        sb.append(BOM)
+        sb.append("时间,药品名称,变动数量,单位,结余,类型,批号,有效期,备注\n")
+        for (t in txs) {
+            val med = medMap[t.medicationId]
+            val typeText = when (t.txType) {
+                com.mcxiaoke.carromed.core.data.model.TransactionType.TAKEN_DEDUCT -> "服药扣减"
+                com.mcxiaoke.carromed.core.data.model.TransactionType.REFILL -> "购药入库"
+                com.mcxiaoke.carromed.core.data.model.TransactionType.REVERT_ROLLBACK -> "撤销冲正"
+                com.mcxiaoke.carromed.core.data.model.TransactionType.CALIBRATION_ADJUST -> "盘点调整"
+            }
+            sb.append(escapeCsv(fmt.format(Date(t.createdAt)))).append(',')
+            sb.append(escapeCsv(med?.name ?: "未知药品")).append(',')
+            sb.append(trimFloat(t.changeAmount)).append(',')
+            sb.append(escapeCsv(med?.unit ?: "")).append(',')
+            sb.append(trimFloat(t.balanceAfter)).append(',')
+            sb.append(typeText).append(',')
+            sb.append(escapeCsv(t.batchNumber ?: "")).append(',')
+            sb.append(escapeCsv(t.expiryDate ?: "")).append(',')
+            sb.append(escapeCsv(t.note ?: "")).append('\n')
+        }
+
+        val file = File(exportDir(context), "CarroMed_库存流水_${timestamp()}.csv")
+        file.writeText(sb.toString(), Charsets.UTF_8)
+        return file
+    }
+
     private fun trimFloat(v: Float): String =
         if (v % 1f == 0f) v.toInt().toString() else v.toString()
 
@@ -109,6 +147,10 @@ object DataExporter {
                     .put("currentStock", m.currentStock.toDouble())
                     .put("minStockAlert", m.minStockAlert.toDouble())
                     .put("isStockTracked", m.isStockTracked)
+                    .put("expiryDate", m.expiryDate)
+                    .put("isCriticalReminder", m.isCriticalReminder)
+                    .put("snoozeMinutes", m.snoozeMinutes)
+                    .put("advanceMinutes", m.advanceMinutes)
                     .put("isPaused", m.isPaused).put("isArchived", m.isArchived)
                     .put("createdAt", m.createdAt).put("updatedAt", m.updatedAt))
             }
@@ -171,7 +213,10 @@ object DataExporter {
                     .put("changeAmount", t.changeAmount.toDouble())
                     .put("balanceAfter", t.balanceAfter.toDouble())
                     .put("txType", t.txType.name)
-                    .put("note", t.note ?: JSONObject.NULL).put("createdAt", t.createdAt))
+                    .put("note", t.note ?: JSONObject.NULL)
+                    .put("batchNumber", t.batchNumber ?: JSONObject.NULL)
+                    .put("expiryDate", t.expiryDate ?: JSONObject.NULL)
+                    .put("createdAt", t.createdAt))
             }
         })
 
@@ -254,6 +299,10 @@ object DataExporter {
                         currentStock = m.optDouble("currentStock", 0.0).toFloat(),
                         minStockAlert = m.optDouble("minStockAlert", 0.0).toFloat(),
                         isStockTracked = m.optBoolean("isStockTracked", false),
+                        expiryDate = m.optString("expiryDate", ""),
+                        isCriticalReminder = m.optBoolean("isCriticalReminder", false),
+                        snoozeMinutes = m.optInt("snoozeMinutes", 0),
+                        advanceMinutes = m.optInt("advanceMinutes", 0),
                         isPaused = m.optBoolean("isPaused", false),
                         isArchived = m.optBoolean("isArchived", false),
                         createdAt = m.optLong("createdAt", System.currentTimeMillis()),
@@ -347,6 +396,8 @@ object DataExporter {
                             t.optString("txType", "CALIBRATION_ADJUST")
                         ),
                         note = if (t.isNull("note")) null else t.getString("note"),
+                        batchNumber = if (t.isNull("batchNumber")) null else t.getString("batchNumber"),
+                        expiryDate = if (t.isNull("expiryDate")) null else t.getString("expiryDate"),
                         createdAt = t.optLong("createdAt", System.currentTimeMillis())
                     )
                 })

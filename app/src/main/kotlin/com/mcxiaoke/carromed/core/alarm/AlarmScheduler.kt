@@ -18,22 +18,34 @@ object AlarmScheduler {
 
     const val ACTION_DOSE_ALARM = "com.mcxiaoke.carromed.action.DOSE_ALARM"
     const val EXTRA_SLOT_ID = "slot_id"
+    const val EXTRA_IS_ADVANCE = "is_advance"
 
-    private fun pendingIntent(context: Context, slotId: Long): PendingIntent {
+    /**
+     * requestCode 分段：主闹钟 = slotId；提前提醒闹钟 = slotId * 10 + 1。
+     * slotId 是全局唯一自增主键，因此两个号段天然不相交，取消互不干扰。
+     */
+    private fun pendingIntent(context: Context, slotId: Long, advance: Boolean): PendingIntent {
         val intent = Intent(context, AlarmReceiver::class.java)
             .setAction(ACTION_DOSE_ALARM)
             .putExtra(EXTRA_SLOT_ID, slotId)
+            .putExtra(EXTRA_IS_ADVANCE, advance)
+        val requestCode = if (advance) (slotId * 10 + 1).toInt() else slotId.toInt()
         return PendingIntent.getBroadcast(
             context,
-            slotId.toInt(), // requestCode = slot.id，主键唯一
+            requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
 
-    fun schedule(context: Context, slotId: Long, triggerAtMillis: Long) {
+    fun schedule(
+        context: Context,
+        slotId: Long,
+        triggerAtMillis: Long,
+        advance: Boolean = false
+    ) {
         val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
-        val pi = pendingIntent(context, slotId)
+        val pi = pendingIntent(context, slotId, advance)
         val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             alarmManager.canScheduleExactAlarms()
         if (canExact) {
@@ -56,8 +68,10 @@ object AlarmScheduler {
         alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi)
     }
 
+    /** 取消该槽位的全部闹钟 (主闹钟 + 提前提醒闹钟) */
     fun cancel(context: Context, slotId: Long) {
         val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
-        alarmManager.cancel(pendingIntent(context, slotId))
+        alarmManager.cancel(pendingIntent(context, slotId, advance = false))
+        alarmManager.cancel(pendingIntent(context, slotId, advance = true))
     }
 }

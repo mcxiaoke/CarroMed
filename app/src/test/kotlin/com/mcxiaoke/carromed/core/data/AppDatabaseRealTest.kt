@@ -267,6 +267,97 @@ class AppDatabaseRealTest {
     }
 
     @Test
+    fun updateProfile_preservesStatusFlagsAndCreatedAt() = runTest {
+        val medId = medDao.insert(
+            MedicationEntity(
+                name = "环孢素",
+                alias = "新赛斯平",
+                precautions = listOf("整粒吞服禁嚼碎"),
+                noticeShort = "温水吞服",
+                minStockAlert = 10f,
+                currentStock = 30f,
+                isStockTracked = true
+            )
+        )
+        medDao.updatePauseStatus(medId, true)
+        medDao.updateArchiveStatus(medId, true)
+        val before = medDao.getMedicationById(medId)!!
+
+        // 只改名字与档案字段
+        medDao.updateProfile(
+            id = medId,
+            name = "环孢素 缓释",
+            alias = "新赛斯平",
+            category = "处方药 · 免疫",
+            form = "软胶囊",
+            unit = "粒",
+            colorHex = "#8B5CF6",
+            defaultDose = 2f,
+            description = "说明",
+            precautions = listOf("整粒吞服禁嚼碎", "禁葡萄柚"),
+            noticeShort = "温水吞服",
+            expiryDate = "2027-12-31",
+            isCriticalReminder = true,
+            snoozeMinutes = 15,
+            advanceMinutes = 10,
+            minStockAlert = 20f,
+            updatedAt = System.currentTimeMillis()
+        )
+
+        val after = medDao.getMedicationById(medId)!!
+        assertThat(after.name).isEqualTo("环孢素 缓释")
+        assertThat(after.unit).isEqualTo("粒")
+        assertThat(after.precautions).containsExactly("整粒吞服禁嚼碎", "禁葡萄柚")
+        assertThat(after.expiryDate).isEqualTo("2027-12-31")
+        assertThat(after.isCriticalReminder).isTrue()
+        assertThat(after.snoozeMinutes).isEqualTo(15)
+        assertThat(after.advanceMinutes).isEqualTo(10)
+        assertThat(after.minStockAlert).isEqualTo(20f)
+        // 状态位与账面绝不能被档案编辑波及
+        assertThat(after.isPaused).isTrue()
+        assertThat(after.isArchived).isTrue()
+        assertThat(after.isStockTracked).isTrue()
+        assertThat(after.currentStock).isEqualTo(30f)
+        assertThat(after.createdAt).isEqualTo(before.createdAt)
+    }
+
+    @Test
+    fun updateReminderBehavior_doesNotTouchProfileOrStock() = runTest {
+        val medId = medDao.insert(
+            MedicationEntity(name = "胰岛素", currentStock = 8f, isStockTracked = true, minStockAlert = 5f)
+        )
+        val before = medDao.getMedicationById(medId)!!
+
+        medDao.updateReminderBehavior(
+            id = medId,
+            isCriticalReminder = true,
+            snoozeMinutes = 10,
+            advanceMinutes = 5,
+            isPaused = true
+        )
+
+        val after = medDao.getMedicationById(medId)!!
+        assertThat(after.isCriticalReminder).isTrue()
+        assertThat(after.snoozeMinutes).isEqualTo(10)
+        assertThat(after.advanceMinutes).isEqualTo(5)
+        assertThat(after.isPaused).isTrue()
+        assertThat(after.name).isEqualTo(before.name)
+        assertThat(after.currentStock).isEqualTo(8f)
+        assertThat(after.minStockAlert).isEqualTo(5f)
+        assertThat(after.isArchived).isEqualTo(before.isArchived)
+    }
+
+    @Test
+    fun v2Columns_haveDefaultsOnLegacyInsert() = runTest {
+        val medId = medDao.insert(MedicationEntity(name = "老数据"))
+        val m = medDao.getMedicationById(medId)!!
+        assertThat(m.expiryDate).isEmpty()
+        assertThat(m.isCriticalReminder).isFalse()
+        assertThat(m.snoozeMinutes).isEqualTo(0)
+        assertThat(m.advanceMinutes).isEqualTo(0)
+    }
+
+    @Test
     fun appSettings_keyValueStorageSupportsAllTypes() = runTest {
         settingDao.setSetting(AppSettingEntity(key = "theme_mode", value = "DARK"))
         settingDao.setSetting(AppSettingEntity(key = "low_stock_reminder", value = "true"))

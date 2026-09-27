@@ -7,6 +7,7 @@ import androidx.room.Query
 import androidx.room.Update
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import com.mcxiaoke.carromed.core.data.model.SlotStatusCountRow
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -65,6 +66,63 @@ interface DoseSlotDao {
 
     @Query("SELECT * FROM dose_slots ORDER BY id ASC")
     suspend fun getAllSlots(): List<DoseSlotEntity>
+
+    /**
+     * 区间内按 [药品 + 计划日期 + 状态] 聚合的槽位计数。
+     * 统计报表的依从率与进展页的打卡矩阵共用此查询，保证两者口径完全一致，
+     * 且"依从率"以 **计划时间 (scheduled_date)** 归属，不受补录时刻影响。
+     */
+    @Query(
+        """
+        SELECT medication_id AS medId,
+               scheduled_date AS date,
+               status AS status,
+               COUNT(*) AS cnt
+        FROM dose_slots
+        WHERE scheduled_date BETWEEN :startDate AND :endDate
+        GROUP BY medication_id, scheduled_date, status
+        """
+    )
+    fun observeSlotStatusCounts(
+        startDate: String,
+        endDate: String
+    ): Flow<List<SlotStatusCountRow>>
+
+    /** 单个药品的区间槽位状态计数 (药品详情页的依从率) */
+    @Query(
+        """
+        SELECT medication_id AS medId,
+               scheduled_date AS date,
+               status AS status,
+               COUNT(*) AS cnt
+        FROM dose_slots
+        WHERE scheduled_date BETWEEN :startDate AND :endDate
+          AND medication_id = :medicationId
+        GROUP BY medication_id, scheduled_date, status
+        """
+    )
+    fun observeSlotStatusCountsForMedication(
+        medicationId: Long,
+        startDate: String,
+        endDate: String
+    ): Flow<List<SlotStatusCountRow>>
+
+    /** 统计报表 / 详情页依从率用的一次性聚合查询 */
+    @Query(
+        """
+        SELECT medication_id AS medId,
+               scheduled_date AS date,
+               status AS status,
+               COUNT(*) AS cnt
+        FROM dose_slots
+        WHERE scheduled_date BETWEEN :startDate AND :endDate
+        GROUP BY medication_id, scheduled_date, status
+        """
+    )
+    suspend fun getSlotStatusCounts(
+        startDate: String,
+        endDate: String
+    ): List<SlotStatusCountRow>
 
     @Query("SELECT * FROM dose_slots WHERE status IN ('PENDING', 'SNOOZED') ORDER BY scheduled_ts ASC")
     suspend fun getOpenSlots(): List<DoseSlotEntity>
