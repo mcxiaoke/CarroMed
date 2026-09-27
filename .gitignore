@@ -50,3 +50,5 @@ ehthumbs.db
 
 # 8. 必须保留的版本控制文件
 !gradle/wrapper/gradle-wrapper.jar
+
+.box-agent/
