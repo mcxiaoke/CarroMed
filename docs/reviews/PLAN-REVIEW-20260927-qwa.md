@@ -155,9 +155,9 @@ M1~M6 只有任务清单没有验收标准。尤其 M3（提醒可靠性）必�
 
 状态管理"Riverpod / ValueNotifier"二选一未定；更关键的是**通知动作回写数据库的执行路径**（通知栏点"已吃"→ 广播接收器里开 Drift 事务）需要原生代码：BroadcastReceiver 有 ~10 秒限制，直接在原生层写 SQLite 还是拉起 Flutter 引擎（慢且易超时）？这决定要不要自研原生模块，属于架构级决策，应在方案中定下来（建议：原生 receiver 直写 SQLite，App 前台通过 Stream/事件感知刷新——Drift 的表变更通知恰好支持）。另需评估 `android_alarm_manager_plus` 等包的维护状态，可能需自研 plugin。
 
-### P2-3 药品名错别字："环抱素" 应为 "环孢素"
+### P2-3 药品名错别字："环孢素" 应为 "环孢素"
 
-ARCHITECTURE.md 与 UI_DESIGN.md、demo 原型中共出现 10+ 次"环抱素"，正确写法是**环孢素**（Cyclosporine，免疫抑制剂）。医疗类应用出现药品名错别字会直接损伤专业可信度，全部文档与示例数据需修正。
+ARCHITECTURE.md 与 UI_DESIGN.md、demo 原型中共出现 10+ 次"环孢素"，正确写法是**环孢素**（Cyclosporine，免疫抑制剂）。医疗类应用出现药品名错别字会直接损伤专业可信度，全部文档与示例数据需修正。
 
 ### P2-4 索引与性能设计缺失
 
