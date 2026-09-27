@@ -39,11 +39,15 @@ import com.mcxiaoke.carromed.ui.screen.detail.MedicationDetailScreen
 import com.mcxiaoke.carromed.ui.screen.detail.MedicationDetailViewModel
 import com.mcxiaoke.carromed.ui.screen.edit.AddEditMedicationScreen
 import com.mcxiaoke.carromed.ui.screen.edit.AddEditMedicationViewModel
+import com.mcxiaoke.carromed.ui.screen.inventory.InventoryScreen
+import com.mcxiaoke.carromed.ui.screen.inventory.InventoryViewModel
 import com.mcxiaoke.carromed.ui.screen.manual.ManualDoseScreen
 import com.mcxiaoke.carromed.ui.screen.manual.ManualDoseViewModel
 import com.mcxiaoke.carromed.ui.screen.progress.ProgressScreen
 import com.mcxiaoke.carromed.ui.screen.progress.ProgressViewModel
 import com.mcxiaoke.carromed.ui.screen.refill.RefillScreen
+import com.mcxiaoke.carromed.ui.screen.reminder.ReminderSettingsScreen
+import com.mcxiaoke.carromed.ui.screen.reminder.ReminderSettingsViewModel
 import com.mcxiaoke.carromed.ui.screen.refill.RefillViewModel
 import com.mcxiaoke.carromed.ui.screen.settings.PermissionCheckScreen
 import com.mcxiaoke.carromed.ui.screen.settings.SettingsScreen
@@ -123,6 +127,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 TodayScreen(
                     viewModel = vm,
                     onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
+                    onNavigateToAddMedication = { navController.navigate(Screen.AddEditMedication.createRoute()) },
                     onNavigateToManualDose = { navController.navigate(Screen.ManualDose.createRoute()) },
                     onNavigateToRefill = { medId -> navController.navigate(Screen.Refill.createRoute(medId)) },
                     onNavigateToMedDetail = { medId -> navController.navigate(Screen.MedicationDetail.createRoute(medId)) }
@@ -171,7 +176,51 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 MedicationDetailScreen(
                     viewModel = vm,
                     onNavigateBack = { navController.popBackStack() },
-                    onNavigateToEditPlan = { id -> navController.navigate(Screen.AddEditMedication.createRoute(id)) },
+                    onNavigateToEditInfo = { id -> navController.navigate(Screen.AddEditMedication.createRoute(id)) },
+                    onNavigateToReminder = { id -> navController.navigate(Screen.ReminderSettings.createRoute(id)) },
+                    onNavigateToInventory = { id -> navController.navigate(Screen.Inventory.createRoute(id)) }
+                )
+            }
+
+            // 5b. 提醒设置 (二级全屏) —— 与药品信息、库存完全分离
+            composable(
+                route = Screen.ReminderSettings.route,
+                arguments = listOf(navArgument("medId") { type = NavType.LongType })
+            ) { backStackEntry ->
+                val medId = backStackEntry.arguments?.getLong("medId") ?: 0L
+                val vm: ReminderSettingsViewModel = viewModel(
+                    factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                            val app = navController.context.applicationContext as android.app.Application
+                            return ReminderSettingsViewModel(app, medId) as T
+                        }
+                    }
+                )
+                ReminderSettingsScreen(
+                    viewModel = vm,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            // 5c. 库存管理 (二级全屏) —— 与药品信息、提醒设置完全分离
+            composable(
+                route = Screen.Inventory.route,
+                arguments = listOf(navArgument("medId") { type = NavType.LongType })
+            ) { backStackEntry ->
+                val medId = backStackEntry.arguments?.getLong("medId") ?: 0L
+                val vm: InventoryViewModel = viewModel(
+                    factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                            val app = navController.context.applicationContext as android.app.Application
+                            return InventoryViewModel(app, medId) as T
+                        }
+                    }
+                )
+                InventoryScreen(
+                    viewModel = vm,
+                    onNavigateBack = { navController.popBackStack() },
                     onNavigateToRefill = { id -> navController.navigate(Screen.Refill.createRoute(id)) }
                 )
             }
@@ -190,6 +239,8 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                         @Suppress("UNCHECKED_CAST")
                         override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
                             val app = navController.context.applicationContext as android.app.Application
+                            // 有 medId = 编辑既有药品 (仅药品信息维度);
+                            // 无 medId = 新增 (药品信息 + 提醒计划 + 初始库存 一次填完)
                             return AddEditMedicationViewModel(app, medId) as T
                         }
                     }
@@ -197,9 +248,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 AddEditMedicationScreen(
                     viewModel = vm,
                     onNavigateBack = { navController.popBackStack() },
-                    onSavedSuccess = { newId ->
-                        navController.popBackStack()
-                    }
+                    onSavedSuccess = { navController.popBackStack() }
                 )
             }
 

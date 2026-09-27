@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.ui.screen.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,18 +17,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -36,9 +37,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,7 +51,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,10 +59,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.core.data.model.PolicyType
+import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
@@ -72,36 +75,36 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * 药品详情页 —— **只读总览 + 四个分节入口**
+ *
+ * 对齐 MyTherapy 实机截图的信息架构：药品信息 / 库存 / 提醒设置 三件事各自分开，
+ * 每件都给一个明确的可点击入口与摘要，而不是把三个维度平铺在一屏里
+ * 只留一个语义模糊的「修改计划」按钮。
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MedicationDetailScreen(
     viewModel: MedicationDetailViewModel,
     onNavigateBack: () -> Unit,
-    onNavigateToEditPlan: (Long) -> Unit,
-    onNavigateToRefill: (Long) -> Unit
+    onNavigateToEditInfo: (Long) -> Unit,
+    onNavigateToReminder: (Long) -> Unit,
+    onNavigateToInventory: (Long) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
-    LaunchedEffect(Unit) {
-        viewModel.loadData()
-    }
-
     val med = uiState.medication
 
     var showArchiveDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showAllRecords by remember { mutableStateOf(false) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("药品详情", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回"
-                        )
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -117,7 +120,8 @@ fun MedicationDetailScreen(
                     .padding(innerPadding),
                 contentAlignment = Alignment.Center
             ) {
-                Text("正在加载药品信息...")
+                if (uiState.isLoading) CircularProgressIndicator()
+                else Text(uiState.error ?: "正在加载药品信息...")
             }
             return@Scaffold
         }
@@ -126,15 +130,30 @@ fun MedicationDetailScreen(
             runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
         } ?: MaterialTheme.colorScheme.primary
 
+        // PRN(按需) 没有定时排班，状态徽标要如实反映，不能沿用"提醒进行中"
+        val policyType = uiState.policy?.policyType
+        val isPrn = policyType == null || policyType == PolicyType.PRN
+        val statusText = when {
+            med.isArchived -> "已停药归档"
+            med.isPaused -> "提醒已暂停"
+            isPrn -> "按需服用 · 无定时提醒"
+            else -> "提醒进行中"
+        }
+        val statusColor = when {
+            med.isArchived -> MaterialTheme.colorScheme.outline
+            med.isPaused || isPrn -> MaterialTheme.colorScheme.tertiary
+            else -> SuccessGreen
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // 1. 顶部基础卡片 (Hero Card)
+            // ---------- 1. Hero 卡 (药名 + 状态 + 徽标) ----------
             item {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -147,61 +166,56 @@ fun MedicationDetailScreen(
                             .padding(18.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f)) {
                             Text(
                                 text = med.name,
                                 style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                fontWeight = FontWeight.Bold
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant
-                                ) {
-                                    Text(
-                                        text = med.category,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
+                            if (!med.alias.isNullOrBlank()) {
                                 Text(
-                                    text = "剂型: ${med.form}   单位: ${med.unit}",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    text = med.alias,
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TagChip(med.category)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "${med.form} · ${med.unit}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
-                                    modifier = Modifier
+                                    Modifier
                                         .size(8.dp)
                                         .clip(CircleShape)
-                                        .background(if (med.isPaused) MaterialTheme.colorScheme.tertiary else SuccessGreen)
+                                        .background(statusColor)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(Modifier.width(6.dp))
                                 Text(
-                                    text = if (med.isPaused) "状态: 已暂停提醒" else "状态: 正在提醒中",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    text = statusText,
+                                    style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Medium,
-                                    color = if (med.isPaused) MaterialTheme.colorScheme.tertiary else SuccessGreen
+                                    color = statusColor
                                 )
                             }
                         }
-
                         Box(
                             modifier = Modifier
-                                .size(52.dp)
+                                .size(48.dp)
                                 .clip(CircleShape)
                                 .background(medColor.copy(alpha = 0.15f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Box(
-                                modifier = Modifier
-                                    .size(24.dp)
+                                Modifier
+                                    .size(22.dp)
                                     .clip(CircleShape)
                                     .background(medColor)
                             )
@@ -210,101 +224,74 @@ fun MedicationDetailScreen(
                 }
             }
 
-            // 2. 用药与提醒方案卡片
+            // ---------- 2. 三个维度入口 (MyTherapy 式分节) ----------
             item {
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                Text(
+                    text = "药品设置",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, top = 4.dp)
+                )
+            }
+
+            item {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "⏰ 用药与提醒方案",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            OutlinedButton(
-                                onClick = { onNavigateToEditPlan(med.id) },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                modifier = Modifier.height(34.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = "修改",
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("修改计划", fontSize = 12.sp)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        if (uiState.times.isEmpty()) {
-                            Text(
-                                text = "暂无固定排班时点 (按需服用)",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        } else {
-                            uiState.times.forEach { timeItem ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            imageVector = Icons.Default.Notifications,
-                                            contentDescription = "时点",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = timeItem.timeOfDay,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                    Text(
-                                        text = "单次 ${timeItem.doseAmount.toInt()} ${med.unit}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        OutlinedButton(
-                            onClick = { viewModel.togglePause() },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (med.isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                                contentDescription = if (med.isPaused) "恢复" else "暂停",
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (med.isPaused) "恢复提醒" else "暂停提醒")
-                        }
-                    }
+                    DetailEntryRow(
+                        icon = Icons.Default.Medication,
+                        title = "药品信息",
+                        subtitle = buildProfileSummary(uiState),
+                        onClick = { onNavigateToEditInfo(med.id) }
+                    )
+                    DetailEntryRow(
+                        icon = Icons.Default.Schedule,
+                        title = "提醒设置",
+                        subtitle = buildReminderSummary(uiState),
+                        onClick = { onNavigateToReminder(med.id) }
+                    )
+                    DetailEntryRow(
+                        icon = Icons.Default.Inventory2,
+                        title = "库存管理",
+                        subtitle = buildInventorySummary(uiState),
+                        highlight = uiState.isStockAlert && med.isStockTracked,
+                        onClick = { onNavigateToInventory(med.id) }
+                    )
                 }
             }
 
-            // 3. 说明书与医嘱描述
+            // ---------- 3. 暂停提醒快捷开关 ----------
+            item {
+                OutlinedButton(
+                    onClick = { viewModel.togglePause() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        imageVector = if (med.isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (med.isPaused) "恢复提醒" else "暂停提醒")
+                }
+            }
+
+            // ---------- 4. 依从率 ----------
+            item {
+                AdherenceCard(
+                    rate = uiState.adherenceRate,
+                    completed = uiState.adherenceCompleted,
+                    decided = uiState.adherenceDecided,
+                    doseSum = uiState.doseSum,
+                    unit = med.unit
+                )
+            }
+
+            // ---------- 5. 说明与医嘱 ----------
             if (med.description.isNotBlank()) {
                 item {
                     ElevatedCard(
@@ -312,14 +299,13 @@ fun MedicationDetailScreen(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(Modifier.padding(16.dp)) {
                             Text(
-                                text = "📌 详细说明与医嘱描述",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                "详细说明 / 医嘱",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(Modifier.height(8.dp))
                             Text(
                                 text = med.description,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -331,7 +317,7 @@ fun MedicationDetailScreen(
                 }
             }
 
-            // 4. 注意事项与禁忌高亮卡
+            // ---------- 6. 注意事项 ----------
             if (med.precautions.isNotEmpty()) {
                 item {
                     Card(
@@ -339,22 +325,22 @@ fun MedicationDetailScreen(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = WarningAmberContainer)
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.WarningAmber,
-                                    contentDescription = "注意事项",
+                                    Icons.Default.WarningAmber,
+                                    contentDescription = null,
                                     tint = WarningAmber
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(Modifier.width(6.dp))
                                 Text(
-                                    text = "注意事项与禁忌 (重点关注)",
+                                    "注意事项与禁忌",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = OnWarningAmberContainer
                                 )
                             }
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(Modifier.height(10.dp))
                             FlowRow(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -375,123 +361,135 @@ fun MedicationDetailScreen(
                 }
             }
 
-            // 5. 闭环库存与出入库流水
+            // ---------- 7. 服药历史 ----------
             item {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "📦 闭环库存与出入库流水",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            FilledTonalButton(
-                                onClick = { onNavigateToRefill(med.id) },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                modifier = Modifier.height(34.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "补药",
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("补药入库", fontSize = 12.sp)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Bottom
-                        ) {
-                            Column {
-                                Text(
-                                    text = "当前余量",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = "${med.currentStock.toInt()} ${med.unit}",
-                                    style = MaterialTheme.typography.headlineLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (uiState.isStockAlert) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = "预警线: ${med.minStockAlert.toInt()} ${med.unit}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                if (uiState.isStockAlert && uiState.runwayDays < 100) {
-                                    Text(
-                                        text = "⚠️ 剩余约 ${uiState.runwayDays} 天",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
+                    Column(Modifier.padding(16.dp)) {
                         Text(
-                            text = "最近库存流水记录 (双向可追溯)",
+                            "服药历史",
                             style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            fontWeight = FontWeight.Bold
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        val dateFormatter = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
-                        uiState.transactions.take(5).forEach { tx ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                val dateStr = dateFormatter.format(Date(tx.createdAt))
-                                val typeName = when (tx.txType) {
-                                    TransactionType.TAKEN_DEDUCT -> "服药扣减"
-                                    TransactionType.REFILL -> "药房采购入库"
-                                    TransactionType.REVERT_ROLLBACK -> "误触撤销冲正"
-                                    TransactionType.CALIBRATION_ADJUST -> "盘点调整"
+                        Spacer(Modifier.height(10.dp))
+                        if (uiState.recentRecords.isEmpty()) {
+                            Text(
+                                "还没有服药记录。完成打卡或用「手动补录」记录后会显示在这里。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 18.sp
+                            )
+                        } else {
+                            val shown = if (showAllRecords) {
+                                uiState.recentRecords
+                            } else {
+                                uiState.recentRecords.take(5)
+                            }
+                            val fmt = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+                            shown.forEach { r ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 5.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            fmt.format(Date(r.actualTs)),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        if (!r.note.isNullOrBlank()) {
+                                            Text(
+                                                r.note,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "${fmtDose(r.doseTaken)} ${med.unit}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        RecordStatusChip(r.status, r.isRetrospective)
+                                    }
                                 }
-                                Text(
-                                    text = "$dateStr · $typeName",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                val changeSign = if (tx.changeAmount > 0f) "+${tx.changeAmount.toInt()}" else "${tx.changeAmount.toInt()}"
-                                Text(
-                                    text = "$changeSign ${med.unit} (结余 ${tx.balanceAfter.toInt()})",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (tx.changeAmount > 0f) SuccessGreen else MaterialTheme.colorScheme.onSurface
-                                )
+                            }
+                            if (uiState.recentRecords.size > 5) {
+                                TextButton(
+                                    onClick = { showAllRecords = !showAllRecords },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (showAllRecords) "收起" else "查看全部 ${uiState.recentRecords.size} 条")
+                                }
                             }
                         }
                     }
                 }
             }
 
-            // 6. 停药归档 / 彻底删除
+            // ---------- 8. 库存流水摘要 (完整流水去库存管理页) ----------
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(
+                            "库存流水",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        if (uiState.transactions.isEmpty()) {
+                            Text(
+                                "暂无出入库记录",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            val fmt = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+                            uiState.transactions.take(3).forEach { tx ->
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        "${fmt.format(Date(tx.createdAt))} · ${txLabel(tx.txType)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        (if (tx.changeAmount > 0) "+${fmtDose(tx.changeAmount)}" else fmtDose(tx.changeAmount)) +
+                                            " ${med.unit}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (tx.changeAmount > 0) SuccessGreen
+                                        else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                            TextButton(
+                                onClick = { onNavigateToInventory(med.id) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("前往库存管理查看全部流水") }
+                        }
+                    }
+                }
+            }
+
+            // ---------- 9. 危险操作 ----------
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -504,15 +502,10 @@ fun MedicationDetailScreen(
                             .height(46.dp),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Archive,
-                            contentDescription = "归档",
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text(if (med.isArchived) "恢复在服" else "停药归档")
                     }
-
                     Button(
                         onClick = { showDeleteDialog = true },
                         modifier = Modifier
@@ -522,12 +515,12 @@ fun MedicationDetailScreen(
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = "删除",
+                            Icons.Default.DeleteOutline,
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier.size(16.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text("删除药品", color = MaterialTheme.colorScheme.onErrorContainer)
                     }
                 }
@@ -535,53 +528,229 @@ fun MedicationDetailScreen(
         }
     }
 
-    // 停药归档 / 恢复在服 二次确认
     if (showArchiveDialog && med != null) {
         AlertDialog(
             onDismissRequest = { showArchiveDialog = false },
             title = { Text(if (med.isArchived) "恢复在服" else "停药归档", fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    if (med.isArchived) "确认将该药品恢复为在服状态？恢复后其提醒计划将重新生效。"
-                    else "确认对该药品停药归档？归档后其未来提醒将被取消，历史打卡与库存流水完整保留，可随时恢复。"
+                    if (med.isArchived) "确认恢复为在服状态？其提醒计划将重新生效。"
+                    else "确认停药归档？未来提醒会被取消，历史打卡与库存流水完整保留，可随时恢复。"
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     showArchiveDialog = false
                     viewModel.toggleArchive()
-                }) {
-                    Text("确认", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                }
+                }) { Text("确认", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
             },
-            dismissButton = {
-                TextButton(onClick = { showArchiveDialog = false }) { Text("取消") }
-            }
+            dismissButton = { TextButton(onClick = { showArchiveDialog = false }) { Text("取消") } }
         )
     }
 
-    // 删除药品 二次确认 (不可恢复)
     if (showDeleteDialog && med != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("删除药品", fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "确认删除「${med.name}」？其全部排班槽位、打卡记录与库存流水将一并删除，且不可恢复。\n\n如只是不再服用，建议使用「停药归档」保留历史数据。"
+                    "确认删除「${med.name}」？其全部排班槽位、打卡记录与库存流水将一并删除，且不可恢复。\n\n" +
+                        "如只是不再服用，建议使用「停药归档」保留历史数据。"
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteDialog = false
-                    viewModel.deleteMedication(onDeleted = onNavigateBack)
-                }) {
-                    Text("永久删除", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
-                }
+                    viewModel.deleteMedication(onNavigateBack)
+                }) { Text("永久删除", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("取消") }
-            }
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("取消") } }
         )
     }
+}
+
+// ---------------- 摘要构造 ----------------
+
+private fun buildProfileSummary(s: MedDetailUiState): String {
+    val med = s.medication ?: return ""
+    val parts = mutableListOf<String>()
+    med.description.takeIf { it.isNotBlank() }?.let { parts += "含医嘱说明" }
+    if (med.precautions.isNotEmpty()) parts += "${med.precautions.size} 条注意事项"
+    if (med.expiryDate.isNotBlank()) parts += "效期 ${med.expiryDate}"
+    if (med.noticeShort.isNotBlank()) parts += "通知简述已设"
+    return if (parts.isEmpty()) "${med.form} · ${med.unit} · 默认 ${fmtDose(med.defaultDose)} ${med.unit}/次"
+    else "${med.form} · ${med.unit} · $parts"
+}
+
+private fun buildReminderSummary(s: MedDetailUiState): String {
+    val policy = s.policy ?: return "未设置提醒计划 · 不会自动提醒"
+    val freq = when (policy.policyType) {
+        PolicyType.DAILY -> "每天 ${s.times.size} 次"
+        PolicyType.INTERVAL -> if (policy.intervalDays <= 2) "隔天" else "每隔 ${policy.intervalDays - 1} 天"
+        PolicyType.DAYS_OF_WEEK -> "每周 ${policy.daysOfWeek.size} 天"
+        PolicyType.CYCLE -> "周期 ${policy.cycleOnDays}服/${policy.cycleOffDays}停"
+        PolicyType.PRN -> "按需服用"
+    }
+    val times = if (s.times.isEmpty()) "无固定时点" else s.times.joinToString("、") { it.timeOfDay }
+    val course = if (policy.endDate != null) "至 ${policy.endDate}" else "无限期"
+    val flags = buildList {
+        if (s.medication?.isCriticalReminder == true) add("重要提醒")
+        if ((s.medication?.snoozeMinutes ?: 0) > 0) add("推迟 ${s.medication?.snoozeMinutes} 分")
+        if ((s.medication?.advanceMinutes ?: 0) > 0) add("提前 ${s.medication?.advanceMinutes} 分")
+    }
+    val flagText = if (flags.isEmpty()) "" else " · ${flags.joinToString("/")}"
+    return "$freq · $times · $course$flagText"
+}
+
+private fun buildInventorySummary(s: MedDetailUiState): String {
+    val med = s.medication ?: return ""
+    if (!med.isStockTracked) return "未开启库存追踪"
+    val stock = "${fmtDose(med.currentStock)} ${med.unit} 剩余"
+    val runway = if (s.runwayDays >= 9999) "" else " · 约可用 ${s.runwayDays} 天"
+    return stock + runway
+}
+
+private fun txLabel(t: TransactionType): String = when (t) {
+    TransactionType.TAKEN_DEDUCT -> "服药扣减"
+    TransactionType.REFILL -> "购药入库"
+    TransactionType.REVERT_ROLLBACK -> "撤销冲正"
+    TransactionType.CALIBRATION_ADJUST -> "盘点调整"
+}
+
+@Composable
+private fun DetailEntryRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    highlight: Boolean = false
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = if (highlight) WarningAmberContainer else MaterialTheme.colorScheme.surface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (highlight) WarningAmber.copy(alpha = 0.18f)
+                        else MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = if (highlight) WarningAmber else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (highlight) OnWarningAmberContainer else MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (highlight) OnWarningAmberContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 17.sp,
+                    maxLines = 2
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.outline
+            )
+        }
     }
 }
+
+@Composable
+private fun AdherenceCard(rate: Float, completed: Int, decided: Int, doseSum: Float, unit: String) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("近 30 天用药", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                // 分母为 0 时显示"暂无到期"：0/0 在统计上等于 100%，
+                // 但对用户是误导 —— 看起来像"表现完美"，实际是"还没有样本"
+                if (decided > 0) {
+                    Text(
+                        String.format(Locale.getDefault(), "依从率 %.0f%%", rate * 100),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (rate >= 0.8f) SuccessGreen else WarningAmber
+                    )
+                } else {
+                    Text(
+                        "暂无到期",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = "按时服药 $completed 次 / 已到期 $decided 次 · 近 30 天共消耗 ${fmtDose(doseSum)} $unit",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 18.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun TagChip(text: String) {
+    Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun RecordStatusChip(status: RecordStatus, isRetrospective: Boolean) {
+    val (text, color) = when {
+        status == RecordStatus.SKIPPED -> "已跳过" to MaterialTheme.colorScheme.outline
+        isRetrospective -> "补录" to MaterialTheme.colorScheme.tertiary
+        else -> "已服" to SuccessGreen
+    }
+    Surface(shape = RoundedCornerShape(6.dp), color = color.copy(alpha = 0.14f)) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+private fun fmtDose(v: Float): String =
+    if (v % 1f == 0f) v.toInt().toString() else String.format(Locale.getDefault(), "%.2f", v)

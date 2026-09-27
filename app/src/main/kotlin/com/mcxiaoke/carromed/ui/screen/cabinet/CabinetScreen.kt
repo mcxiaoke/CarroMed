@@ -22,24 +22,36 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
@@ -72,7 +84,65 @@ fun CabinetScreen(
             )
         }
 
-        // 2. Tab 分段胶囊选择器
+        // 2. 搜索 + 排序
+        item {
+            var sortExpanded by remember { mutableStateOf(false) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = uiState.keyword,
+                    onValueChange = { viewModel.setKeyword(it) },
+                    placeholder = { Text("搜索药名 / 别名 / 类别", fontSize = 13.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.Search, contentDescription = "搜索", modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        if (uiState.keyword.isNotBlank()) {
+                            IconButton(onClick = { viewModel.setKeyword("") }) {
+                                Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f)
+                )
+
+                Box {
+                    IconButton(
+                        onClick = { sortExpanded = true },
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Icon(Icons.Default.Sort, contentDescription = "排序", modifier = Modifier.size(20.dp))
+                    }
+                    DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                        CabinetSortOrder.entries.forEach { order ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        order.label,
+                                        fontWeight = if (order == uiState.sortOrder) FontWeight.Bold
+                                        else FontWeight.Normal
+                                    )
+                                },
+                                onClick = {
+                                    viewModel.setSortOrder(order)
+                                    sortExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Tab 分段胶囊选择器
         item {
             Row(
                 modifier = Modifier
@@ -132,7 +202,7 @@ fun CabinetScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "点击任意药品卡片，进入专属详情页 (说明书、注意事项、改计划、库存管理)",
+                        text = "点击药品进入详情页，药品信息 / 提醒设置 / 库存管理三者分开管理",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -141,26 +211,54 @@ fun CabinetScreen(
         }
 
         // 4. 药品卡片列表
-        val displayList = if (uiState.selectedTab == 0) uiState.activeList else uiState.archivedList
+        val displayList = if (uiState.selectedTab == 0) uiState.filteredActive else uiState.filteredArchived
 
-        if (displayList.isEmpty()) {
+        if (uiState.isLoading) {
+            item {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(40.dp),
+                    contentAlignment = Alignment.Center
+                ) { CircularProgressIndicator() }
+            }
+        } else if (displayList.isEmpty()) {
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(32.dp),
-                        contentAlignment = Alignment.Center
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
+                        val isSearchMiss = uiState.keyword.isNotBlank()
                         Text(
-                            text = if (uiState.selectedTab == 0) "药箱暂无在服药品，点击右上角添加" else "暂无归档停药记录",
+                            text = when {
+                                isSearchMiss && uiState.selectedTab == 0 -> "没有匹配「${uiState.keyword}」的在服药品"
+                                isSearchMiss -> "归档中没有匹配的药品"
+                                uiState.selectedTab == 0 && uiState.activeList.isEmpty() ->
+                                    "药箱还是空的\n点右上角「+」添加第一个药品"
+                                else -> "暂无归档停药记录"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
+                        if (!isSearchMiss && uiState.selectedTab == 0 && uiState.activeList.isEmpty()) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Button(
+                                onClick = onNavigateToAddMedication,
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("添加药品")
+                            }
+                        }
                     }
                 }
             }
@@ -236,6 +334,20 @@ fun CabinetMedCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (med.isPaused) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.tertiaryContainer
+                    ) {
+                        Text(
+                            text = "提醒已暂停",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
             }
 
             // 右侧库存胶囊徽章与箭头
@@ -249,7 +361,7 @@ fun CabinetMedCard(
                     val stockText = if (med.currentStock % 1f == 0f) {
                         med.currentStock.toInt().toString()
                     } else {
-                        med.currentStock.toString()
+                        String.format(java.util.Locale.getDefault(), "%.2f", med.currentStock)
                     }
                     Text(
                         text = if (isLow) "⚠️ 剩 $stockText ${med.unit}" else "剩 $stockText ${med.unit}",

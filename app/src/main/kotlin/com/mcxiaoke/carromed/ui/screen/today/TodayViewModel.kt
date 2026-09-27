@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
-import com.mcxiaoke.carromed.core.data.SampleDataSeeder
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
@@ -30,10 +29,14 @@ data class DoseSlotItem(
 data class TodayUiState(
     val selectedDate: LocalDate = LocalDate.now(),
     val weekDates: List<LocalDate> = emptyList(),
-    val lowStockAlertMed: MedicationEntity? = null,
+    val lowStockAlertMeds: List<MedicationEntity> = emptyList(),
     val pendingItems: List<DoseSlotItem> = emptyList(),
+    val skippedItems: List<DoseSlotItem> = emptyList(),
     val completedItems: List<DoseSlotItem> = emptyList(),
-    val isLoading: Boolean = false
+    val globalSnoozeMinutes: Int = 30,
+    /** 药箱里是否已有任何在服药品。用于区分"全新用户"与"这一天恰好没排班" */
+    val hasAnyMedication: Boolean = false,
+    val isLoading: Boolean = true
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -49,8 +52,15 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            // 首次冷启动自动预置样例数据
-            SampleDataSeeder.seedIfNeeded(db, LocalDate.now())
+            // 冷启动按当前策略补齐未来排班 + 重排闹钟。
+            // 刻意**不播种任何演示数据**：首次启动必须是干净空库，
+            // 否则用户会看到凭空出现的"环孢素 / 羟氯喹"等不属于自己的服药记录，
+            // 进而污染依从率与库存统计。演示数据由 debug 源集的
+            // `DevSampleDataSeeder` 手动触发，不在冷启动路径上。
+            runCatching {
+                com.mcxiaoke.carromed.core.alarm.AlarmReconciler
+                    .rescheduleAll(getApplication<Application>(), db)
+            }
         }
     }
 
@@ -60,41 +70,49 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         _selectedDate.flatMapLatest { date ->
             val dateStr = date.format(SlotProjectionEngine.DATE_FORMATTER)
             slotDao.observeSlotsForDate(dateStr)
-        }
-    ) { selectedDate, medications, slots ->
+        },
+        db.appSettingDao().observeValue(
+            com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES
+        )
+    ) { selectedDate, medications, slots, snoozeSetting ->
         val medMap = medications.associateBy { it.id }
 
         val pending = mutableListOf<DoseSlotItem>()
         val completed = mutableListOf<DoseSlotItem>()
+        val skipped = mutableListOf<DoseSlotItem>()
 
         for (slot in slots) {
             val med = medMap[slot.medicationId]
-            val record = if (slot.status == SlotStatus.COMPLETED) {
-                recordDao.getRecordBySlotId(slot.id)
-            } else null
+            val record = when (slot.status) {
+                SlotStatus.COMPLETED, SlotStatus.SKIPPED -> recordDao.getRecordBySlotId(slot.id)
+                else -> null
+            }
 
             val item = DoseSlotItem(slot = slot, medication = med, record = record)
             when (slot.status) {
-                SlotStatus.PENDING, SlotStatus.SNOOZED -> pending.add(item)
-                SlotStatus.COMPLETED, SlotStatus.SKIPPED -> completed.add(item)
-                SlotStatus.EXPIRED -> pending.add(item)
+                SlotStatus.PENDING, SlotStatus.SNOOZED, SlotStatus.EXPIRED -> pending.add(item)
+                SlotStatus.COMPLETED -> completed.add(item)
+                SlotStatus.SKIPPED -> skipped.add(item)
             }
         }
 
-        // 低库存告急检测 (取第一个告急药品显示在横幅)
-        val lowStockMed = medications.firstOrNull {
-            it.isStockTracked && it.currentStock <= it.minStockAlert && it.minStockAlert > 0f
+        // 低库存告急检测：返回全部告急药品（此前只取第一个，多药告警时会被静默吞掉）
+        val lowStock = medications.filter {
+            it.isStockTracked && it.minStockAlert > 0f && it.currentStock <= it.minStockAlert
         }
 
-        // 构造以选中日期为中心的水平 7 天视口
         val weekDates = (-3L..3L).map { selectedDate.plusDays(it) }
 
         TodayUiState(
             selectedDate = selectedDate,
             weekDates = weekDates,
-            lowStockAlertMed = lowStockMed,
+            lowStockAlertMeds = lowStock,
             pendingItems = pending.sortedBy { it.slot.scheduledTs },
+            skippedItems = skipped.sortedBy { it.slot.scheduledTs },
             completedItems = completed.sortedByDescending { it.slot.actualTakenTs ?: it.slot.scheduledTs },
+            globalSnoozeMinutes = snoozeSetting?.toIntOrNull()
+                ?: com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_SNOOZE_MINUTES,
+            hasAnyMedication = medications.isNotEmpty(),
             isLoading = false
         )
     }.stateIn(
@@ -131,6 +149,20 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             trackingService.skipDose(slotId)
             com.mcxiaoke.carromed.core.alarm.AlarmScheduler.cancel(getApplication<Application>(), slotId)
+        }
+    }
+
+    /** 推迟提醒：置 SNOOZED 并重排该槽位的临时闹钟 */
+    fun snoozeDose(slotId: Long, minutes: Int) {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            trackingService.snoozeDose(slotId, minutes)
+            com.mcxiaoke.carromed.core.alarm.Notifications.cancelDoseNotification(app, slotId)
+            val slot = db.doseSlotDao().getSlotById(slotId)
+            val triggerAt = slot?.snoozeUntilTs ?: (System.currentTimeMillis() + minutes * 60_000L)
+            runCatching {
+                com.mcxiaoke.carromed.core.alarm.AlarmScheduler.schedule(app, slotId, triggerAt)
+            }
         }
     }
 }

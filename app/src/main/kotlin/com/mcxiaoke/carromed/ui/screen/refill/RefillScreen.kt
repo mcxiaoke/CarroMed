@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.ui.screen.edit.ReadOnlyDateField
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -114,6 +115,24 @@ fun RefillScreen(
                 }
             }
 
+            uiState.error?.let { err ->
+                item {
+                    androidx.compose.material3.Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer
+                    ) {
+                        Text(
+                            text = "⚠️ $err",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+
             // 2. 入库数量设定卡片
             item {
                 ElevatedCard(
@@ -123,33 +142,24 @@ fun RefillScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "入库数量设定",
+                            text = "入库数量",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // 快捷填报 Chip 组
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            AssistChip(
-                                onClick = { viewModel.setQuickAmount(30) },
-                                label = { Text("+ 1 盒 (30片)") },
-                                modifier = Modifier.weight(1f)
-                            )
-                            AssistChip(
-                                onClick = { viewModel.setQuickAmount(60) },
-                                label = { Text("+ 2 盒 (60片)") },
-                                modifier = Modifier.weight(1f)
-                            )
-                            AssistChip(
-                                onClick = { viewModel.setQuickAmount(100) },
-                                label = { Text("+ 100 片") },
-                                modifier = Modifier.weight(1f)
-                            )
+                            listOf(10f, 20f, 30f, 60f).forEach { q ->
+                                AssistChip(
+                                    onClick = { viewModel.setQuickAmount(q) },
+                                    label = { Text("+${q.toInt()}", fontSize = 12.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(14.dp))
@@ -223,20 +233,30 @@ fun RefillScreen(
                                 value = uiState.batchNumber,
                                 onValueChange = { viewModel.onBatchNumberChange(it) },
                                 label = { Text("生产批号 (选填)") },
-                                placeholder = { Text("如: 20260408A") },
+                                placeholder = { Text("如 20260408A") },
                                 modifier = Modifier.weight(1f),
                                 singleLine = true
                             )
                             Spacer(modifier = Modifier.width(10.dp))
-                            OutlinedTextField(
-                                value = uiState.expiryDate,
-                                onValueChange = { viewModel.onExpiryDateChange(it) },
-                                label = { Text("有效期至 (选填)") },
-                                trailingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true
+                            ReadOnlyDateField(
+                                label = "有效期至 (选填)",
+                                dateStr = uiState.expiryDate,
+                                onDateChange = { viewModel.onExpiryDateChange(it) },
+                                onClear = { viewModel.onExpiryDateChange("") },
+                                modifier = Modifier.weight(1f)
                             )
                         }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = uiState.note,
+                            onValueChange = { viewModel.onNoteChange(it) },
+                            label = { Text("入库备注 (选填)") },
+                            placeholder = { Text("如 医生开的第二个疗程") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
                     }
                 }
             }
@@ -245,12 +265,21 @@ fun RefillScreen(
             item {
                 Button(
                     onClick = { viewModel.confirmRefill(onSuccess = onNavigateBack) },
+                    enabled = !uiState.isSaving,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("确认入库上架 (生成流水账)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    if (uiState.isSaving) {
+                        androidx.compose.material3.CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    } else {
+                        Text("确认入库 (生成流水账)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
                 }
             }
         }

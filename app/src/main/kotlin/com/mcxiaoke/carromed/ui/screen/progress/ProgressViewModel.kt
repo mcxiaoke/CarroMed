@@ -9,13 +9,15 @@ import com.mcxiaoke.carromed.core.data.DataExporter
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
-import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
+import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,12 +26,16 @@ import java.time.LocalDate
 data class DayAdherence(
     val date: LocalDate,
     val dayLabel: String,
-    val status: SlotStatus? // null if not scheduled
+    val state: StatsEngine.DayAdherenceState,
+    val completed: Int,
+    val total: Int
 )
 
 data class MedMatrixItem(
     val medication: MedicationEntity,
-    val completionRate: Int,
+    val completionRate: Float,
+    val completedCount: Int,
+    val decidedCount: Int,
     val days: List<DayAdherence>
 )
 
@@ -40,12 +46,22 @@ data class TimelineItem(
 )
 
 data class ProgressUiState(
-    val selectedTab: Int = 0, // 0: 7天打卡矩阵, 1: 时间轴服药流水
+    val selectedTab: Int = 0,
     val matrixItems: List<MedMatrixItem> = emptyList(),
     val todayTimeline: List<TimelineItem> = emptyList(),
-    val isLoading: Boolean = false
+    val overallAdherence: Float = 0f,
+    val isLoading: Boolean = true
 )
 
+/**
+ * 进展追踪
+ *
+ * 口径修复说明：此前此页的"7 天打卡矩阵"是**硬编码假数据** ——
+ * 历史 6 天无条件返回 `COMPLETED`，今日只取该药第一个槽位，取不到也默认 `COMPLETED`。
+ * 结果是"今天才建的药品"也会显示"周一到周六全绿 + 完成率 100%"。
+ * 现在完全由 `dose_slots` 的真实状态分布驱动，四态区分：已服 / 部分 / 跳过 / 逾期漏服 / 未排班。
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ProgressViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getInstance(application)
@@ -55,47 +71,71 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
 
     private val _selectedTab = MutableStateFlow(0)
 
+    private val today = LocalDate.now()
+    private val weekDates = remember7Days()
+
     val uiState: StateFlow<ProgressUiState> = combine(
         _selectedTab,
         medDao.observeActiveMedications(),
-        slotDao.observeSlotsForDate(LocalDate.now().format(SlotProjectionEngine.DATE_FORMATTER))
-    ) { tab, medications, todaySlots ->
+        slotDao.observeSlotStatusCounts(
+            weekDates.first().format(SlotProjectionEngine.DATE_FORMATTER),
+            weekDates.last().format(SlotProjectionEngine.DATE_FORMATTER)
+        ),
+        _selectedTab.flatMapLatest { _ ->
+            slotDao.observeSlotsForDate(today.format(SlotProjectionEngine.DATE_FORMATTER))
+        }
+    ) { tab, medications, statusRows, todaySlots ->
         val medMap = medications.associateBy { it.id }
-
-        // 构造近 7 天打卡矩阵
-        val today = LocalDate.now()
-        val past7Days = (6 downTo 0).map { today.minusDays(it.toLong()) }
-        val dayLabels = listOf("周一", "周二", "周三", "周四", "周五", "周六", "今日")
+        val byMedDate = StatsEngine.aggregateBreakdowns(statusRows)
 
         val matrixItems = medications.map { med ->
-            val dayAdherences = past7Days.mapIndexed { idx, d ->
-                val label = if (idx == 6) "今日" else dayLabels[(d.dayOfWeek.value - 1) % 7]
-                // 默认今日展示今日槽位状态，历史展示完成状态
-                val dayStatus = if (idx == 6) {
-                    val todaySlot = todaySlots.firstOrNull { it.medicationId == med.id }
-                    todaySlot?.status ?: SlotStatus.COMPLETED
-                } else {
-                    SlotStatus.COMPLETED
-                }
-                DayAdherence(date = d, dayLabel = label, status = dayStatus)
+            val byDate = byMedDate[med.id].orEmpty()
+            val days = weekDates.map { d ->
+                val b = byDate[d.format(SlotProjectionEngine.DATE_FORMATTER)] ?: StatsEngine.DayStatusBreakdown()
+                DayAdherence(
+                    date = d,
+                    dayLabel = if (d == today) "今日" else dayLabelOf(d),
+                    state = StatsEngine.resolveDayState(b, isFutureDay = d.isAfter(today)),
+                    completed = b.completed,
+                    total = b.total
+                )
             }
-            val completedDays = dayAdherences.count { it.status == SlotStatus.COMPLETED }
-            val rate = if (dayAdherences.isNotEmpty()) (completedDays * 100) / dayAdherences.size else 100
-
-            MedMatrixItem(medication = med, completionRate = rate, days = dayAdherences)
+            val total = StatsEngine.sumBreakdowns(
+                byDate,
+                weekDates.map { it.format(SlotProjectionEngine.DATE_FORMATTER) }
+            )
+            MedMatrixItem(
+                medication = med,
+                completionRate = StatsEngine.adherenceOf(total),
+                completedCount = total.completed,
+                decidedCount = total.decided,
+                days = days
+            )
         }
 
-        // 构造今日时间轴流水
+        val overall = matrixItems.fold(StatsEngine.DayStatusBreakdown()) { acc, m ->
+            val byDate = byMedDate[m.medication.id].orEmpty()
+            acc + StatsEngine.sumBreakdowns(
+                byDate,
+                weekDates.map { it.format(SlotProjectionEngine.DATE_FORMATTER) }
+            )
+        }
+
         val timeline = todaySlots.map { slot ->
-            val med = medMap[slot.medicationId]
-            val record = if (slot.status == SlotStatus.COMPLETED) recordDao.getRecordBySlotId(slot.id) else null
-            TimelineItem(slot = slot, medication = med, record = record)
+            TimelineItem(
+                slot = slot,
+                medication = medMap[slot.medicationId],
+                record = if (slot.status == com.mcxiaoke.carromed.core.data.model.SlotStatus.COMPLETED) {
+                    recordDao.getRecordBySlotId(slot.id)
+                } else null
+            )
         }.sortedBy { it.slot.scheduledTs }
 
         ProgressUiState(
             selectedTab = tab,
             matrixItems = matrixItems,
             todayTimeline = timeline,
+            overallAdherence = StatsEngine.adherenceOf(overall),
             isLoading = false
         )
     }.stateIn(
@@ -103,6 +143,14 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = ProgressUiState()
     )
+
+    private fun remember7Days(): List<LocalDate> =
+        (6 downTo 0).map { today.minusDays(it.toLong()) }
+
+    private fun dayLabelOf(d: LocalDate): String = when (d.dayOfWeek.value) {
+        1 -> "周一"; 2 -> "周二"; 3 -> "周三"; 4 -> "周四"
+        5 -> "周五"; 6 -> "周六"; else -> "周日"
+    }
 
     fun selectTab(tab: Int) {
         _selectedTab.value = tab
