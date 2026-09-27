@@ -1,0 +1,52 @@
+# ==========================================
+# CarroMed Android (Kotlin + Compose) .gitignore
+# ==========================================
+
+# 1. Gradle & 构建产物
+.gradle/
+build/
+**/build/
+*.class
+
+# 2. 本地机器配置与私有秘钥
+local.properties
+key.properties
+*.jks
+*.keystore
+google-services.json
+
+# 3. APK 与 AAB 二进制产物
+*.apk
+*.ap_
+*.aab
+
+# 4. Android Studio & IDE 配置
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 5. 临时文件与日志
+*.log
+temp/
+tmp/
+.temp/
+.tmp/
+
+# 6. 系统特定文件
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# 7. AI 工具链本地临时缓存
+.gemini/
+.cursor/
+.claude/
+
+# 8. 必须保留的版本控制文件
+!gradle/wrapper/gradle-wrapper.jar
