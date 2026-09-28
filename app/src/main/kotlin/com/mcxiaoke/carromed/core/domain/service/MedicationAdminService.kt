@@ -81,7 +81,32 @@ class MedicationAdminService(private val db: AppDatabase) {
         val cycleOffDays: Int = 7,
         val startDate: String = LocalDate.now().toString(),
         val endDate: String? = null,
-        val times: List<TimeDraft> = emptyList()
+        val times: List<TimeDraft> = emptyList(),
+
+        /**
+         * **清空疗程结束日**的显式意图。
+         *
+         * ## 为什么 `endDate = null` 不足以表达"清空"
+         *
+         * `saveReminderPolicy` 一直用 `draft.endDate ?: previous?.endDate` 来实现
+         * "用户没改就沿用历史值"。但 `null` 同时表达了两种意图：
+         *
+         * | 用户操作 | 草稿 | 期望 | `?:` 旧行为 |
+         * | :--- | :--- | :--- | :--- |
+         * | 没碰结束日 | `endDate = null` | 沿用原值 | ✅ 沿用 |
+         * | **关掉开关，要清空** | `endDate = null` | 清空 | ❌ **沿用原值** |
+         *
+         * 而提醒设置页**确实**提供了清空入口（`Switch` + 日期框的 clear 图标），
+         * 关掉 Switch 后 `ReminderSettingsViewModel` 传的就是 `endDate = null`。
+         *
+         * 后果不只是"开关看着关了但没生效"这么轻：
+         * 抗生素设了「疗程至 10-05」，疗程结束后医生说继续吃，用户关掉开关保存 ——
+         * `endDate` 仍写回 `2026-10-05`，**10-06 起所有提醒静默消失**，
+         * 而用户以为自己还在正常吃药。这正是"提醒不能漏"的反面。
+         *
+         * 加一个显式标志位，让"清空"成为**必须被表达**的意图而不是巧合。
+         */
+        val clearEndDate: Boolean = false
     )
 
     /**
@@ -201,7 +226,14 @@ class MedicationAdminService(private val db: AppDatabase) {
                 cycleOnDays = draft.cycleOnDays.coerceAtLeast(1),
                 cycleOffDays = draft.cycleOffDays.coerceAtLeast(0),
                 startDate = draft.startDate.ifBlank { previous?.startDate ?: LocalDate.now().toString() },
-                endDate = draft.endDate?.ifBlank { null } ?: previous?.endDate,
+                // 三态：显式清空 > 给了新值 > 没改（沿用历史）。
+                // ⚠️ 顺序不能反：先判 `clearEndDate`，否则关掉 Switch 传来的 null
+                // 会被当成"没改"而沿用旧值，提醒在原定结束日静默停止。
+                endDate = when {
+                    draft.clearEndDate -> null
+                    draft.endDate.isNullOrBlank() -> previous?.endDate
+                    else -> draft.endDate
+                },
                 isActive = true,
                 version = (previous?.version ?: 0) + 1
             )

@@ -85,6 +85,34 @@ enum class BackupProblemKind(val blocksRestore: Boolean) {
      * 放行：[restoreBackup] 会为它补一行默认值。
      * 拦住反而会让来自 A2 之前版本的备份**永远恢复不了**。
      */
+    /**
+     * `dose_records.slot_id` **没有真实外键**（实体只声明了 `medication_id`），
+     * 而 `reconcileSchedule` 会物理删除 `PENDING`/`SNOOZED` 槽位，
+     * `undoDose` 留下的 `REVERTED` 事实仍带着那个 `slot_id`。
+     *
+     * ⇒ 悬空 `slot_id` **不会**让恢复崩溃（Room 无从校验一个不存在的约束），
+     * 只会留下一条指向空处的历史引用。
+     *
+     * ⚠️ 原先它与「药品/计划外键悬空」归为同一类且 `blocksRestore = true`，
+     * 于是**自己导出的备份可能被自己的校验判为不可恢复**，而用户没有绕过开关：
+     * 打卡 → 撤销（事实 `REVERTED`，仍带 `slot_id`）→ 把服药时间 08:00 改成 09:00
+     * → 旧槽位被删 → 备份里那条事实就悬空了。
+     */
+    DANGLING_SLOT_REF(false),
+
+    /**
+     * `dose_records` / `inventory_transactions` / `schedule_policies` / `policy_times`
+     * 的**主键**重复。
+     *
+     * 这四张表的回填都是 `OnConflictStrategy.REPLACE` ⇒ 重复主键会**静默覆盖丢行**，
+     * 与 [DUPLICATE_MEDICATION_ID] 同级，只是没有级联删除子表的连带损伤。
+     * 校验层原先只覆盖了 `medications` 与 `dose_slots` 两处，漏了它们四张。
+     */
+    DUPLICATE_RECORD_ID(true),
+    DUPLICATE_LEDGER_ID(true),
+    DUPLICATE_POLICY_ID(true),
+    DUPLICATE_POLICY_TIME_ID(true),
+
     MISSING_REMINDER_SETTINGS(false),
 }
 
@@ -411,9 +439,10 @@ object DataExporter {
             if (it.medicationId !in medIds) {
                 report(BackupProblemKind.DANGLING_FK, "服药记录 #${it.id} 引用了不存在的药品 #${it.medicationId}")
             }
-            // slotId 可空（手动补录），非空时必须指向存在的槽位
+            // slotId 可空（手动补录），非空时必须指向存在的槽位。
+            // ⚠️ 但这**不是**致命项：没有真实外键约束，恢复不会崩。见 [BackupProblemKind.DANGLING_SLOT_REF]。
             if (it.slotId != null && it.slotId !in slotIds) {
-                report(BackupProblemKind.DANGLING_FK, "服药记录 #${it.id} 引用了不存在的槽位 #${it.slotId}")
+                report(BackupProblemKind.DANGLING_SLOT_REF, "服药记录 #${it.id} 引用了已不存在的槽位 #${it.slotId}")
             }
         }
         backup.inventoryTransactions.forEach {
@@ -440,6 +469,24 @@ object DataExporter {
                     "药品 #${key.first} 在 ${key.second} ${key.third} 有 ${dup.size} 条重复槽位"
                 )
             }
+
+        // ⚠️ 四张表的回填都是 `OnConflictStrategy.REPLACE`，
+        // 重复主键会**静默覆盖丢行**。校验层原先只覆盖 `medications` 与 `dose_slots`，
+        // 漏了这四张 —— 而它们恰恰是最可能被手工编辑过的表。
+        fun <T> checkDuplicates(
+            rows: List<T>,
+            idOf: (T) -> Long,
+            kind: BackupProblemKind,
+            label: String
+        ) {
+            rows.groupBy { idOf(it) }
+                .filterValues { it.size > 1 }
+                .forEach { (rid, dup) -> report(kind, "$label #$rid 在备份中出现了 ${dup.size} 次") }
+        }
+        checkDuplicates(backup.doseRecords, { it.id }, BackupProblemKind.DUPLICATE_RECORD_ID, "服药记录")
+        checkDuplicates(backup.inventoryTransactions, { it.id }, BackupProblemKind.DUPLICATE_LEDGER_ID, "库存流水")
+        checkDuplicates(backup.schedulePolicies, { it.id }, BackupProblemKind.DUPLICATE_POLICY_ID, "服用计划")
+        checkDuplicates(backup.policyTimes, { it.id }, BackupProblemKind.DUPLICATE_POLICY_TIME_ID, "服药时点")
 
         // 每个药品都应有一行提醒运行态（A2 建立的不变量）。缺失的会在恢复时补默认值，
         // 所以这是**提示**而不是错误 —— 拦住会让 A2 之前版本的备份永远恢复不了。

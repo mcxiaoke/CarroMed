@@ -34,6 +34,42 @@ interface DoseSlotDao {
     @Update
     suspend fun update(slot: DoseSlotEntity)
 
+    /**
+     * 同步**可从投影完全派生**的两列：剂量与所属策略。
+     *
+     * ## 为什么必须存在
+     *
+     * 幂等 diff 的键是**日历** `(scheduled_date, scheduled_time)`，
+     * 命中的槽位走"留"分支。而 [update] 在生产代码里从不调用 ——
+     * 也就是槽位的 `dose_amount` 在其**整个生命周期内被冻结在创建时的值**。
+     *
+     * 后果：用户把剂量从 1 片改成 2 片，之后 14 天每次打卡都按 1 片扣库存。
+     * 而 `dose_records.dose_taken` 是不可变事实（I11），错误被永久固化。
+     *
+     * 改「服药时刻」不受影响（key 变化 ⇒ 删旧插新 ⇒ 剂量自然新），
+     * 漏的恰恰是「时刻不变、剂量变了」这条最高频的路径。
+     *
+     * ## 为什么只写这两列
+     *
+     * 它们是投影的**纯函数输出** —— 只要当前策略是权威的，写回就是幂等的。
+     * 其余列（`status` / `actual_taken_ts` / `snooze_until_ts` / `scheduled_ts`）
+     * 要么是事实、要么由其它命令管理，混进这里就会让对账**重置用户操作**。
+     *
+     * `status IN ('PENDING','SNOOZED')` 的守卫写在 SQL 里而不是调用方 ——
+     * 与 [markCompletedIfOpen] / [markSkippedIfOpen] 同一套风格，
+     * 这样"已产生结论的槽位不会被对账改动"就成了一条**结构性**保证。
+     *
+     * @return 受影响行数；0 表示该槽位已不再开放（已被打卡/跳过/结算）
+     */
+    @Query(
+        """
+        UPDATE dose_slots
+        SET dose_amount = :doseMilli, policy_id = :policyId
+        WHERE id = :slotId AND status IN ('PENDING', 'SNOOZED')
+        """
+    )
+    suspend fun updateDerivedColumns(slotId: Long, doseMilli: Int, policyId: Long): Int
+
     /** 幂等 diff 的"删"步骤：只删真正不再被投影命中的槽位 */
     @Query("DELETE FROM dose_slots WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>): Int
@@ -92,7 +128,26 @@ interface DoseSlotDao {
     )
     suspend fun markSkippedIfOpen(slotId: Long, actualTs: Long): Int
 
-    @Query("UPDATE dose_slots SET status = 'SNOOZED', snooze_until_ts = :snoozeUntilTs WHERE id = :slotId")
+    /**
+     * 推迟：置 `SNOOZED` 并记下推迟到期时刻。
+     *
+     * ## 状态守卫为什么必须有
+     *
+     * 同文件的 [markCompletedIfOpen] / [markSkippedIfOpen] / [revertToPending] 都把
+     * `status IN (...)` 下沉进 SQL 当幂等锚点，唯独这里原先没有。
+     *
+     * 缺了守卫的可达路径：长按待服卡片 → 弹窗停留期间，通知栏的「确认已吃」
+     * 被点了（通知 / 手表 / 小组件都算另一个入口）→ 槽位变 `COMPLETED`、
+     * 事实入库、**库存已扣** → 用户再点「10 分」⇒ 槽位被改回 `SNOOZED`。
+     *
+     * 之后 SNOOZE 闹钟再响一次，用户点「确认已吃」——
+     * [markCompletedIfOpen] 允许 `SNOOZED` ⇒ **为同一槽位插入第二条 COMPLETED 事实
+     * 并二次扣减库存**。
+     *
+     * 把守卫放进 SQL 而不是调用方，与那三条保持同一套风格：
+     * 判据落在数据上，调用方不必也不能绕过。
+     */
+    @Query("UPDATE dose_slots SET status = 'SNOOZED', snooze_until_ts = :snoozeUntilTs WHERE id = :slotId AND status IN ('PENDING', 'SNOOZED')")
     suspend fun snoozeSlot(slotId: Long, snoozeUntilTs: Long): Int
 
     /**

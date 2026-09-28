@@ -42,6 +42,23 @@ interface DoseRecordDao {
     @Query("SELECT * FROM dose_records WHERE slot_id = :slotId ORDER BY id ASC LIMIT 1")
     suspend fun getRecordBySlotId(slotId: Long): DoseRecordEntity?
 
+    /**
+     * 该槽位下**全部**仍是 `COMPLETED` 的事实。
+     *
+     * ## 为什么撤销必须用这个而不是 [getRecordBySlotId]
+     *
+     * 一个槽位可以有多条事实：每次 `takeDose` 插一条，而 `undoDose` 从不删行
+     * （I11 要求「吃过的药永不丢失」）。而 [getRecordBySlotId] 是
+     * `ORDER BY id ASC LIMIT 1`，取的是**最早那条** ——
+     * 一次「打卡 → 撤销 → 再打卡」之后，最早那条已是 `REVERTED`，
+     * 于是第二次撤销拿到它、据此判定「这条没扣过、不必冲正」，
+     * **账面凭空少一次扣减**，且 `SUM(change_amount) == balance` 依然成立（I1 拦不住）。
+     *
+     * 撤销要冲正的是「**这轮实际还欠多少扣**」，可能涉及多条事实，所以必须一次取全。
+     */
+    @Query("SELECT * FROM dose_records WHERE slot_id = :slotId AND status = 'COMPLETED' ORDER BY id ASC")
+    suspend fun getCompletedRecordsBySlot(slotId: Long): List<DoseRecordEntity>
+
     /** 该槽位的全部事实（含已撤销），用于审计与"连点几次"排查 */
     @Query("SELECT * FROM dose_records WHERE slot_id = :slotId ORDER BY id ASC")
     suspend fun getAllRecordsBySlotId(slotId: Long): List<DoseRecordEntity>
@@ -64,8 +81,24 @@ interface DoseRecordDao {
     @Query("SELECT * FROM dose_records WHERE actual_ts BETWEEN :startTs AND :endTs ORDER BY actual_ts DESC")
     suspend fun getRecordsInRange(startTs: Long, endTs: Long): List<DoseRecordEntity>
 
+    /**
+     * 区间内已服剂量的合计，**整数毫单位**（1 片 = 1000）。
+     *
+     * ## 为什么签名必须是 `Int?` 而不是 `Float?`
+     *
+     * 原先声明成 `Float?`，而 `SUM(dose_taken)` 返回的是毫单位 ——
+     * 类型上**完全无法与展示值区分**，于是调用方 `?: 0f` 直接当成片数用了。
+     * 实测后果：吃过 1 片的药，药品详情页显示「近 30 天共消耗 **1000 片**」。
+     *
+     * 这是 D-7 落地以来的**第 5 次量纲混用**。前 4 次都在 UI 层（手写 `/1000f`），
+     * 这次落在 DAO 边界上 —— 而 DAO 边界是唯一**本该拦住**它的地方，
+     * 因为实体的 `doseAmount: Int` 本来就带着单位信息，是 `Float?` 这个签名把它抹掉了。
+     *
+     * 同文件的 `getDoseSumByMedicationInRange` 返回 `MedDoseSumRow.totalDose: Int`，
+     * 那个才是正确范式。
+     */
     @Query("SELECT SUM(dose_taken) FROM dose_records WHERE medication_id = :medicationId AND status = 'COMPLETED' AND actual_ts BETWEEN :startTs AND :endTs")
-    suspend fun getSumDoseTakenForMedication(medicationId: Long, startTs: Long, endTs: Long): Float?
+    suspend fun getSumDoseTakenForMedication(medicationId: Long, startTs: Long, endTs: Long): Int?
 
     @Query("SELECT COUNT(*) FROM dose_records WHERE medication_id = :medicationId AND status = 'COMPLETED' AND actual_ts BETWEEN :startTs AND :endTs")
     suspend fun countDoseRecordsForMedication(medicationId: Long, startTs: Long, endTs: Long): Int

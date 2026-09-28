@@ -54,6 +54,29 @@ interface InventoryTransactionDao {
     suspend fun getSumOfChanges(medicationId: Long): Int?
 
     /**
+     * 某条服药事实关联的库存流水**净额**（整数毫单位）。
+     *
+     * ## 撤销为什么必须按 `record_id` 算，而不是读药品的当前开关
+     *
+     * 扣减发生时的"是否追踪库存"由**当时**的 `medications.is_stock_tracked` 决定，
+     * 而撤销若读**当前**值就会两个方向都错：
+     *
+     * | 打卡时 | 撤销时 | 读当前值的后果 |
+     * | :--- | :--- | :--- |
+     * | 未追踪（没扣） | 已追踪 | 冲正一条不存在的扣减 ⇒ **账面凭空多出** |
+     * | 已追踪（扣了） | 未追踪 | 不冲正 ⇒ **扣减永远回不来** |
+     *
+     * 而"这条事实到底扣了多少"是**事实层的数据**，台账里就有答案：
+     * 负数表示仍欠扣，补一条等额冲正即可；非负说明已回补过，不动。
+     *
+     * 这个判据还天然幂等：冲正后净额变 0，重复撤销不会二次冲正。
+     *
+     * @return null 表示该事实**没有任何**关联流水（打卡时未追踪库存）
+     */
+    @Query("SELECT SUM(change_amount) FROM inventory_transactions WHERE record_id = :recordId")
+    suspend fun getSumOfChangeByRecordId(recordId: Long): Int?
+
+    /**
      * 批量取回全部药品的账面余额（一次查询，避免 N+1）。
      * 返回 `medicationId -> balance` 映射，供列表页与导出使用。
      */

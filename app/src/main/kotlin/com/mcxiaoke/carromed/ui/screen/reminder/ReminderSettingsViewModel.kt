@@ -142,7 +142,18 @@ class ReminderSettingsViewModel(
     // ---------------- 疗程 ----------------
 
     fun onStartDateChange(v: String) = mutate { it.copy(startDate = v) }
-    fun onHasEndDateChange(v: Boolean) = mutate { it.copy(hasEndDate = v) }
+
+    /**
+     * 关掉开关 = **清空疗程结束日**。
+     *
+     * 所以这里同时清掉 `endDate` 值并置位 [MedicationAdminService.PolicyDraft.clearEndDate] ——
+     * 只把 `endDate` 置 null 会被服务端当成"用户没改"而沿用旧值，
+     * 于是关掉开关后提醒仍在原定结束日静默停止，用户却以为已经改成长期服用了。
+     */
+    fun onHasEndDateChange(v: Boolean) = mutate {
+        if (v) it.copy(hasEndDate = true) else it.copy(hasEndDate = false, endDate = null)
+    }
+
     fun onEndDateChange(v: String?) = mutate { it.copy(endDate = v) }
 
     // ---------------- 时点 ----------------
@@ -218,6 +229,7 @@ class ReminderSettingsViewModel(
                     cycleOffDays = s.cycleOffDays,
                     startDate = s.startDate,
                     endDate = if (s.hasEndDate) s.endDate else null,
+                    clearEndDate = !s.hasEndDate,
                     times = s.times.map { MedicationAdminService.TimeDraft(it.time, it.dose, it.label) }
                 )
             )

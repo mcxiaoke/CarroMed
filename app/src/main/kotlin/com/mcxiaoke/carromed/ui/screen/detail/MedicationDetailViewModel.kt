@@ -96,7 +96,11 @@ class MedicationDetailViewModel(
             // 近 30 天实际消耗与最近服药记录
             val startTs = today.minusDays(29).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val endTs = System.currentTimeMillis()
-            val doseSum = recordDao.getSumDoseTakenForMedication(medId, startTs, endTs) ?: 0f
+            // ⚠️ DAO 返回的是**整数毫单位**，必须经 `Dose` 换算成展示值。
+            // 直接 `?: 0f` 会让吃过 1 片的药显示成「共消耗 1000 片」。
+            val doseSum = Dose(
+                recordDao.getSumDoseTakenForMedication(medId, startTs, endTs) ?: 0
+            ).asFloat
             val recent = recordDao.getRecordsForMedication(medId).take(RECENT_RECORD_LIMIT)
 
             val dailyDose = Dose(times.sumOf { it.doseAmount }).asFloat

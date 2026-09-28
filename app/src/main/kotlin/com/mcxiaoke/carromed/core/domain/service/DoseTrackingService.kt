@@ -166,11 +166,12 @@ class DoseTrackingService(private val db: AppDatabase) {
 
     // ==================== 3. 推迟提醒 (Snooze) ====================
 
-    suspend fun snoozeDose(
-        slotId: Long,
-        snoozeMinutes: Int
-    ): Boolean {
-        val snoozeUntilTs = System.currentTimeMillis() + (snoozeMinutes * 60 * 1000L)
+    suspend fun snoozeDose(slotId: Long, snoozeMinutes: Int): Boolean {
+        // 上界钳制：推迟时长同时决定 `snooze_until_ts` 的偏移量，
+        // `Int.MAX_VALUE` 分钟会溢出成一个**已经过去**的时间戳 ⇒ 推迟后立刻被判逾期。
+        // 下界 1 分钟则会让"立刻重响"成为可能。两端都收到与通知栏按钮一致的取值域。
+        val safeMinutes = snoozeMinutes.coerceIn(1, 240)
+        val snoozeUntilTs = System.currentTimeMillis() + (safeMinutes * 60 * 1000L)
         return slotDao.snoozeSlot(slotId, snoozeUntilTs) > 0
     }
 
@@ -189,8 +190,25 @@ class DoseTrackingService(private val db: AppDatabase) {
         if (slot.status != SlotStatus.COMPLETED && slot.status != SlotStatus.SKIPPED) {
             return@withTransaction false
         }
-        val record = recordDao.getRecordBySlotId(slotId) ?: return@withTransaction false
-        val medication = medDao.getMedicationById(slot.medicationId) ?: return@withTransaction false
+        // 槽位必须真有事实（跳过也会留一条 SKIPPED 事实）
+        if (recordDao.getAllRecordsBySlotId(slotId).isEmpty()) return@withTransaction false
+
+        // ---- 库存层：先算出"这一轮实际还欠多少扣"，再回退槽位 ----
+        //
+        // ⚠️ 判据是**该事实的台账净额**，不是"读一条代表事实的剂量"，
+        // 也不是"药品当前是否追踪库存"。两个旧写法都会错：
+        //
+        // | 写法 | 错在哪 |
+        // | :--- | :--- |
+        // | `getRecordBySlotId` 取 `id ASC LIMIT 1` 读它的 `doseTaken` | 第二次撤销拿到的是最早那条（已 `REVERTED`）⇒ 判"没扣过"⇒ **账面凭空少一次扣减** |
+        // | `medication.isStockTracked`（当前值） | 打卡后用户改过追踪开关 ⇒ 虚增或永远不回补 |
+        //
+        // 净额口径同时解决两者，而且天然幂等：冲正后该事实净额变 0，
+        // 重复撤销时 `net >= 0`，不会再补第二条。
+        val rollbacks = recordDao.getCompletedRecordsBySlot(slotId).mapNotNull { rec ->
+            val net = inventoryDao.getSumOfChangeByRecordId(rec.id) ?: 0
+            if (net < 0) rec.id to Dose(-net) else null
+        }
 
         // 条件回退（原子；受影响行数为 0 表示并发下已被别人撤销）
         if (slotDao.revertToPending(slotId) == 0) return@withTransaction false
@@ -198,12 +216,12 @@ class DoseTrackingService(private val db: AppDatabase) {
         // 事实层：保留记录，仅改状态（append-only 的补偿，而不是抹除）
         recordDao.markRevertedBySlot(slotId)
 
-        // 库存层：追加一条冲正流水（台账只增不改）
-        if (record.status == RecordStatus.COMPLETED && medication.isStockTracked && record.doseTaken > 0) {
+        // 台账只增不改：逐条补等额冲正
+        rollbacks.forEach { (recordId, amount) ->
             appendLedger(
                 medicationId = slot.medicationId,
-                recordId = record.id,
-                changeAmount = Dose(record.doseTaken),
+                recordId = recordId,
+                changeAmount = amount,
                 txType = TransactionType.REVERT_ROLLBACK,
                 note = "用户误触打卡撤销冲正"
             )
@@ -429,7 +447,34 @@ class DoseTrackingService(private val db: AppDatabase) {
         // ---- 删（投机区）：窗口之外的未来整段丢弃 ----
         slotDao.deleteSpeculativeFutureSlots(medicationId, toStr)
 
-        // ---- 插：新增的（已被命中的保留原 id，闹钟 requestCode 因此稳定）----
+        // ---- 留（被命中）：保留原 id（闹钟身份因此稳定），但同步可派生的列 ----
+        //
+        // ⚠️ 只保留不更新是不够的。`dose_amount` 若被冻结在创建时，
+        // 用户把剂量从 1 片改成 2 片之后，接下来 14 天每次打卡都按 1 片扣库存 ——
+        // 而 `dose_records.dose_taken` 是**不可变事实**（I11 不许事后修正），
+        // 于是错误被永久固化。
+        //
+        // 为什么改「服药时刻」没这个问题：key 变了 ⇒ 旧槽位删、新槽位插 ⇒ 剂量自然新。
+        // 漏的恰恰是「时刻不变、剂量变了」这条最高频的路径。
+        //
+        // 只更新两个**可从投影完全派生**的列，且只针对仍开放的槽位：
+        // 已 COMPLETED / SKIPPED / EXPIRED 的是既成事实，其剂量必须与
+        // 对应的 `dose_records` 一致，动它就是改历史。
+        val existingByKey = existing.associateBy { slotKey(it.scheduledDate, it.scheduledTime) }
+        val staleDose = projectedSlots.mapNotNull { projected ->
+            val old = existingByKey[slotKey(projected.scheduledDate, projected.scheduledTime)]
+                ?: return@mapNotNull null
+            if (old.status != SlotStatus.PENDING && old.status != SlotStatus.SNOOZED) return@mapNotNull null
+            if (old.doseAmount == projected.doseAmount && old.policyId == projected.policyId) {
+                return@mapNotNull null
+            }
+            Triple(old.id, projected.doseAmount, projected.policyId)
+        }
+        staleDose.forEach { (id, doseMilli, policyId) ->
+            slotDao.updateDerivedColumns(id, doseMilli, policyId)
+        }
+
+        // ---- 插：新增的 ----
         val existingKeys = existing.map { slotKey(it.scheduledDate, it.scheduledTime) }.toSet()
         val toInsert = projectedSlots.filter {
             slotKey(it.scheduledDate, it.scheduledTime) !in existingKeys

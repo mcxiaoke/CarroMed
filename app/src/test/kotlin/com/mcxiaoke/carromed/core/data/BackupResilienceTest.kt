@@ -95,6 +95,14 @@ class BackupResilienceTest {
             )
         )
         DoseTrackingService(db).reconcileSchedule(medId, today, today.plusDays(2))
+        // ⚠️ 必须真的打一次卡：`dose_records` / `inventory_transactions` 为空时，
+        // 构造"悬空 slotId / 重复主键"那几类脏数据就没有素材（第一版踩了这个坑，
+        // 断言报的是 `MISSING_REMINDER_SETTINGS` 而不是目标 kind，完全指不到病根）。
+        DoseTrackingService(db).takeDose(
+            slotId = db.doseSlotDao().getSlotsForDate(today.toString())
+                .first { it.medicationId == medId }.id,
+            note = "哨兵打卡"
+        )
         return medId
     }
 
@@ -121,16 +129,35 @@ class BackupResilienceTest {
         assertThat(DataExporter.validateBackup(good)).isEmpty()
 
         // 逐个 kind 造一份"只有这一类问题"的备份
+        val rec = good.doseRecords.firstOrNull()
+        val led = good.inventoryTransactions.firstOrNull()
+        val pol = good.schedulePolicies.firstOrNull()
+        val tim = good.policyTimes.firstOrNull()
         val dirty: Map<BackupProblemKind, BackupFile> = mapOf(
             BackupProblemKind.UNSUPPORTED_VERSION to good.copy(formatVersion = 99),
             BackupProblemKind.DANGLING_FK to good.copy(
                 schedulePolicies = good.schedulePolicies.map { it.copy(medicationId = 9999) }
             ),
+            BackupProblemKind.DANGLING_SLOT_REF to
+                (if (rec != null) good.copy(
+                    doseRecords = listOf(rec.copy(slotId = 987654))
+                ) else good.copy(reminderSettings = emptyList())),
             BackupProblemKind.DUPLICATE_MEDICATION_ID to
                 good.copy(medications = good.medications + good.medications.first()),
             BackupProblemKind.DUPLICATE_SLOT_KEY to good.copy(
                 doseSlots = good.doseSlots + good.doseSlots.first().copy(id = 99999L)
             ),
+            BackupProblemKind.DUPLICATE_RECORD_ID to
+                (if (rec != null) good.copy(doseRecords = listOf(rec, rec.copy())) else good),
+            BackupProblemKind.DUPLICATE_LEDGER_ID to
+                (if (led != null) good.copy(inventoryTransactions = listOf(led, led.copy()))
+                 else good.copy(reminderSettings = emptyList())),
+            BackupProblemKind.DUPLICATE_POLICY_ID to
+                (if (pol != null) good.copy(schedulePolicies = listOf(pol, pol.copy()))
+                 else good.copy(reminderSettings = emptyList())),
+            BackupProblemKind.DUPLICATE_POLICY_TIME_ID to
+                (if (tim != null) good.copy(policyTimes = listOf(tim, tim.copy()))
+                 else good.copy(reminderSettings = emptyList())),
             BackupProblemKind.MISSING_REMINDER_SETTINGS to good.copy(reminderSettings = emptyList())
         )
         assertThat(dirty.keys).containsExactlyElementsIn(BackupProblemKind.entries.toSet())
@@ -152,9 +179,11 @@ class BackupResilienceTest {
                 assertThat(restored).isInstanceOf(DataExporter.RestoreResult.Invalid::class.java)
             }
 
-            // 分类与 kind 的语义一致：只有 MISSING_REMINDER_SETTINGS 不致命
-            assertThat(fatal)
-                .isEqualTo(kind != BackupProblemKind.MISSING_REMINDER_SETTINGS)
+            // 分类与 kind 的语义一致：只有 MISSING_REMINDER_SETTINGS / DANGLING_SLOT_REF 不致命
+            assertThat(fatal).isEqualTo(kind !in setOf(
+                BackupProblemKind.MISSING_REMINDER_SETTINGS,
+                BackupProblemKind.DANGLING_SLOT_REF
+            ))
             // 每轮之后清掉，避免相互影响
             spare.medicationDao().deleteAllMedications()
         }
