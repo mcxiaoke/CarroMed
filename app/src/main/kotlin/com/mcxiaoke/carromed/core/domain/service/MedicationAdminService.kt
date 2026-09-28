@@ -29,8 +29,18 @@ class MedicationAdminService(private val db: AppDatabase) {
     private val medDao = db.medicationDao()
     private val policyDao = db.schedulePolicyDao()
     private val inventoryDao = db.inventoryTransactionDao()
+    private val reminderSettingsDao = db.reminderSettingsDao()
 
-    /** 药品档案草稿 (对应"药品信息"这一独立维度) */
+    /**
+     * 药品档案草稿 (对应"药品信息"这一独立维度)。
+     *
+     * ⚠️ 这里**刻意不含** `isCriticalReminder` / `snoozeMinutes` / `advanceMinutes` ——
+     * 它们归"提醒设置"维度，由 [saveReminderBehavior] 独占写入。
+     *
+     * 草稿里出现不属于本屏幕的字段，正是 P0-5「漏传型」的温床：调用方会把
+     * 进页面时的快照值原样传回，用户的真实配置就被覆盖回去。
+     * 见 `docs/REMINDER-DOMAIN-REDESIGN.md` §1.3。
+     */
     data class ProfileDraft(
         val medId: Long = 0L,
         val name: String,
@@ -44,10 +54,15 @@ class MedicationAdminService(private val db: AppDatabase) {
         val precautions: List<String> = emptyList(),
         val noticeShort: String = "",
         val expiryDate: String = "",
+        val minStockAlert: Float = 0f
+    )
+
+    /** 提醒行为草稿 (对应"提醒设置"这一独立维度，由提醒设置页独占) */
+    data class ReminderBehaviorDraft(
+        val medId: Long,
         val isCriticalReminder: Boolean = false,
         val snoozeMinutes: Int = 0,
-        val advanceMinutes: Int = 0,
-        val minStockAlert: Float = 10f
+        val advanceMinutes: Int = 0
     )
 
     /** 单个提醒时点草稿 (对应"用药时间表"里的提醒详情) */
@@ -100,9 +115,6 @@ class MedicationAdminService(private val db: AppDatabase) {
                 precautions = draft.precautions.map { it.trim() }.filter { it.isNotEmpty() },
                 noticeShort = draft.noticeShort.trim(),
                 expiryDate = draft.expiryDate.trim(),
-                isCriticalReminder = draft.isCriticalReminder,
-                snoozeMinutes = draft.snoozeMinutes,
-                advanceMinutes = draft.advanceMinutes,
                 minStockAlert = Dose.of(draft.minStockAlert.coerceAtLeast(0f)).milli,
                 updatedAt = System.currentTimeMillis()
             )
@@ -110,7 +122,7 @@ class MedicationAdminService(private val db: AppDatabase) {
         }
 
         // 新增
-        medDao.insert(
+        val newId = medDao.insert(
             MedicationEntity(
                 name = name,
                 alias = draft.alias?.trim()?.ifBlank { null },
@@ -123,12 +135,49 @@ class MedicationAdminService(private val db: AppDatabase) {
                 precautions = draft.precautions.map { it.trim() }.filter { it.isNotEmpty() },
                 noticeShort = draft.noticeShort.trim(),
                 expiryDate = draft.expiryDate.trim(),
-                isCriticalReminder = draft.isCriticalReminder,
-                snoozeMinutes = draft.snoozeMinutes,
-                advanceMinutes = draft.advanceMinutes,
                 minStockAlert = Dose.of(draft.minStockAlert.coerceAtLeast(0f)).milli
             )
         )
+        // 必须建默认提醒设置行：否则提醒设置页第一次保存时 UPDATE 命中 0 行，
+        // 用户改了设置、点保存、回到详情页发现什么都没变，且**没有任何报错**。
+        reminderSettingsDao.ensureDefaults(newId)
+        newId
+    }
+
+    /**
+     * 保存「提醒行为」维度 (提醒设置页专用)。
+     *
+     * 与 [saveProfile] 严格分离：这一条**只**写 `reminder_settings` 的三列，
+     * 绝不触碰药品档案、库存、暂停状态。P0-5 至此没有第二条写路径。
+     */
+    suspend fun saveReminderBehavior(draft: ReminderBehaviorDraft) = db.withTransaction {
+        reminderSettingsDao.ensureDefaults(draft.medId)
+        check(reminderSettingsDao.updateBehavior(
+            medicationId = draft.medId,
+            isCriticalReminder = draft.isCriticalReminder,
+            snoozeMinutes = draft.snoozeMinutes.coerceAtLeast(0),
+            advanceMinutes = draft.advanceMinutes.coerceAtLeast(0)
+        ) == 1) { "保存提醒行为失败：reminder_settings 无 medId=${draft.medId} 的行" }
+    }
+
+    /**
+     * 暂停 / 恢复提醒 (详情页的暂停开关)。
+     *
+     * @param until `null` = 恢复；`""` = 无限期暂停；`"2026-10-15"` = 暂停至该日含。
+     *             具体的"截至某天是否算暂停"由 `ReminderSettingsEntity.isPausedOn` 判定，
+     *             本方法只负责**存意图**、不替调用方做日期比较 —— 两处实现必然漂移。
+     */
+    suspend fun setPausedUntil(medId: Long, until: String?) = db.withTransaction {
+        reminderSettingsDao.ensureDefaults(medId)
+        check(reminderSettingsDao.setPausedUntil(medId, until) == 1) {
+            "设置暂停失败：reminder_settings 无 medId=$medId 的行"
+        }
+    }
+
+    /** 立即恢复（等价于 [setPausedUntil] 传 null，但语义更清晰，UI 用这个） */
+    suspend fun resume(medId: Long) = db.withTransaction {
+        reminderSettingsDao.ensureDefaults(medId)
+        check(reminderSettingsDao.resume(medId) == 1) { "恢复提醒失败：remId=$medId 无设置行" }
     }
 
     /**

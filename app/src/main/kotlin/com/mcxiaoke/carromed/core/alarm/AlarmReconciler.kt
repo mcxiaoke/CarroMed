@@ -36,15 +36,20 @@ object AlarmReconciler {
             Log.i("AlarmReconciler", "expired ${staleSlots.size} overdue slots")
         }
 
-        // 2. 活跃药品 (在服且未暂停) 未来 7 天排班幂等补齐
-        val activeMeds = db.medicationDao().getActiveMedications()
-            .filter { !it.isPaused && !it.isArchived }
+        // 2. 活跃药品（在服且截至今天未暂停）未来 7 天排班幂等补齐
+        //
+        // ⚠️ 暂停判断必须走 `MedicationOverview.isPausedOn(today)`（它转给
+        // `ReminderSettingsEntity.isPausedOn`），**不能**写成 `pausedUntil != null`：
+        // 暂停到期后那种写法会让闹钟静默不再排 —— 用户以为有提醒、实际没有。
+        val today = LocalDate.now()
+        val activeMeds = db.medicationDao().getActiveOverviews()
+            .filter { !it.isPausedOn(today) }
         val tracking = DoseTrackingService(db)
         for (med in activeMeds) {
             tracking.reconcileSchedule(
                 medicationId = med.id,
-                fromDate = LocalDate.now(),
-                toDate = LocalDate.now().plusDays(7)
+                fromDate = today,
+                toDate = today.plusDays(7)
             )
         }
 

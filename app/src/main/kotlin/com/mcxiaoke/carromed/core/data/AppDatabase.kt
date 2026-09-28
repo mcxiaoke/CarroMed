@@ -13,6 +13,7 @@ import com.mcxiaoke.carromed.core.data.dao.DoseRecordDao
 import com.mcxiaoke.carromed.core.data.dao.DoseSlotDao
 import com.mcxiaoke.carromed.core.data.dao.InventoryTransactionDao
 import com.mcxiaoke.carromed.core.data.dao.MedicationDao
+import com.mcxiaoke.carromed.core.data.dao.ReminderSettingsDao
 import com.mcxiaoke.carromed.core.data.dao.SchedulePolicyDao
 import com.mcxiaoke.carromed.core.data.entity.AppSettingEntity
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
@@ -20,6 +21,7 @@ import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
+import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 
 /**
@@ -34,9 +36,10 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
         DoseSlotEntity::class,
         DoseRecordEntity::class,
         InventoryTransactionEntity::class,
-        AppSettingEntity::class
+        AppSettingEntity::class,
+        ReminderSettingsEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(AppConverters::class)
@@ -48,6 +51,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun doseRecordDao(): DoseRecordDao
     abstract fun inventoryTransactionDao(): InventoryTransactionDao
     abstract fun appSettingDao(): AppSettingDao
+    abstract fun reminderSettingsDao(): ReminderSettingsDao
 
     companion object {
         const val DATABASE_NAME = "carromed.db"

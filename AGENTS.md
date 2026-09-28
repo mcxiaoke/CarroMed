@@ -237,21 +237,38 @@ adb -s emulator-5554 shell am broadcast -a com.mcxiaoke.carromed.dev.CLEAR -n co
 
 ### 数据库直查
 
-模拟器里**没有 `sqlite3` 可执行文件**，只能把库拉回本地查：
+模拟器里**没有 `sqlite3` 可执行文件**，只能把库拉回本地查。
+
+> ⚠️ **必须连 `-wal` / `-shm` 一起拉，否则会看到过期数据。**
+>
+> Room 默认开 WAL（`PRAGMA journal_mode=WAL`），最近的写入还留在 `carromed.db-wal` 里，
+> 尚未 checkpoint 回主库。只拉 `carromed.db` 看到的是**上一次 checkpoint 的快照**。
+>
+> 这个坑真实踩过：A2 改完暂停功能，UI 上明明显示「提醒已暂停，2 天后恢复」，
+> 而只拉主库查 `reminder_settings` 得到**空表** —— 差点误判成"写入没生效"。
+> **结论：查不到刚写的数据时，先怀疑 WAL，不要先怀疑代码。**
 
 ```powershell
-cmd /c "adb -s emulator-5554 exec-out run-as com.mcxiaoke.carromed cat databases/carromed.db > temp\carromed.db"
-python temp\dbdump.py     # 7 张表行数 + 全量关键字段
-python temp\dbcheck2.py   # 专查药品档案字段是否被编辑操作抹掉
+cmd /c "adb -s emulator-5554 exec-out run-as com.mcxiaoke.carromed cat databases/carromed.db     > temp\carromed.db"
+cmd /c "adb -s emulator-5554 exec-out run-as com.mcxiaoke.carromed cat databases/carromed.db-wal > temp\carromed.db-wal"
+cmd /c "adb -s emulator-5554 exec-out run-as com.mcxiaoke.carromed cat databases/carromed.db-shm > temp\carromed.db-shm"
+python temp\dbdump.py     # 表行数 + 全量关键字段
 ```
+
+更省事的替代方案：**先 force-stop App 再拉**。进程退出时 Room 会做一次 checkpoint，
+主库就是最新的（`-wal` 会被清空）。但注意 `force-stop` 之后广播也收不到，
+要重新 `am start`。
 
 必须用 `cmd /c` 包一层。PowerShell 的 `>` 会破坏 db 文件。
 
-常用断言：
+常用断言（括号内是不变量编号，见 `docs/REMINDER-DOMAIN-REDESIGN.md` §4）：
 
-- `SUM(inventory_transactions.change_amount) == medications.current_stock`
-- 首启空库时 7 张表**全为 0 行**
-- 编辑药品后 `precautions` / `alias` / `is_paused` / `is_archived` 原值不变
+- `SUM(inventory_transactions.change_amount)` 就是该药余额，**`medications` 表没有这一列**（I1）
+- 首启空库时业务表**全为 0 行**
+- 编辑药品后 `precautions` / `alias` / `is_archived` 原值不变，
+  且 `reminder_settings` 四列**结构上就碰不到**（I9）
+- 每个药品在 `reminder_settings` 里**恰好一行**（A2 建立的不变量）
+- `paused_until` 非空的药，在 `paused_until < 今天` 时**不再**出现在可排闹钟列表里
 
 ---
 

@@ -35,7 +35,8 @@ object ReminderSettings {
         val globalSnooze = dao.getValue(KEY_SNOOZE_MINUTES)?.toIntOrNull() ?: DEFAULT_SNOOZE_MINUTES
         val nightDnd = dao.getValue(KEY_NIGHT_DND)?.toBoolean() ?: true
         val fullScreen = dao.getValue(KEY_FULL_SCREEN)?.toBoolean() ?: true
-        val medSnooze = db.medicationDao().getMedicationById(medicationId)?.snoozeMinutes ?: 0
+        // 专属推迟时长已随 A2 迁到 `reminder_settings` 表（1:1）
+        val medSnooze = db.reminderSettingsDao().getByMedicationId(medicationId)?.snoozeMinutes ?: 0
 
         return Behavior(
             snoozeMinutes = if (medSnooze > 0) medSnooze else globalSnooze,

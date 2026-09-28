@@ -1,5 +1,6 @@
 package com.mcxiaoke.carromed.ui.component
 
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -119,7 +120,7 @@ fun DoseActionBottomSheet(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "计划时间: ${slot.scheduledTime} · 单次 ${slot.doseAmount.toInt()} ${medication.unit}",
+                        text = "计划时间: ${slot.scheduledTime} · 单次 ${Quantity.fmt(Dose(slot.doseAmount).asFloat)} ${medication.unit}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -158,7 +159,7 @@ fun DoseActionBottomSheet(
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    text = "✓ 确认吃药 (自动扣减 ${slot.doseAmount.toInt()} 片库存)",
+                    text = "✓ 确认吃药 (自动扣减 ${Quantity.fmt(Dose(slot.doseAmount).asFloat)} ${medication.unit}库存)",
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
                 )

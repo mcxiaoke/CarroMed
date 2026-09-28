@@ -3,6 +3,7 @@ package com.mcxiaoke.carromed.core.data.model
 import com.google.common.truth.Truth.assertThat
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.domain.model.Dose
+import java.time.LocalDate
 import org.junit.Test
 
 /**
@@ -81,7 +82,8 @@ class MedicationOverviewTest {
         assertThat(o.name).isEqualTo("测试药")
         assertThat(o.unit).isEqualTo("片")
         assertThat(o.isStockTracked).isTrue()
-        assertThat(o.isPaused).isFalse()
+        // 暂停是派生量，不是字段（A2）。未暂停 ⇒ isPausedOn(anyDate) == false
+        assertThat(o.isPausedOn(LocalDate.now())).isFalse()
         assertThat(o.isArchived).isFalse()
     }
 

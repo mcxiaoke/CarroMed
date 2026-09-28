@@ -18,16 +18,23 @@
 | ---: | --- | --- |
 | A0 | 测试基建：JUnit 5 Platform + Vintage Engine + jqwik | P1-12（空测） |
 | A1 | 删除 `medications.current_stock`，余额改由 `SUM(change_amount)` 派生；金额列改整数毫单位 | P0-3、P1-6、**D-7** |
-| A2 | 拆出 `reminder_settings` 表（1:1） | P0-5 的跨表部分 |
-| A3 | 6 条细粒度写命令 + 幂等下沉到 SQL 条件更新 | P0-4、P0-5 的命令粒度部分 |
-| A4 | 枚举调整：删 `RecordStatus.RETROSPECTIVE`、加 `RecordStatus.REVERTED`；备份格式改 kotlinx.serialization | P1-1、P1-4 |
-| A5 | 穷举式字段保全测试 ×6 + 属性化测试（jqwik）覆盖 12 条不变量 | P1-12，并为 A1~A4 上机械防线 |
+| A2 | 拆出 `reminder_settings` 表（1:1），并把 `is_paused` 布尔升级为 `paused_until` 日期 | P0-5 的跨表部分、`FINAL-PRODUCT` M-02「暂停至某日」缺口 |
+| A3 | 6 条细粒度写命令 + 幂等下沉到 SQL 条件更新 + **闹钟内容寻址** | P0-1、P0-2、P0-4、P0-5 的命令粒度部分、P1-1、P1-5 |
+| A4 | 备份格式改 kotlinx.serialization + 导入前本地快照 | P1-14 |
+| A5 | 穷举式字段保全测试 ×6 + 属性化测试（jqwik）覆盖 12 条不变量 + **DST 属性测试** | P1-12、时区语义漂移，并为 A1~A4 上机械防线 |
+| A6 | **WorkManager 周期对账兜底**（兑现 `FINAL-PRODUCT` D-14 第三档） | D-14 承诺缺口、P0-2 的结构性盲区 |
+
+> **步骤顺序调整（2026-09-28）**：A0 → A1 → **A2 → A3 → A6 → A4 → A5**。
+> A2 提前于 A4 是为了把 `reminder_settings` 与备份 JSON 结构一次改完；A6 独立成步
+> 是因为它是**产品承诺的缺口**而非重构的一部分，混进 A3 会让回滚无法分离。
 
 ### 本期不做（明确排除，避免 scope 膨胀）
 
 - **阶段 B 的 RRULE 改造**（只在本文档 §6.1 锁定 `PolicyType` → RRULE 的映射契约，代码保持现状）
-- `DoseActionBottomSheet.kt` 删除（死代码，与数据层无关，另开清理任务）
-- 提醒设置页日期先后校验（P1-11）、剂量范围校验（P1-10）、跨单位展示（P0-7 的 UI 侧）—— 属 UI 层，另开
+- **月度规则 MONTHLY** —— 外部四家方案都有，但 `FINAL-PRODUCT` M-02 未要求，详见附录 A.2
+- **确定性实例 ID** —— 与 A3-5 的内容寻址二选一，详见附录 A.2
+- 抽离纯 JVM `:core` Gradle 模块 —— `SlotProjectionEngine` 已是纯函数，编译期物理隔离边际收益有限，详见附录 A.6
+- 提醒设置页日期先后校验（P1-11）、剂量范围校验（P1-10）—— 属 UI 层，另开
 - 自动滚动备份、备份加密、CSV 脱敏开关（`FINAL-PRODUCT` D-13 / §六.4 未实现项）—— 属产品范围决策
 - 「准时率」指标（`FINAL-PRODUCT` D-11 列为 v1-P0，但本项目 `README.md:320` 降级为 P2，**属待拍板项，见 §9**）
 
@@ -111,14 +118,14 @@ medDao.updateProfile(
 | 表 | 职责 | 主键 | 唯一约束 | 写命令数 |
 | --- | --- | --- | --- | ---: |
 | `medications` | 药品静态档案 + 库存开关 + 归档位 | `id` | — | 4 |
-| `reminder_settings` | 提醒运行态（1:1） | `medication_id`（同时是外键） | — | 3 |
+| `reminder_settings` | 提醒运行态（1:1）：`is_critical_reminder` / `snooze_minutes` / `advance_minutes` / `paused_until` | `medication_id`（同时是外键） | — | 3 |
 | `schedule_policies` | 服药规则（版本化） | `id` | `medication_id` + `is_active=1` 唯一 | 1 |
 | `policy_times` | 规则的时点与剂量 | `id` | `(policy_id, time_of_day)` | 随策略 |
 | `dose_slots` | 规则在某日的投影 + 当日可变状态 | `id` | **`(medication_id, scheduled_date, scheduled_time)` UNIQUE** | 1 |
 | `dose_records` | 服药事实（**永不 DELETE**） | `id` | — | 1 |
 | `inventory_transactions` | 库存台账（**永不 DELETE/UPDATE**） | `id` | — | 1 |
 
-### 2.2 相对现状的结构性变更（4 处）
+### 2.2 相对现状的结构性变更（5 处）
 
 | # | 变更 | 类型 | 消除 |
 | ---: | --- | --- | --- |
@@ -126,8 +133,37 @@ medDao.updateProfile(
 | 2 | **新增 `reminder_settings` 表**，迁出 `is_paused` / `is_critical_reminder` / `snooze_minutes` / `advance_minutes` | 拆表 | P0-5 跨表部分、`is_paused` 双写路径 |
 | 3 | 5 个金额列 `REAL` → `INTEGER`（毫单位） | 改类型 | P1-6（执行 D-7） |
 | 4 | `dose_slots` 复合索引改 `unique = true` | 加约束 | P2-5（槽位唯一性从内存去重升级为 DB 不变量） |
+| 5 | **`is_paused` 布尔 → `paused_until` 日期** | 改语义 | `FINAL-PRODUCT` M-02「暂停至某日」的能力缺口（见 §2.6） |
 
 **第 4 项是本设计里"顺手但重要"的一条**：现状靠 `DoseTrackingService.kt:318-322` 的 `existingSlotKeys` 内存去重，任何绕过 `reconcileSchedule` 的插入路径都能造出重复槽位 → 重复闹钟 + 重复扣库存。改成 DB 约束后，**A5 步骤的 `reconcileSchedule` 改写（幂等 diff）才真正安全**。
+
+### 2.6 暂停需要结束日（用户 2026-09-28 拍板）
+
+**发现**：`FINAL-PRODUCT` M-02 排程管理要求「**暂停至某日**」，而现状 `medications.is_paused` 是**纯布尔** —— 没有结束日的概念，用户只能"暂停到某天"然后靠记忆回来手动恢复。药箱页只能显示一句静态的"提醒已暂停"，既不知道何时恢复，也没有任何自动恢复的时机。
+
+这是**产品能力缺口，且只有在 A2 动 `is_paused` 那一刻才会浮现** —— 先拆完表再加结束日，那几列要动两次。所以并入 A2 一次建对。
+
+**数据模型**：`reminder_settings.paused_until: String?`（`yyyy-MM-dd`），语义：
+
+| 取值 | 含义 |
+| --- | --- |
+| `NULL` | 未暂停（正常提醒） |
+| `'2026-10-15'` | 暂停至该日**含**当天；`2026-10-16` 起自动恢复 |
+| `''`（空串） | 无限期暂停，需用户手动恢复 |
+
+> 为什么保留"无限期"而不是只允许有结束日：出差、住院这类场景就是"不知道哪天回来"。强制填日期等于逼用户编一个假日期。
+>
+> 为什么不直接用 `LocalDate?` 存列：与项目既有约定一致（`startDate` / `endDate` / `expiryDate` 全是 `String` + `SlotProjectionEngine.DATE_FORMATTER`），避免引入第二套日期表示。
+
+**"是否暂停"是派生量，不是存储量**：
+
+```
+isPaused(today) := paused_until IS NOT NULL AND (paused_until == '' OR paused_until >= today)
+```
+
+**关键：这个派生判断必须出现在**所有**过滤"该不该为它排闹钟"的地方，且必须由一个函数产出。**理由**：把 `paused_until != null` 当成"已暂停"是最自然的写法，也是错的 —— 到期自动恢复后，只要还有任何一处漏改，闹钟就会**静默地不再被排**（比误响更危险：用户以为有提醒，实际没有）。因此 A2 要同时把 `isPaused` 从字段降级为函数，并补不变量测试覆盖"跨过恢复日"这条边界。
+
+**产品第二承诺的一致性**：「吃过的药永不丢失」意味着暂停**不删除**历史。`paused_until` 到期后，此前生成的 `dose_slots` 仍在，状态仍是 PENDING —— 用户会看到一堆逾期未服用的提醒。因此 A2 还要决定：**恢复瞬间的未来槽位如何处理**。取"只影响未来、不回溯"：恢复日后按当前计划重投影未来窗口，暂停期间**本应产生**的槽位不回填（否则用户回来会看到 30 条补服提醒，那是在制造焦虑而不是帮助）。这条在 A2 的验收里显式断言。
 
 ### 2.3 余额：唯一权威定义
 
@@ -534,14 +570,21 @@ Intent(context, AlarmReceiver::class.java)
 
 | 序 | 内容 |
 | ---: | --- |
-| 1 | 新增 `ReminderSettingsEntity`（`medication_id` PK + FK CASCADE + 4 列） |
+| 1 | 新增 `ReminderSettingsEntity`（`medication_id` PK + FK CASCADE + 4 列：`is_critical_reminder` / `snooze_minutes` / `advance_minutes` / `paused_until`） |
 | 2 | `MedicationEntity` 删 `isPaused` / `isCriticalReminder` / `snoozeMinutes` / `advanceMinutes` |
 | 3 | `MedicationDao`：删 `updateReminderBehavior` / `updatePauseStatus`；新增 `ReminderSettingsDao`（3 条细粒度命令） |
-| 4 | 读路径：`AlarmReconciler:53` / `ReminderSettings.resolve` / `MedicationDetailScreen:597-599` / `CabinetViewModel` 改 JOIN 或加一次查询 |
-| 5 | `DataExporter` 的 JSON 结构同步调整（与 A4 一起做，避免改两遍） |
-| 6 | **测试**：I9 的跨表部分（6 条命令的字段保全测试在此建立） |
+| 4 | **`paused_until` 落地**（§2.6）：`isPaused` 从字段降级为**派生函数**，且该函数是"该不该为它排闹钟"的唯一判据 |
+| 5 | 读路径：`AlarmReconciler` / `ReminderSettings.resolve` / `MedicationDetailScreen` / `CabinetViewModel` / `AlarmReceiver` 改 JOIN 或加一次查询；`MedicationOverview` 增加暂停派生的代理字段 |
+| 6 | `DataExporter` 的 JSON 结构同步调整（与 A4 一起做，避免改两遍） |
+| 7 | **测试**：I9 的跨表部分（6 条命令的字段保全测试在此建立）+ **暂停到期恢复**测试 |
 
 **读路径性能说明**：`AlarmReceiver` 现状是 2 次查询（`getSlotById` + `getMedicationById`），拆表后可用 1 个 JOIN 完成 → **不劣化，略优**。`observeActiveMedications()` 驱动的药箱列表同样用 1 个 JOIN。
+
+**`paused_until` 的验收要点（易错，单独列出）**：
+1. `paused_until = '2026-10-15'` 时，**10-15 当天仍不排闹钟**，10-16 起恢复（"含当天"）。
+2. 跨过恢复日之后，**到期自动恢复**，不依赖用户回来开 App —— 由 A6 的周期对账兜底。
+3. 恢复后**不回填**暂停期间本应产生的槽位（否则用户回来看到几十条补服提醒）。
+4. **不能**把"是否暂停"实现成 `paused_until != null` —— 那是到期后闹钟静默消失的最短路径，比误响更危险。必须有测试专门覆盖"跨过恢复日"。
 
 ### A3 — 细粒度写命令 + 幂等下沉 + 闹钟内容寻址
 
@@ -573,12 +616,39 @@ Intent(context, AlarmReceiver::class.java)
 | ---: | --- |
 | 1 | 6 条穷举式字段保全测试（I9） |
 | 2 | jqwik 属性化测试：I3、I5、I6、I7、I8 |
-| 3 | `DoseActionBottomSheet.kt` 删除（死代码，230 行，含 2 个 bug） |
-| 4 | 修正 `AGENTS.md` §3 门禁措辞：「71 项全绿」→「12 条不变量全绿」 |
+| 3 | **DST 属性测试**（新增，见 §附录 A.3）：跨 DST 切换日，本地时刻恒定而 UTC 间隔为 23h/25h |
+| 4 | `DoseActionBottomSheet.kt` 删除（死代码，230 行，含 2 个 bug） |
 | 5 | 修正 `AGENTS.md` §2 关于"必须加 `MIGRATION_*`"的红线（与新加的第 5 行对齐） |
-| 6 | 全文删除 `version = 2` 的 `MIGRATION_1_2` 与 `MigrationTest` 引用；`AppDatabase` 加 `fallbackToDestructiveMigration()`（**开发期重建库，生产发布前必须移除** —— 需在 `AGENTS.md` 标注为临时措施） |
+| 6 | 全文删除 `MigrationTest` 引用（**已完成**，见 A0 实施记录） |
 
-**⚠️ 第 6 项的临时性必须显式标注**：`fallbackToDestructiveMigration` 在开发期是对的，但一旦公开发布就是 P0 级红线（`AppDatabase.kt:58-64` 写明的理由仍然成立）。建议在 `AGENTS.md` 加一条带日期的"发布前必办"清单。
+**已完成并从本步移除的项**：`AGENTS.md` §3 门禁措辞（A0 已改）、`MIGRATION_1_2` 删除与 `fallbackToDestructiveMigration()` 加入（A0 已加，代码里留了 `TODO(发布前删除)`）。
+
+### A6 — 周期对账兜底（兑现 D-14，新增步骤）
+
+> **为什么单独成为一步而不是塞进 A3**：它是**产品承诺的缺口**，不是重构的一部分。混进 A3 会让"重构顺手加了个 Worker"与"补上了一个一直缺的能力"混在一起，回滚时无法分离。
+
+| 序 | 内容 |
+| ---: | --- |
+| 1 | 引入 `androidx.work:work-runtime`（**唯一新增运行时依赖**） |
+| 2 | `ReconcileWorker`：无网络、无输入，`doWork()` 只调一次 `AlarmReconciler.rescheduleAll` |
+| 3 | `PeriodicWorkRequest` 15 分钟一轮（WorkManager 下限），`ExistingPeriodicWorkPolicy.KEEP` 防重入；`setBackoffCriteria` 指数退避 |
+| 4 | 在 `BootReceiver` / `App.onCreate` 统一 enqueue（**保证唯一触发点**） |
+| 5 | 逾期槽位补判 + 未来窗口补投影 + 全量重排（复用 `rescheduleAll`，零重复逻辑） |
+
+**这解决的是 P0-2 的结构性盲区，不只是"加个兜底"**：
+
+`FINAL-PRODUCT:159` 的验收标准是「真机矩阵连续 **7 天**零漏提醒」，而 P0-2 的机制边界恰好是**闹钟视野 7 天**（`AlarmReconciler.kt:47` 的 `plusDays(7)`）。**验收时长等于机制边界 ⇒ 第 8 天的问题在测试期内结构上不可能被发现。** 上一轮审查没能抓到它，不是运气差，是这个巧合。
+
+周期对账把"重新排闹钟"从"必须靠某次用户行为触发"变成"最多 15 分钟后自愈"，两个后果：
+1. 视野窗口从 7 天扩到 7 天 + 15 分钟容错，**验收标准改 21 天后机制才真正跟得上**；
+2. 即便视野设置仍被改错，漏掉的闹钟也会被补排，**故障从"静默漏提醒"降级为"延迟 15 分钟"**。
+
+**必须一起做的**（否则 A6 只是装饰）：
+- `AlarmReconciler.rescheduleAll` 需幂等 —— A3-6 的 diff 式重排是它的前提；
+- 恢复点必须在 `paused_until` 到期时生效（A2-4 的派生函数）—— 否则暂停到期要等用户开 App 才恢复；
+- `WorkManager` 自带进程唤醒，**不需要也不应该有**前台常驻服务（§6.5 明确不引入）。
+
+**已知取舍**：`PeriodicWorkRequest` 的实际执行间隔由系统按电量/厂商策略决定，**15 分钟是名义下限不是保证**。因此 A6 是**第二层兜底**，第一层仍是 A3-7 的 `AlarmReceiver` 触发后续期（那个是即时的）。两者缺一不可。
 
 ---
 
@@ -604,8 +674,11 @@ Intent(context, AlarmReceiver::class.java)
 | 1 | **「准时率」指标**（`FINAL-PRODUCT` D-11 列为 v1-P0，`README.md:320` 降为 P2） | (a) 实现；(b) 改文档统一为 P2；(c) 保持"完成率"但**把 UI 文案从「按时」改为「已服」** | **(c) 优先** —— 这一步不需要任何口径决策，纯消除误导（`StatsEngine` 当前不区分时间差，文案却写"按时"）。(a)/(b) 待产品决策 |
 | 2 | **`balance_after` 快照列保留 or 删除** | (a) 保留 + I2 持续校验；(b) 删除，流水列表改显示"变动量"不显示结余 | **(a)** —— `minSdk 26` 无窗口函数，删了就只能显示变动量，UX 退化。I2 把"缓存"变成"被检查的缓存" |
 | 3 | **阶段 B 的 `ical4j` 是否真引入** | (a) 引入库；(b) 只吸收 RRULE 语义 + 官方测试向量，自实现 3 种频率 | **先 (b) 后议 (a)** —— 阶段 B 开工时先确认 `ical4j` 的依赖树与体积是否可接受（`core/domain` 要保持零 Android 依赖 + 可 JVM 直测，这是硬约束）。若 (b)，I7/I8 属性化测试的语料直接来自 RFC 5545 官方示例 |
+| 4 | **暂停是否需要结束日** | (a) `paused_until: String?`（`null`=未暂停 / `''`=无限期 / 日期=暂停至该日含）；(b) 保持纯布尔 | **✅ 已拍板 (a)** —— 用户 2026-09-28 决定。`FINAL-PRODUCT` M-02 明确要求「暂停至某日」，纯布尔无法表达。并入 A2 一次建对，详见 §2.6 |
 
-**另需确认（非阻塞）**：`FINAL-PRODUCT` D-14 的「WorkManager + 启动对账自愈」表述有误（WorkManager 不适用于精确闹钟，见 §6.5），实施 A3-7 时应一并订正文档；`D-6`（全部文案走 strings.xml）与同文档 §七（v1 不做多语言）自相矛盾，建议在文档层面择一，不在本期动代码。
+**另需确认（非阻塞）**：`D-6`（全部文案走 strings.xml）与 `FINAL-PRODUCT` §七（v1 不做多语言）自相矛盾，建议在文档层面择一，不在本期动代码。
+
+> 早期版本此处曾记「D-14 的 WorkManager 表述有误」。**该判断已撤回**，理由见 §附录 A.2：WorkManager 确实不适用于*精确闹钟本身*，但 D-14 说的是**兜底对账**（周期性地重跑一次 `AlarmReconciler`，把错过的槽位补上并重排闹钟），这正是 WorkManager 该做的事，属于 D-14 的正确表达。
 
 ---
 
@@ -629,3 +702,63 @@ Intent(context, AlarmReceiver::class.java)
 | 闹钟可靠性 | 真机 **21 天**零漏提醒，覆盖 Doze / 杀后台 / 重启 / 改时 / 改时区 / 权限被拒 / 权限被撤销（**21 天而非 7 天的理由见 `CODE-REVIEW-20260927-sbf.md` P0-2 末段：验收时长不得等于机制边界**） |
 | 备份往返 | 导出 → 清库 → 导入 → 再导出，两次 JSON 字节相等（属性测试 I-A4） |
 | UI 走查 | `python tools\app_screenshots.py --clear --seed` 跑通，`manifest.md` 无新增失败项，**并逐张看图** |
+| 暂停到期 | 暂停某药至「明天」→ 不排闹钟 → 改系统日期到后天 → 周期对账后**自动恢复排闹钟**，且**不回填**暂停期间的槽位 |
+
+---
+
+## 附录 A — 外部方案对照（2026-09-28）
+
+> 来源：`temp/docs/` 下 9 份文档 —— Sonnet 5、GPT、Grok、K3 四家各 2 份（总体方案 + 工程化设计），外加一份四家对比总结。本附录记录**逐条回代码核实后**的判断，而不是转述那份对比文档的结论。
+
+### A.1 四家独立收敛到的共识（本设计已在主干上命中）
+
+1. 内核纯逻辑、零 Android 依赖 —— 我们的 `SlotProjectionEngine` 已是纯 `object` + `java.time`，无 `android.*` import
+2. 计划与实例分离 —— 我们是 `schedule_policies` / `dose_slots` / `dose_records` 三层
+3. 改计划不冲历史 —— 我们是 `reconcileSchedule` 只删未来 PENDING
+4. 统一对账入口 —— 我们是 `AlarmReconciler.rescheduleAll`
+5. DB 是唯一事实源，AlarmManager 是可重建的派生状态 —— 我们的写路径全部先提交事务再排闹钟
+6. 不用 `setRepeating` —— 我们只 `setExact` / `setAlarmClock` 单次
+7. 权限是平台运行时能力，不是业务状态 —— 我们有 `permission_check` 页
+8. 不用 `Date.now() + interval` 做时间加法 —— 我们的引擎是**按日步进 + 命中判定**，与 Sonnet 的 `OccurrenceGenerator` 同一策略
+
+**方向无需怀疑，不重写。**
+
+### A.2 对比文档高估的两项（不采纳）
+
+| 项 | 对比文档结论 | 核实结论 |
+| --- | --- | --- |
+| **月度规则 MONTHLY** | "P0 真实缺口，0.5–1 人日" | ❌ **对我们不成立**。`FINAL-PRODUCT` M-02 枚举的频次只有「每日 / 隔 N 天 / 每周特定天 / 按需(PRN)」。四家都有 MONTHLY 是因为在做通用日历提醒；"每月 31 号"在吃药场景的重要性远低于"漏提醒"。**不排期** |
+| **确定性实例 ID** | "P1 缺口，1–2 人日" | ❌ **与 A3-5 是二选一，不是补充**。它的目标是"重投影后闹钟/通知身份不变"。A3-5 的内容寻址用另一种方式达成同一目标，且不需改主键：同一 `Uri` 重注册天然**替换**旧 `PendingIntent` 而非堆积，孤儿闹钟问题消失。两样都做是冗余。**维持内容寻址** |
+
+### A.3 对比文档漏掉的一项（必须补，已排进 A5-3）
+
+**DST 属性测试**。K3 的 P5 表述很到位：对 DST 切换日断言「UTC 间隔恰好 23h/25h，而本地时刻恒为 8:00」。我们的引擎用 `java.time` + `ZoneId.systemDefault()`，用户语义存本地时间、调度存绝对时刻，这条性质**目前没有任何测试守着** —— 引擎里任何一个"顺手改成 UTC 日"的改动都会静默破坏换时区后的提醒，而这类 bug 只在用户真的跨时区时才显形。
+
+### A.4 对比文档漏掉的一项产品能力缺口（已并入 A2）
+
+**「暂停至某日」**（`FINAL-PRODUCT` M-02）。对比文档的 4 项缺口清单里没有它。现状 `is_paused` 是纯布尔，无法表达结束日，用户只能"暂停到某天"然后靠记忆回来手动恢复。详见 §2.6，用户已拍板采纳。
+
+### A.5 对比文档的一处事实错误（记录以免再被采信）
+
+它写「`requestCode = dose_slots.id`（自增主键，**零碰撞**）」—— 这是**直接采信了 `AlarmScheduler.kt:15` 的注释**，没有核 `PendingIntent` 的判重语义。
+
+实际（**P0-1，至今未修**）：`PendingIntent` 相等 = `requestCode` + `Intent.filterEquals`（**extras 不参与**）。`AlarmScheduler.pendingIntent` 两个分支的 component（`AlarmReceiver`）与 action（`DOSE_ALARM`）完全相同，于是 `advance(slotId=1)` 的 `1*10+1 = 11` 与 `main(slotId=11)` 的 `11` 是**同一个 PendingIntent**。后果是提前提醒被吞，且 `cancel(槽位1)` 会连带杀掉槽位 11 的主闹钟。代码注释「两个号段天然不相交」在数学上错误。
+
+> 教训记在这里，因为它正是本轮反复出现的失效模式：**注释和文档里的断言，和实现一起被采信，没人验证。** 本项目的门禁（编译 → 测试 → 模拟器 → 看图）之所以要求"每条测试必须能失败"，原因就在这里。
+
+### A.6 关于"借机制不搬仪式"
+
+对比文档最终建议的采纳清单（按其自评）：
+
+| 优先级 | 项 | 我们的处理 |
+| --- | --- | --- |
+| P0 | 月度规则 | ❌ 不采纳（A.2） |
+| P0 | WorkManager 周期对账 | ✅ **新增 A6**（且升级为"D-14 承诺缺口 + P0-2 结构性盲区"） |
+| P1 | 属性测试 + 朴素对拍 | ✅ A0 已做属性测试；朴素参照对拍见 A5 |
+| P1 | 确定性槽位 ID | ❌ 不采纳（A.2） |
+| P2 | 变更干跑预览 | ⏸ 不排期（体验项，优先级低于"不漏提醒"） |
+| P2 | 锚点配对（同日提前服用后改计划） | ⏸ 不排期，但**记录**：当前 `dose_slots` 的 `(medication_id, scheduled_date, scheduled_time)` UNIQUE 约束（A2-4）已经把"同日同时点"去重兜住了，跨时点配对是更细的语义 |
+| P3 | 抽离纯 JVM `:core` Gradle 模块 | ⏸ 不排期。`SlotProjectionEngine` 已是纯函数，**编译期物理隔离的边际收益主要是防"偷 import"**。可在下次大重构时顺带做 |
+| — | 单一全局闹钟 / 全量事件溯源 / PIT+JMH 全套 | ❌ **不建议**。单机个人规模下，现有"状态位 + 逐槽闹钟 + 库存流水"更务实 |
+
+**我们领先、不要为套方案而推倒的部分**：库存流水台账（四家都把库存当可选外挂或干脆不做）、PRN 按需（Sonnet 推到 v1.1）、CYCLE 吃 N 停 M（只有 Sonnet 有）、事实可撤销 + 库存可冲正（比 K3 的"MISSED 终态不可撤销"更符合"误触可改正"）、物理断网（`AndroidManifest` 不申请 `INTERNET`）。

@@ -26,6 +26,7 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
+import java.time.LocalDate
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -296,7 +297,9 @@ class AppDatabaseRealTest {
                 txType = TransactionType.CALIBRATION_ADJUST, note = "建档"
             )
         )
-        medDao.updatePauseStatus(medId, true)
+        db.reminderSettingsDao().ensureDefaults(medId)
+        db.reminderSettingsDao().setPausedUntil(medId, "2026-12-31")
+        db.reminderSettingsDao().updateBehavior(medId, isCriticalReminder = true, snoozeMinutes = 15, advanceMinutes = 10)
         medDao.updateArchiveStatus(medId, true)
         val before = medDao.getMedicationById(medId)!!
 
@@ -314,9 +317,6 @@ class AppDatabaseRealTest {
             precautions = listOf("整粒吞服禁嚼碎", "禁葡萄柚"),
             noticeShort = "温水吞服",
             expiryDate = "2027-12-31",
-            isCriticalReminder = true,
-            snoozeMinutes = 15,
-            advanceMinutes = 10,
             minStockAlert = 20000,
             updatedAt = System.currentTimeMillis()
         )
@@ -326,16 +326,19 @@ class AppDatabaseRealTest {
         assertThat(after.unit).isEqualTo("粒")
         assertThat(after.precautions).containsExactly("整粒吞服禁嚼碎", "禁葡萄柚")
         assertThat(after.expiryDate).isEqualTo("2027-12-31")
-        assertThat(after.isCriticalReminder).isTrue()
-        assertThat(after.snoozeMinutes).isEqualTo(15)
-        assertThat(after.advanceMinutes).isEqualTo(10)
         assertDoseValue(after.minStockAlert, 20f)
         // 状态位与账面绝不能被档案编辑波及
-        assertThat(after.isPaused).isTrue()
         assertThat(after.isArchived).isTrue()
         assertThat(after.isStockTracked).isTrue()
         assertThat(medDao.getOverviewById(medId)?.stock).isEqualTo(30f)
         assertThat(after.createdAt).isEqualTo(before.createdAt)
+        // ⚠️ A2 的核心断言：提醒运行态已不在 medications 表上，
+        // 档案编辑**在结构上就不可能**碰到它（不是"测出来没变"，是"没有这条写路径"）
+        val rs = db.reminderSettingsDao().getByMedicationId(medId)!!
+        assertThat(rs.isCriticalReminder).isTrue()
+        assertThat(rs.snoozeMinutes).isEqualTo(15)
+        assertThat(rs.advanceMinutes).isEqualTo(10)
+        assertThat(rs.pausedUntil).isEqualTo("2026-12-31")
     }
 
     @Test
@@ -350,24 +353,64 @@ class AppDatabaseRealTest {
             )
         )
         val before = medDao.getMedicationById(medId)!!
+        db.reminderSettingsDao().ensureDefaults(medId)
 
-        medDao.updateReminderBehavior(
-            id = medId,
+        // 提醒行为三列归 reminder_settings 表独占
+        db.reminderSettingsDao().updateBehavior(
+            medicationId = medId,
             isCriticalReminder = true,
             snoozeMinutes = 10,
-            advanceMinutes = 5,
-            isPaused = true
+            advanceMinutes = 5
         )
+        db.reminderSettingsDao().setPausedUntil(medId, "")
 
         val after = medDao.getMedicationById(medId)!!
-        assertThat(after.isCriticalReminder).isTrue()
-        assertThat(after.snoozeMinutes).isEqualTo(10)
-        assertThat(after.advanceMinutes).isEqualTo(5)
-        assertThat(after.isPaused).isTrue()
+        val rs = db.reminderSettingsDao().getByMedicationId(medId)!!
+        assertThat(rs.isCriticalReminder).isTrue()
+        assertThat(rs.snoozeMinutes).isEqualTo(10)
+        assertThat(rs.advanceMinutes).isEqualTo(5)
+        assertThat(rs.isPausedOn(LocalDate.now())).isTrue()   // "" = 无限期
+        // 档案、库存、预警线、归档位一律不动
         assertThat(after.name).isEqualTo(before.name)
         assertThat(medDao.getOverviewById(medId)?.stock).isEqualTo(8f)
         assertDoseValue(after.minStockAlert, 5f)
         assertThat(after.isArchived).isEqualTo(before.isArchived)
+    }
+
+    @Test
+    fun `reminder_settings 表已无 medications 上的提醒列`() = runTest {
+        // A2 的结构性保证：不是靠"两条写路径都写全了"，而是"只有一条写路径"。
+        val medCols = db.openHelper.readableDatabase
+            .query("PRAGMA table_info(medications)").use { c ->
+                val n = c.getColumnIndexOrThrow("name")
+                buildSet { while (c.moveToNext()) add(c.getString(n)) }
+            }
+        assertThat(medCols).doesNotContain("is_critical_reminder")
+        assertThat(medCols).doesNotContain("snooze_minutes")
+        assertThat(medCols).doesNotContain("advance_minutes")
+        assertThat(medCols).doesNotContain("is_paused")
+
+        val rsCols = db.openHelper.readableDatabase
+            .query("PRAGMA table_info(reminder_settings)").use { c ->
+                val n = c.getColumnIndexOrThrow("name")
+                buildSet { while (c.moveToNext()) add(c.getString(n)) }
+            }
+        assertThat(rsCols).containsAtLeast(
+            "medication_id", "is_critical_reminder", "snooze_minutes",
+            "advance_minutes", "paused_until"
+        )
+    }
+
+    @Test
+    fun `删除药品时提醒设置随外键级联清除`() = runTest {
+        val medId = medDao.insert(MedicationEntity(name = "待删药"))
+        db.reminderSettingsDao().ensureDefaults(medId)
+        db.reminderSettingsDao().setPausedUntil(medId, "2026-12-31")
+        assertThat(db.reminderSettingsDao().getByMedicationId(medId)).isNotNull()
+
+        medDao.deleteById(medId)
+
+        assertThat(db.reminderSettingsDao().getByMedicationId(medId)).isNull()
     }
 
     @Test

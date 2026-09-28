@@ -390,11 +390,9 @@ private fun TodayTimelineCard(items: List<TimelineItem>) {
 
             items.forEachIndexed { idx, item ->
                 val unit = item.medication?.unit ?: "片"
-                val doseText = if (item.slot.doseAmount % 1f == 0f) {
-                    "${item.slot.doseAmount.toInt()} $unit"
-                } else {
-                    "${item.slot.doseAmount} $unit"
-                }
+                // doseAmount 是整数毫单位（D-7）。原先的 `doseAmount % 1f == 0f` 判断
+                // 能编译（Kotlin 允许 Int % Float）却恒为真，会把 1 片显示成「1000 片」。
+                val doseText = Quantity.withUnit(Dose(item.slot.doseAmount).asFloat, unit)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

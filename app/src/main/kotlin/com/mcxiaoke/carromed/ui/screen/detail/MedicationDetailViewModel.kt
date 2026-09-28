@@ -10,9 +10,11 @@ import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
+import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
+import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,6 +24,13 @@ import java.time.ZoneId
 
 data class MedDetailUiState(
     val medication: MedicationEntity? = null,
+    /**
+     * 提醒运行态（A2 起独占 `reminder_settings` 表）。
+     *
+     * 暂停是**派生**的（`isPausedOn(today)`），不是这里的一个布尔字段 ——
+     * 存第二份必然在到期自动恢复后漂移。
+     */
+    val reminderSettings: ReminderSettingsEntity = ReminderSettingsEntity(0L),
     val policy: SchedulePolicyEntity? = null,
     val times: List<PolicyTimeEntity> = emptyList(),
     val transactions: List<InventoryTransactionEntity> = emptyList(),
@@ -49,6 +58,8 @@ class MedicationDetailViewModel(
     private val inventoryDao = db.inventoryTransactionDao()
     private val slotDao = db.doseSlotDao()
     private val recordDao = db.doseRecordDao()
+    private val reminderSettingsDao = db.reminderSettingsDao()
+    private val adminService = MedicationAdminService(db)
 
     private val _uiState = MutableStateFlow(MedDetailUiState())
     val uiState: StateFlow<MedDetailUiState> = _uiState.asStateFlow()
@@ -99,6 +110,7 @@ class MedicationDetailViewModel(
 
             _uiState.value = MedDetailUiState(
                 medication = med,
+                reminderSettings = reminderSettingsDao.ensureDefaults(medId),
                 policy = policy,
                 times = times,
                 transactions = txList,
@@ -128,11 +140,26 @@ class MedicationDetailViewModel(
             PolicyType.PRN, null -> 0
         }.let { days -> if (timesCount == 0) 0 else days.coerceAtLeast(0) }
 
-    fun togglePause() {
-        val med = _uiState.value.medication ?: return
+    /**
+     * 暂停提醒。
+     *
+     * @param until `null` = **无限期**（出差 / 住院这类"不知道哪天回来"）；
+     *             非 null = 暂停至该日**含**，到期自动恢复。
+     *
+     * 恢复点是 A6 的周期对账 —— 用户不必回来开 App。
+     * 存的是**意图**，日期比较一律交给 `ReminderSettingsEntity.isPausedOn`。
+     */
+    fun pauseReminderUntil(until: LocalDate?) {
         viewModelScope.launch {
-            val newPaused = !med.isPaused
-            medDao.updatePauseStatus(med.id, newPaused)
+            adminService.setPausedUntil(medId, until?.toString() ?: "")
+            rescheduleAlarms()
+            loadData()
+        }
+    }
+
+    fun resumeReminder() {
+        viewModelScope.launch {
+            adminService.resume(medId)
             rescheduleAlarms()
             loadData()
         }

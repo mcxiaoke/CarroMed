@@ -95,6 +95,10 @@ class ReminderSettingsViewModel(
                 _uiState.value = _uiState.value.copy(isLoading = false, error = "药品不存在或已被删除")
                 return@launch
             }
+            // 提醒运行态独占 reminder_settings 表（A2）。先确保有行 ——
+            // 否则下面 save() 的 UPDATE 会命中 0 行，用户改了设置点保存却毫无变化。
+            val rs = db.reminderSettingsDao().ensureDefaults(medId)
+            val today = LocalDate.now()
             val policy = policyDao.getActivePolicyForMedication(medId)
             val times = if (policy != null) policyDao.getTimesForPolicy(policy.id) else emptyList()
 
@@ -104,19 +108,20 @@ class ReminderSettingsViewModel(
                 isLoading = false,
                 policyType = policy?.policyType ?: PolicyType.DAILY,
                 intervalDays = (policy?.intervalDays ?: 2).coerceIn(2, 30),
-                daysOfWeek = policy?.daysOfWeek?.ifEmpty { null } ?: emptyList(),
+                daysOfWeek = policy?.daysOfWeek?.takeIf { it.isNotEmpty() } ?: emptyList(),
                 cycleOnDays = (policy?.cycleOnDays ?: 21).coerceAtLeast(1),
                 cycleOffDays = (policy?.cycleOffDays ?: 7).coerceAtLeast(0),
-                startDate = policy?.startDate ?: LocalDate.now().format(SlotProjectionEngine.DATE_FORMATTER),
+                startDate = policy?.startDate ?: today.format(SlotProjectionEngine.DATE_FORMATTER),
                 hasEndDate = policy?.endDate != null,
                 endDate = policy?.endDate,
                 times = times.sortedBy { it.sortOrder }.map {
                     ReminderTimeDraft(it.timeOfDay, Dose(it.doseAmount).asFloat, it.label)
                 },
-                isCriticalReminder = med.isCriticalReminder,
-                snoozeMinutes = med.snoozeMinutes.coerceIn(0, 120).let { if (it == 0) 30 else it },
-                advanceMinutes = med.advanceMinutes.coerceIn(0, 120),
-                isPaused = med.isPaused
+                isCriticalReminder = rs.isCriticalReminder,
+                // 0 是"跟随全局设置"的档位，UI 上显示为 30
+                snoozeMinutes = rs.snoozeMinutes.coerceIn(0, 120).let { if (it == 0) 30 else it },
+                advanceMinutes = rs.advanceMinutes.coerceIn(0, 120),
+                isPaused = rs.isPausedOn(today)
             )
             refreshPreview()
         }
@@ -217,16 +222,22 @@ class ReminderSettingsViewModel(
                 )
             )
 
-            // 提醒行为写回药品档案 (只写这几个字段，不动其它档案与状态位)
-            val med = s.medication
-            if (med != null) {
-                medDao.updateReminderBehavior(
-                    id = medId,
+            // 提醒行为写回 reminder_settings (只写这三列，不动药品档案、库存、暂停状态)。
+            // P0-5 至此没有第二条写路径。snoozeMinutes 的 30 是 UI 的"跟随全局"档位，存 0。
+            adminService.saveReminderBehavior(
+                MedicationAdminService.ReminderBehaviorDraft(
+                    medId = medId,
                     isCriticalReminder = s.isCriticalReminder,
                     snoozeMinutes = if (s.snoozeMinutes == 30) 0 else s.snoozeMinutes,
-                    advanceMinutes = s.advanceMinutes,
-                    isPaused = s.isPaused
+                    advanceMinutes = s.advanceMinutes
                 )
+            )
+            // 暂停归详情页的开关所有；提醒设置页只读展示，不在这里改。
+            val wasPaused = db.reminderSettingsDao().getByMedicationId(medId)
+                ?.isPausedOn(LocalDate.now()) == true
+            if (s.isPaused != wasPaused) {
+                if (s.isPaused) adminService.setPausedUntil(medId, "")
+                else adminService.resume(medId)
             }
 
             trackingService.reconcileSchedule(medId)

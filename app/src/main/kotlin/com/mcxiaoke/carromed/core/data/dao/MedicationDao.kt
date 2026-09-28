@@ -7,8 +7,35 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
+import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.model.MedicationOverview
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+
+/**
+ * 读模型（药品档案 + 台账余额 + 提醒运行态）的公共 SELECT 片段。
+ *
+ * 提到文件顶层而不是放进 `@Dao` 接口的 companion object —— Room 会把无注解的
+ * 非抽象成员当 DAO 方法处理并直接报错。
+ *
+ * `stock` 已在 SQL 里 `/1000.0` 从毫单位换算为展示值（`int / 1000.0` 在 SQLite 里
+ * 走 REAL 运算，不会整数除法截断）。
+ */
+private const val OVERVIEW_SELECT = """
+    SELECT m.*,
+           COALESCE(t.balance, 0) / 1000.0 AS stock,
+           COALESCE(rs.is_critical_reminder, 0) AS isCriticalReminder,
+           COALESCE(rs.snooze_minutes, 0) AS snoozeMinutes,
+           COALESCE(rs.advance_minutes, 0) AS advanceMinutes,
+           rs.paused_until AS pausedUntil
+    FROM medications m
+    LEFT JOIN (
+        SELECT medication_id, SUM(change_amount) AS balance
+        FROM inventory_transactions
+        GROUP BY medication_id
+    ) t ON t.medication_id = m.id
+    LEFT JOIN reminder_settings rs ON rs.medication_id = m.id
+"""
 
 /**
  * 药品数据访问接口
@@ -16,11 +43,14 @@ import kotlinx.coroutines.flow.Flow
  * ## 读路径与写路径的分工
  *
  * - **写路径**用 [MedicationEntity]，且一律走**细粒度局部 UPDATE**（见各方法 KDoc）。
- * - **读路径**（列表 / 详情 / 今日 / 药箱）用 [MedicationOverview]，它比实体多一个 `stock` 字段 ——
- *   该字段由台账流水聚合而来，是库存余额的**唯一权威值**。
+ * - **读路径**（列表 / 详情 / 今日 / 药箱）用 [MedicationOverview]，它在档案之外还带
+ *   ①由台账流水聚合出的 `stock`（库存余额的**唯一权威值**）与
+ *   ②来自 `reminder_settings` 表的提醒运行态。
  *
- * `medications` 表**不再存储 `current_stock`**。任何"改账面"的想法都必须改写为
- * "往 `inventory_transactions` 追加一条流水"（由 `DoseTrackingService` 负责）。
+ * `medications` 表**既不存储 `current_stock`，也不存储任何提醒运行态列**。
+ * 任何"改账面"的想法都必须改写为"往 `inventory_transactions` 追加一条流水"
+ * （由 `DoseTrackingService` 负责）；任何"改提醒行为"的想法都必须走
+ * `ReminderSettingsDao`。
  */
 @Dao
 interface MedicationDao {
@@ -34,100 +64,89 @@ interface MedicationDao {
     @Update
     suspend fun update(medication: MedicationEntity)
 
-    // ==================== 读路径：带派生库存余额 ====================
+
+    // ==================== 读路径：档案 + 派生余额 + 提醒运行态 ====================
 
     /**
-     * 在服药品列表（含聚合出的 `stock`）。
+     * 单行投影的**扁平载体**。
      *
-     * 用 LEFT JOIN 一次取回，避免 N+1：余额来自台账聚合子查询，未建账的药品返回 0。
+     * 为什么不直接把 `ReminderSettingsEntity` 用 `@Embedded` 嵌进 `MedicationOverview`：
+     * 那要求 Room 把一个 `@Entity` 当 POJO 展开，且 `medication_id` 与外层的 `id`
+     * 语义重复、极易在某次加列时静默错位。改成"扁平行 + 显式映射"后，
+     * 列名与来源在 [toOverview] 里一目了然，映射关系也无法被 Room 猜错。
      */
-    @Query(
-        """
-        SELECT m.*, COALESCE(t.balance, 0) / 1000.0 AS stock
-        FROM medications m
-        LEFT JOIN (
-            SELECT medication_id, SUM(change_amount) AS balance
-            FROM inventory_transactions
-            GROUP BY medication_id
-        ) t ON t.medication_id = m.id
-        WHERE m.is_archived = 0
-        ORDER BY m.id DESC
-        """
-    )
-    fun observeActiveOverviews(): Flow<List<MedicationOverview>>
+    data class MedicationOverviewRow(
+        @Embedded val medication: MedicationEntity,
+        /** 台账聚合出的余额，已由 SQL 从毫单位换算为展示值 */
+        val stock: Float,
+        val isCriticalReminder: Boolean,
+        val snoozeMinutes: Int,
+        val advanceMinutes: Int,
+        val pausedUntil: String?
+    ) {
+        fun toOverview(): MedicationOverview = MedicationOverview(
+            medication = medication,
+            stock = stock,
+            reminderSettings = ReminderSettingsEntity(
+                medicationId = medication.id,
+                isCriticalReminder = isCriticalReminder,
+                snoozeMinutes = snoozeMinutes,
+                advanceMinutes = advanceMinutes,
+                pausedUntil = pausedUntil
+            )
+        )
+    }
 
-    @Query(
-        """
-        SELECT m.*, COALESCE(t.balance, 0) / 1000.0 AS stock
-        FROM medications m
-        LEFT JOIN (
-            SELECT medication_id, SUM(change_amount) AS balance
-            FROM inventory_transactions
-            GROUP BY medication_id
-        ) t ON t.medication_id = m.id
-        WHERE m.is_archived = 0
-        ORDER BY m.id DESC
-        """
-    )
-    suspend fun getActiveOverviews(): List<MedicationOverview>
+    /**
+     * 读模型 JOIN 的公共片段。
+     *
+     * 库存余额来自台账聚合子查询（`stock` 已在 SQL 里 `/1000.0` 换算为展示值），
+     * 提醒运行态来自 `reminder_settings` 的 LEFT JOIN（药品刚建未写设置时补默认值）。
+     *
+     * 一次 JOIN 取全，避免 N+1 —— A2 拆表**不增加**任何页面的查询次数。
+     *
+     * SQL 片段见文件顶层的 `OVERVIEW_SELECT`（`@Dao` 接口内不允许 companion object，
+     * Room 会对非抽象且无注解的方法报错）。
+     */
 
-    @Query(
-        """
-        SELECT m.*, COALESCE(t.balance, 0) / 1000.0 AS stock
-        FROM medications m
-        LEFT JOIN (
-            SELECT medication_id, SUM(change_amount) AS balance
-            FROM inventory_transactions
-            GROUP BY medication_id
-        ) t ON t.medication_id = m.id
-        WHERE m.is_archived = 1
-        ORDER BY m.updated_at DESC
-        """
-    )
-    fun observeArchivedOverviews(): Flow<List<MedicationOverview>>
+    @Query(OVERVIEW_SELECT + " WHERE m.is_archived = 0 ORDER BY m.id DESC")
+    fun observeActiveOverviewRows(): Flow<List<MedicationOverviewRow>>
 
-    /** 全部药品（含归档），带余额。用于药箱双 Tab 与全局排序。 */
-    @Query(
-        """
-        SELECT m.*, COALESCE(t.balance, 0) / 1000.0 AS stock
-        FROM medications m
-        LEFT JOIN (
-            SELECT medication_id, SUM(change_amount) AS balance
-            FROM inventory_transactions
-            GROUP BY medication_id
-        ) t ON t.medication_id = m.id
-        ORDER BY m.id DESC
-        """
-    )
-    fun observeAllOverviews(): Flow<List<MedicationOverview>>
+    @Query(OVERVIEW_SELECT + " WHERE m.is_archived = 0 ORDER BY m.id DESC")
+    suspend fun getActiveOverviewRows(): List<MedicationOverviewRow>
 
-    @Query(
-        """
-        SELECT m.*, COALESCE(t.balance, 0) / 1000.0 AS stock
-        FROM medications m
-        LEFT JOIN (
-            SELECT medication_id, SUM(change_amount) AS balance
-            FROM inventory_transactions
-            GROUP BY medication_id
-        ) t ON t.medication_id = m.id
-        WHERE m.id = :id
-        """
-    )
-    fun observeOverviewById(id: Long): Flow<MedicationOverview?>
+    @Query(OVERVIEW_SELECT + " WHERE m.is_archived = 1 ORDER BY m.updated_at DESC")
+    fun observeArchivedOverviewRows(): Flow<List<MedicationOverviewRow>>
 
-    @Query(
-        """
-        SELECT m.*, COALESCE(t.balance, 0) / 1000.0 AS stock
-        FROM medications m
-        LEFT JOIN (
-            SELECT medication_id, SUM(change_amount) AS balance
-            FROM inventory_transactions
-            GROUP BY medication_id
-        ) t ON t.medication_id = m.id
-        WHERE m.id = :id
-        """
-    )
-    suspend fun getOverviewById(id: Long): MedicationOverview?
+    /** 全部药品（含归档），供药箱双 Tab 与全局排序 */
+    @Query(OVERVIEW_SELECT + " ORDER BY m.id DESC")
+    fun observeAllOverviewRows(): Flow<List<MedicationOverviewRow>>
+
+    @Query(OVERVIEW_SELECT + " WHERE m.id = :id")
+    fun observeOverviewRowById(id: Long): Flow<MedicationOverviewRow?>
+
+    @Query(OVERVIEW_SELECT + " WHERE m.id = :id")
+    suspend fun getOverviewRowById(id: Long): MedicationOverviewRow?
+
+    // ---- 面向调用方的读模型（映射在 Kotlin 侧完成）----
+
+    fun observeActiveOverviews(): Flow<List<MedicationOverview>> =
+        observeActiveOverviewRows().map { rows -> rows.map { it.toOverview() } }
+
+    suspend fun getActiveOverviews(): List<MedicationOverview> =
+        getActiveOverviewRows().map { it.toOverview() }
+
+    fun observeArchivedOverviews(): Flow<List<MedicationOverview>> =
+        observeArchivedOverviewRows().map { rows -> rows.map { it.toOverview() } }
+
+    fun observeAllOverviews(): Flow<List<MedicationOverview>> =
+        observeAllOverviewRows().map { rows -> rows.map { it.toOverview() } }
+
+    fun observeOverviewById(id: Long): Flow<MedicationOverview?> =
+        observeOverviewRowById(id).map { it?.toOverview() }
+
+    suspend fun getOverviewById(id: Long): MedicationOverview? =
+        getOverviewRowById(id)?.toOverview()
 
     // ==================== 写路径：档案实体 ====================
 
@@ -169,9 +188,6 @@ interface MedicationDao {
             precautions = :precautions,
             notice_short = :noticeShort,
             expiry_date = :expiryDate,
-            is_critical_reminder = :isCriticalReminder,
-            snooze_minutes = :snoozeMinutes,
-            advance_minutes = :advanceMinutes,
             min_stock_alert = :minStockAlert,
             updated_at = :updatedAt
         WHERE id = :id
@@ -190,42 +206,16 @@ interface MedicationDao {
         precautions: List<String>,
         noticeShort: String,
         expiryDate: String,
-        isCriticalReminder: Boolean,
-        snoozeMinutes: Int,
-        advanceMinutes: Int,
         minStockAlert: Int,
         updatedAt: Long
     )
 
-    /**
-     * 局部更新「提醒行为」维度 (提醒设置页专用)。
-     *
-     * 与 [updateProfile] 一样是局部 UPDATE —— 提醒设置绝不能顺手改掉药品名称或库存。
-     *
-     * ⚠️ P0-5 尚未在本 DAO 层根除：`is_critical_reminder` 等三列同时出现在
-     * [updateProfile] 与本方法的 SET 列表里，两条写路径可能不同步。
-     * 阶段 A2 会把这三列（连同 `is_paused`）迁到独立的 `reminder_settings` 表，
-     * 使每组列只有一条写路径。见 `docs/REMINDER-DOMAIN-REDESIGN.md` §1.1。
-     */
-    @Query(
-        """
-        UPDATE medications SET
-            is_critical_reminder = :isCriticalReminder,
-            snooze_minutes = :snoozeMinutes,
-            advance_minutes = :advanceMinutes,
-            is_paused = :isPaused,
-            updated_at = :updatedAt
-        WHERE id = :id
-        """
-    )
-    suspend fun updateReminderBehavior(
-        id: Long,
-        isCriticalReminder: Boolean,
-        snoozeMinutes: Int,
-        advanceMinutes: Int,
-        isPaused: Boolean,
-        updatedAt: Long = System.currentTimeMillis()
-    )
+    // ❗ `updateReminderBehavior` 与 `updatePauseStatus` 已删除。
+    //
+    // 它们写的四列现在住在 `reminder_settings` 表，由 `ReminderSettingsDao` 独占。
+    // 删除的真正价值不是"拆表"，而是**P0-5 至此没有第二条写路径了**：
+    // 此前这四列同时出现在 `updateProfile`（档案页）与 `updateReminderBehavior`
+    // （提醒页）的 SET 列表里，两条命令各写一遍，漏传任何一边都会静默丢配置。
 
     /**
      * 仅更新有效期（库存页专用）。
@@ -239,7 +229,7 @@ interface MedicationDao {
 
     /** 仅更新库存预警线 (库存管理页专用) */
     @Query("UPDATE medications SET min_stock_alert = :alert, updated_at = :updatedAt WHERE id = :id")
-    suspend fun updateMinStockAlert(id: Long, alert: Float, updatedAt: Long = System.currentTimeMillis())
+    suspend fun updateMinStockAlert(id: Long, alert: Int, updatedAt: Long = System.currentTimeMillis())
 
     /**
      * 库存追踪开关位。
@@ -253,8 +243,8 @@ interface MedicationDao {
     @Query("DELETE FROM medications WHERE id = :id")
     suspend fun deleteById(id: Long)
 
-    @Query("UPDATE medications SET is_paused = :isPaused, updated_at = :updatedAt WHERE id = :id")
-    suspend fun updatePauseStatus(id: Long, isPaused: Boolean, updatedAt: Long = System.currentTimeMillis())
+    // ❗ `updatePauseStatus` 已删除 —— 暂停状态归 `reminder_settings.paused_until`，
+    //    由 `ReminderSettingsDao.setPausedUntil` / `resume` 独占写入。
 
     @Query("UPDATE medications SET is_archived = :isArchived, updated_at = :updatedAt WHERE id = :id")
     suspend fun updateArchiveStatus(id: Long, isArchived: Boolean, updatedAt: Long = System.currentTimeMillis())

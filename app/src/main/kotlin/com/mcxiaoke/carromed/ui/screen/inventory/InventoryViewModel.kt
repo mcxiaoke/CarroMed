@@ -209,7 +209,7 @@ class InventoryViewModel(
             if (expiry != null) {
                 medDao.updateExpiryDate(medId, expiry)
             }
-            medDao.updateMinStockAlert(medId, alert)
+            medDao.updateMinStockAlert(medId, Dose.of(alert).milli)
             _uiState.value = _uiState.value.copy(isSaving = false, message = "已保存")
             load()
         }

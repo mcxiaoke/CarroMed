@@ -8,6 +8,7 @@ import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import java.time.LocalDate
 import kotlinx.coroutines.launch
 
 /**
@@ -34,13 +35,18 @@ class AlarmReceiver : BroadcastReceiver() {
                     Log.i("AlarmReceiver", "skip: slot not open (status=${slot?.status})")
                     return@launch
                 }
-                val med = db.medicationDao().getMedicationById(slot.medicationId)
-                Log.i("AlarmReceiver", "med loaded: ${med?.name}, paused=${med?.isPaused}, archived=${med?.isArchived}")
-                if (med == null || med.isPaused || med.isArchived) return@launch
+                // 一次 JOIN 取回药品档案 + 台账余额 + 提醒运行态。
+                // 拆表没有让这里变慢：原先是"查槽位 + 查药品"两次，现在仍是两次，
+                // 且提醒运行态顺带一次取回（原先要再查第三次）。
+                val overview = db.medicationDao().getOverviewById(slot.medicationId)
+                val med = overview?.medication
+                val paused = overview?.isPausedOn(LocalDate.now()) == true
+                Log.i("AlarmReceiver", "med loaded: ${med?.name}, paused=$paused, archived=${med?.isArchived}")
+                if (overview == null || paused || overview.medication.isArchived) return@launch
 
                 // 按药品解析提醒行为 (推迟时长 / 夜间静音 / 重要提醒)，全部读用户真实配置
                 val behavior = ReminderSettings.resolve(context, db, med.id)
-                Notifications.showDoseNotification(context, slot, med, behavior)
+                Notifications.showDoseNotification(context, slot, overview, behavior)
                 Log.i("AlarmReceiver", "notification shown for slot=$slotId")
             } catch (t: Throwable) {
                 Log.e("AlarmReceiver", "failed to show notification", t)

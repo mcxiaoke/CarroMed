@@ -63,26 +63,24 @@ data class MedicationEntity(
     @ColumnInfo(name = "is_stock_tracked")
     val isStockTracked: Boolean = false,
 
-    // ---- 以下为 schema v2 新增：按药品维度的提醒行为与有效期 ----
+    // ---- 有效期：属于药品档案本身（跟着药盒走），留在本表 ----
 
     /** 药品有效期至 (yyyy-MM-dd)，空串表示未记录。用于库存临期提醒 */
     @ColumnInfo(name = "expiry_date")
     val expiryDate: String = "",
 
-    /** 重要提醒：置 true 时该药的闹钟走更激进的唤醒策略 (响铃/全屏)，忽略夜间静音 */
-    @ColumnInfo(name = "is_critical_reminder")
-    val isCriticalReminder: Boolean = false,
-
-    /** 该药专属的"稍后提醒"时长 (分钟)。0 表示跟随全局设置 */
-    @ColumnInfo(name = "snooze_minutes")
-    val snoozeMinutes: Int = 0,
-
-    /** 该药专属的"提前提醒"时长 (分钟)。0 表示准点提醒 */
-    @ColumnInfo(name = "advance_minutes")
-    val advanceMinutes: Int = 0,
-
-    @ColumnInfo(name = "is_paused")
-    val isPaused: Boolean = false,
+    // ❗ 以下四列已迁到 `reminder_settings` 表（1:1）：
+    // `is_critical_reminder` / `snooze_minutes` / `advance_minutes` / `is_paused`
+    //
+    // 迁出理由见 docs/REMINDER-DOMAIN-REDESIGN.md §1.3 —— 关键不是"表变漂亮"，
+    // 而是**每组列只有一条写路径**。混表时，档案页的整行覆盖会抹掉提醒配置（P0-5
+    // 漏传型），而提醒页为了少写几行改用 20 列宽命令，又会拿陈旧快照覆盖回档案（P0-5
+    // 被迫重传型）。
+    //
+    // `is_paused` 还顺带升级为 `reminder_settings.paused_until`（带结束日），
+    // 以满足 FINAL-PRODUCT M-02「暂停至某日」。**"是否暂停"是派生量不是存储量**，
+    // 判断必须走 `ReminderSettingsEntity.isPausedOn(today)`，不要写
+    // `paused_until != null` —— 到期后那样写会让闹钟静默消失。
 
     @ColumnInfo(name = "is_archived")
     val isArchived: Boolean = false,

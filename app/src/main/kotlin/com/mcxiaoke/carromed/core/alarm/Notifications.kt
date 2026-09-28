@@ -12,6 +12,9 @@ import androidx.core.app.NotificationManagerCompat
 import com.mcxiaoke.carromed.MainActivity
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
+import com.mcxiaoke.carromed.core.data.model.MedicationOverview
+import com.mcxiaoke.carromed.ui.component.Quantity
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 
 /**
@@ -99,18 +102,24 @@ object Notifications {
     fun showDoseNotification(
         context: Context,
         slot: DoseSlotEntity,
-        med: MedicationEntity,
+        /**
+         * 传读模型而不是裸 `MedicationEntity`。
+         *
+         * 重要提醒标记已随 A2 迁到 `reminder_settings` 表，实体上取不到；
+         * 更重要的是**签名本身就是护栏** —— 若这里收实体，调用方必须自己去别处
+         * 拼 `isCriticalReminder`，拼错就是"重要药品夜里被静音"这种静默故障。
+         */
+        overview: MedicationOverview,
         behavior: ReminderSettings.Behavior = ReminderSettings.Behavior()
     ) {
+        val med = overview.medication
         ensureChannel(context)
 
-        val doseText = if (slot.doseAmount % 1f == 0f) {
-            "${slot.doseAmount.toInt()} ${med.unit}"
-        } else {
-            "${slot.doseAmount} ${med.unit}"
-        }
+        // doseAmount 是整数毫单位（D-7）。⚠️ 原先的 `doseAmount % 1f == 0f`
+        // 判断能编译（Kotlin 允许 Int % Float）却恒为真，会把 1 片显示成「1000 片」。
+        val doseText = Quantity.withUnit(Dose(slot.doseAmount).asFloat, med.unit)
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        val silent = ReminderSettings.shouldSilence(behavior, med.isCriticalReminder, hour)
+        val silent = ReminderSettings.shouldSilence(behavior, overview.isCriticalReminder, hour)
         val channel = if (silent) CHANNEL_DOSE_REMINDER_SILENT else CHANNEL_DOSE_REMINDER
 
         val body = buildString {
@@ -131,7 +140,7 @@ object Notifications {
         val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(
-                if (med.isCriticalReminder) "重要提醒：${med.name}" else "该吃药了：${med.name}"
+                if (overview.isCriticalReminder) "重要提醒：${med.name}" else "该吃药了：${med.name}"
             )
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))

@@ -92,7 +92,8 @@ class MedicationAdminServiceTest {
                 minStockAlert = 10f
             )
         )
-        medDao.updatePauseStatus(id, true)
+        db.reminderSettingsDao().ensureDefaults(id)
+        db.reminderSettingsDao().setPausedUntil(id, "")
         medDao.updateArchiveStatus(id, true)
         medDao.updateStockTracking(id, true)
         inventoryDao.insert(
@@ -129,7 +130,8 @@ class MedicationAdminServiceTest {
         assertDoseValue(after.minStockAlert, 20f)
         // 不可编辑/未提交的字段必须原样保留
         assertThat(after.alias).isEqualTo("新赛斯平")
-        assertThat(after.isPaused).isTrue()
+        // 暂停已迁到 reminder_settings（A2）：档案编辑结构上碰不到它
+        assertThat(db.reminderSettingsDao().getByMedicationId(id)?.isPausedOn(LocalDate.now())).isTrue()
         assertThat(after.isArchived).isTrue()
         assertThat(after.isStockTracked).isTrue()
         db.assertLedgerBalance(id, 42f)

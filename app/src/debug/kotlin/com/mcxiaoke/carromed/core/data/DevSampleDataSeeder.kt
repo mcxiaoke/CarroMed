@@ -307,5 +307,16 @@ object DevSampleDataSeeder {
                 status = SlotStatus.PENDING
             )
         )
+
+        // 提醒运行态默认行。
+        //
+        // 正常建药路径由 `MedicationAdminService.saveProfile` 调 `ensureDefaults` 建行；
+        // 本播种器是**直插实体**、绕过那条路径的。若不同步补上，演示数据里的药
+        // 会缺 `reminder_settings` 行 —— 读路径靠 LEFT JOIN + 默认值仍能正常工作，
+        // 但"新建药品必有提醒设置行"这条不变量在演示数据上就不成立了，
+        // 而演示数据正是走查与人工验收的依据。
+        listOf(med1Id, med2Id, med3Id, med4Id).forEach { id ->
+            db.reminderSettingsDao().ensureDefaults(id)
+        }
     }
 }

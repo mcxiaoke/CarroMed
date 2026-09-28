@@ -11,6 +11,7 @@ import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
+import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
@@ -155,11 +156,23 @@ object DataExporter {
                     .put("minStockAlertMilli", m.minStockAlert)
                     .put("isStockTracked", m.isStockTracked)
                     .put("expiryDate", m.expiryDate)
-                    .put("isCriticalReminder", m.isCriticalReminder)
-                    .put("snoozeMinutes", m.snoozeMinutes)
-                    .put("advanceMinutes", m.advanceMinutes)
-                    .put("isPaused", m.isPaused).put("isArchived", m.isArchived)
+                    .put("isArchived", m.isArchived)
                     .put("createdAt", m.createdAt).put("updatedAt", m.updatedAt))
+            }
+        })
+
+        // 提醒运行态单列一张数组（A2 拆表后它不再属于药品档案）。
+        // 拆成独立数组而不是塞回 medications 对象：恢复时两张表按 id 关联，
+        // 混在一个对象里会让"哪些字段是档案、哪些是运行态"在备份文件里重新糊在一起。
+        root.put("reminderSettings", JSONArray().apply {
+            db.reminderSettingsDao().getAll().forEach { s ->
+                put(JSONObject()
+                    .put("medicationId", s.medicationId)
+                    .put("isCriticalReminder", s.isCriticalReminder)
+                    .put("snoozeMinutes", s.snoozeMinutes)
+                    .put("advanceMinutes", s.advanceMinutes)
+                    // null 必须原样保留：null=未暂停、""=无限期，两者语义完全不同
+                    .put("pausedUntil", s.pausedUntil ?: JSONObject.NULL))
             }
         })
 
@@ -306,15 +319,36 @@ object DataExporter {
                         minStockAlert = m.optInt("minStockAlertMilli", 0),
                         isStockTracked = m.optBoolean("isStockTracked", false),
                         expiryDate = m.optString("expiryDate", ""),
-                        isCriticalReminder = m.optBoolean("isCriticalReminder", false),
-                        snoozeMinutes = m.optInt("snoozeMinutes", 0),
-                        advanceMinutes = m.optInt("advanceMinutes", 0),
-                        isPaused = m.optBoolean("isPaused", false),
                         isArchived = m.optBoolean("isArchived", false),
                         createdAt = m.optLong("createdAt", System.currentTimeMillis()),
                         updatedAt = m.optLong("updatedAt", System.currentTimeMillis())
                     )
                 })
+
+                // 恢复提醒运行态。必须**晚于**药品恢复（外键约束），
+                // 且对每个药品都补一行默认值 —— 备份来自旧版本（无该数组）时
+                // 走这条兜底，避免"恢复后提醒设置页一保存就静默失败"。
+                val reminderSettingsJson = root.optJSONArray("reminderSettings") ?: JSONArray()
+                db.reminderSettingsDao().deleteAll()
+                (0 until reminderSettingsJson.length()).forEach { i ->
+                    val s = reminderSettingsJson.getJSONObject(i)
+                    db.reminderSettingsDao().insert(
+                        ReminderSettingsEntity(
+                            medicationId = s.getLong("medicationId"),
+                            isCriticalReminder = s.optBoolean("isCriticalReminder", false),
+                            snoozeMinutes = s.optInt("snoozeMinutes", 0),
+                            advanceMinutes = s.optInt("advanceMinutes", 0),
+                            pausedUntil = if (s.isNull("pausedUntil")) null
+                            else s.optString("pausedUntil", "")
+                        )
+                    )
+                }
+                (0 until medications.length()).forEach { i ->
+                    val medId = medications.getJSONObject(i).getLong("id")
+                    if (db.reminderSettingsDao().getByMedicationId(medId) == null) {
+                        db.reminderSettingsDao().insert(ReminderSettingsEntity(medicationId = medId))
+                    }
+                }
 
                 val policies = root.optJSONArray("schedulePolicies") ?: JSONArray()
                 db.schedulePolicyDao().insertAllPolicies((0 until policies.length()).map { i ->

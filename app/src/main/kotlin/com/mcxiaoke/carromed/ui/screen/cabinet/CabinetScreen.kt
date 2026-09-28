@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
 import com.mcxiaoke.carromed.ui.component.Quantity
+import java.time.LocalDate
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 
@@ -336,14 +337,17 @@ fun CabinetMedCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (med.isPaused) {
+                // 暂停说明由 ReminderSettingsEntity 统一生成（含"N 天后恢复"），
+                // 不要在 UI 里重写一遍日期比较 —— 两处实现必然漂移。
+                val pauseText = item.overview.pauseDescription(LocalDate.now())
+                if (pauseText != null) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Surface(
                         shape = RoundedCornerShape(4.dp),
                         color = MaterialTheme.colorScheme.tertiaryContainer
                     ) {
                         Text(
-                            text = "提醒已暂停",
+                            text = pauseText,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer

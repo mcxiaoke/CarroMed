@@ -1,4 +1,5 @@
 package com.mcxiaoke.carromed.ui.screen.detail
+import android.app.DatePickerDialog
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -55,6 +56,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,6 +75,8 @@ import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
 import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
+import java.time.LocalDate
+import java.util.Calendar
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -100,6 +104,8 @@ fun MedicationDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showAllRecords by remember { mutableStateOf(false) }
 
+    var showPauseDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     Scaffold(
         topBar = {
             TopAppBar(
@@ -132,18 +138,22 @@ fun MedicationDetailScreen(
             runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
         } ?: MaterialTheme.colorScheme.primary
 
+
         // PRN(按需) 没有定时排班，状态徽标要如实反映，不能沿用"提醒进行中"
         val policyType = uiState.policy?.policyType
         val isPrn = policyType == null || policyType == PolicyType.PRN
+        // 暂停说明与判定统一走 ReminderSettingsEntity（含"暂停至某日"的到期恢复语义）
+        val pauseText = uiState.reminderSettings.pauseDescription(LocalDate.now())
+        val isPaused = pauseText != null
         val statusText = when {
             med.isArchived -> "已停药归档"
-            med.isPaused -> "提醒已暂停"
+            isPaused -> pauseText!!
             isPrn -> "按需服用 · 无定时提醒"
             else -> "提醒进行中"
         }
         val statusColor = when {
             med.isArchived -> MaterialTheme.colorScheme.outline
-            med.isPaused || isPrn -> MaterialTheme.colorScheme.tertiary
+            isPaused || isPrn -> MaterialTheme.colorScheme.tertiary
             else -> SuccessGreen
         }
 
@@ -263,22 +273,29 @@ fun MedicationDetailScreen(
                 }
             }
 
-            // ---------- 3. 暂停提醒快捷开关 ----------
+            // ---------- 3. 暂停提醒 ----------
+            //
+            // `FINAL-PRODUCT` M-02 要求「暂停至某日」，而 `reminder_settings.paused_until`
+            // 有三态（null 未暂停 / "" 无限期 / 日期）。所以这里不能是一个开关：
+            // 已暂停时按钮直接恢复；未暂停时弹出对话框让用户选暂停多久。
+            // 若只做开关，`paused_until` 就是一个"存了却没有写路径"的列。
             item {
                 OutlinedButton(
-                    onClick = { viewModel.togglePause() },
+                    onClick = {
+                        if (isPaused) viewModel.resumeReminder() else showPauseDialog = true
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(46.dp),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Icon(
-                        imageVector = if (med.isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(if (med.isPaused) "恢复提醒" else "暂停提醒")
+                    Text(if (isPaused) "恢复提醒" else "暂停提醒")
                 }
             }
 
@@ -530,6 +547,58 @@ fun MedicationDetailScreen(
         }
     }
 
+    if (showPauseDialog && med != null) {
+        // 暂停时长三选一，对应 paused_until 的三种非空取值。
+        // 不给"默认 30 分钟"之类的隐式档位 —— 暂停是对医嘱的临时覆盖，
+        // 猜一个时长比让用户明确选更危险。
+        AlertDialog(
+            onDismissRequest = { showPauseDialog = false },
+            title = { Text("暂停提醒到什么时候？", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    PauseOptionRow("暂停到明天") {
+                        showPauseDialog = false
+                        viewModel.pauseReminderUntil(LocalDate.now().plusDays(1))
+                    }
+                    PauseOptionRow("暂停到一周后") {
+                        showPauseDialog = false
+                        viewModel.pauseReminderUntil(LocalDate.now().plusDays(7))
+                    }
+                    PauseOptionRow("暂停到指定日期") {
+                        showPauseDialog = false
+                        val cal = Calendar.getInstance()
+                        DatePickerDialog(
+                            context,
+                            { _, y, m, d ->
+                                viewModel.pauseReminderUntil(
+                                    LocalDate.of(y, m + 1, d)
+                                )
+                            },
+                            cal.get(Calendar.YEAR),
+                            cal.get(Calendar.MONTH),
+                            cal.get(Calendar.DAY_OF_MONTH)
+                        ).apply {
+                            // 不允许选过去的日期 —— 选过去等于「立即暂停但永远不到期」
+                            datePicker.minDate = System.currentTimeMillis() - 1000
+                        }.show()
+                    }
+                    PauseOptionRow("无限期暂停（需手动恢复）") {
+                        showPauseDialog = false
+                        viewModel.pauseReminderUntil(null)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "暂停期间不排闹钟；到期后自动恢复，历史服药记录与库存流水完整保留。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showPauseDialog = false }) { Text("取消") } }
+        )
+    }
+
     if (showArchiveDialog && med != null) {
         AlertDialog(
             onDismissRequest = { showArchiveDialog = false },
@@ -596,9 +665,9 @@ private fun buildReminderSummary(s: MedDetailUiState): String {
     val times = if (s.times.isEmpty()) "无固定时点" else s.times.joinToString("、") { it.timeOfDay }
     val course = if (policy.endDate != null) "至 ${policy.endDate}" else "无限期"
     val flags = buildList {
-        if (s.medication?.isCriticalReminder == true) add("重要提醒")
-        if ((s.medication?.snoozeMinutes ?: 0) > 0) add("推迟 ${s.medication?.snoozeMinutes} 分")
-        if ((s.medication?.advanceMinutes ?: 0) > 0) add("提前 ${s.medication?.advanceMinutes} 分")
+        if (s.reminderSettings.isCriticalReminder) add("重要提醒")
+        if (s.reminderSettings.snoozeMinutes > 0) add("推迟 ${s.reminderSettings.snoozeMinutes} 分")
+        if (s.reminderSettings.advanceMinutes > 0) add("提前 ${s.reminderSettings.advanceMinutes} 分")
     }
     val flagText = if (flags.isEmpty()) "" else " · ${flags.joinToString("/")}"
     return "$freq · $times · $course$flagText"
@@ -762,3 +831,15 @@ private fun RecordStatusChip(status: RecordStatus, isRetrospective: Boolean) {
 
 private fun Quantity.fmt(v: Float): String =
     if (v % 1f == 0f) v.toInt().toString() else String.format(Locale.getDefault(), "%.2f", v)
+
+/** 暂停对话框里的一行可选项。 */
+@Composable
+private fun PauseOptionRow(label: String, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(vertical = 10.dp, horizontal = 4.dp)
+    ) {
+        Text(label, modifier = Modifier.fillMaxWidth(), fontWeight = FontWeight.Medium)
+    }
+}
