@@ -169,7 +169,7 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
     fun takeDose(slotId: Long) {
         viewModelScope.launch {
             val ok = trackingService.takeDose(slotId)
-            com.mcxiaoke.carromed.core.alarm.AlarmScheduler.cancel(getApplication<Application>(), slotId)
+            cancelAlarmsOf(slotId)
             if (!ok) emitEvent("该服药记录已处理过，未重复扣减库存")
         }
     }
@@ -187,9 +187,23 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
     fun skipDose(slotId: Long) {
         viewModelScope.launch {
             val ok = trackingService.skipDose(slotId)
-            com.mcxiaoke.carromed.core.alarm.AlarmScheduler.cancel(getApplication<Application>(), slotId)
+            cancelAlarmsOf(slotId)
             if (!ok) emitEvent("该服药记录已处理过")
         }
+    }
+
+    /**
+     * 取消某槽位的**全部种类**闹钟。
+     *
+     * 闹钟身份是内容寻址的（medId/date/time/kind），不再依赖 `slot.id` 算术编码，
+     * 所以取消必须带齐定位信息。打卡 / 跳过后这次提醒就终结了，三种种类一次清干净。
+     */
+    private suspend fun cancelAlarmsOf(slotId: Long) {
+        val app = getApplication<Application>()
+        val slot = db.doseSlotDao().getSlotById(slotId) ?: return
+        com.mcxiaoke.carromed.core.alarm.AlarmScheduler.cancelAll(
+            app, slot.medicationId, slot.scheduledDate, slot.scheduledTime, slot.id
+        )
     }
 
     /** 推迟提醒：置 SNOOZED 并重排该槽位的临时闹钟 */
@@ -203,9 +217,23 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             }
             com.mcxiaoke.carromed.core.alarm.Notifications.cancelDoseNotification(app, slotId)
             val slot = db.doseSlotDao().getSlotById(slotId)
-            val triggerAt = slot?.snoozeUntilTs ?: (System.currentTimeMillis() + minutes * 60_000L)
+            if (slot == null) {
+                emitEvent("该服药记录已不存在")
+                return@launch
+            }
+            val triggerAt = slot.snoozeUntilTs ?: (System.currentTimeMillis() + minutes * 60_000L)
+            // 原定准点/提前提醒已无意义：清掉后只留一个 SNOOZE 种类
+            com.mcxiaoke.carromed.core.alarm.AlarmScheduler.cancelAll(
+                app, slot.medicationId, slot.scheduledDate, slot.scheduledTime, slot.id,
+                kinds = listOf(
+                    com.mcxiaoke.carromed.core.alarm.AlarmScheduler.Kind.MAIN,
+                    com.mcxiaoke.carromed.core.alarm.AlarmScheduler.Kind.ADVANCE
+                )
+            )
             runCatching {
-                com.mcxiaoke.carromed.core.alarm.AlarmScheduler.schedule(app, slotId, triggerAt)
+                com.mcxiaoke.carromed.core.alarm.AlarmScheduler.schedule(
+                    app, slot, triggerAt, com.mcxiaoke.carromed.core.alarm.AlarmScheduler.Kind.SNOOZE
+                )
             }.onFailure { emitEvent("推迟失败：${it.message}") }
         }
     }

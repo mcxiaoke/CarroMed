@@ -1,5 +1,6 @@
 package com.mcxiaoke.carromed.ui.navigation
 
+import android.app.Application
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.WindowInsets
@@ -25,6 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -164,13 +168,12 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             ) { backStackEntry ->
                 val medId = backStackEntry.arguments?.getLong("medId") ?: 0L
                 val vm: MedicationDetailViewModel = viewModel(
-                    factory = object : androidx.lifecycle.ViewModelProvider.Factory {
-                        @Suppress("UNCHECKED_CAST")
-                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-                            val app = backStackEntry.destination.let {
-                                navController.context.applicationContext as android.app.Application
-                            }
-                            return MedicationDetailViewModel(app, medId) as T
+                    factory = viewModelFactory {
+                        initializer {
+                            MedicationDetailViewModel(
+                                application = this[APPLICATION_KEY] as Application,
+                                medId = medId
+                            )
                         }
                     }
                 )
@@ -190,11 +193,12 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             ) { backStackEntry ->
                 val medId = backStackEntry.arguments?.getLong("medId") ?: 0L
                 val vm: ReminderSettingsViewModel = viewModel(
-                    factory = object : androidx.lifecycle.ViewModelProvider.Factory {
-                        @Suppress("UNCHECKED_CAST")
-                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-                            val app = navController.context.applicationContext as android.app.Application
-                            return ReminderSettingsViewModel(app, medId) as T
+                    factory = viewModelFactory {
+                        initializer {
+                            ReminderSettingsViewModel(
+                                application = this[APPLICATION_KEY] as Application,
+                                medId = medId
+                            )
                         }
                     }
                 )
@@ -211,11 +215,12 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             ) { backStackEntry ->
                 val medId = backStackEntry.arguments?.getLong("medId") ?: 0L
                 val vm: InventoryViewModel = viewModel(
-                    factory = object : androidx.lifecycle.ViewModelProvider.Factory {
-                        @Suppress("UNCHECKED_CAST")
-                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-                            val app = navController.context.applicationContext as android.app.Application
-                            return InventoryViewModel(app, medId) as T
+                    factory = viewModelFactory {
+                        initializer {
+                            InventoryViewModel(
+                                application = this[APPLICATION_KEY] as Application,
+                                medId = medId
+                            )
                         }
                     }
                 )
@@ -236,13 +241,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             ) { backStackEntry ->
                 val medId = backStackEntry.arguments?.getLong("medId")?.takeIf { it > 0 }
                 val vm: AddEditMedicationViewModel = viewModel(
-                    factory = object : androidx.lifecycle.ViewModelProvider.Factory {
-                        @Suppress("UNCHECKED_CAST")
-                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-                            val app = navController.context.applicationContext as android.app.Application
-                            // 有 medId = 编辑既有药品 (仅药品信息维度);
+                    factory = viewModelFactory {
+                        initializer {
+                            // 有 medId = 编辑既有药品 (仅药品信息维度)
                             // 无 medId = 新增 (药品信息 + 提醒计划 + 初始库存 一次填完)
-                            return AddEditMedicationViewModel(app, medId) as T
+                            AddEditMedicationViewModel(
+                                application = this[APPLICATION_KEY] as Application,
+                                medId = medId
+                            )
                         }
                     }
                 )
@@ -263,11 +269,12 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             ) { backStackEntry ->
                 val medId = backStackEntry.arguments?.getLong("medId")?.takeIf { it > 0 }
                 val vm: ManualDoseViewModel = viewModel(
-                    factory = object : androidx.lifecycle.ViewModelProvider.Factory {
-                        @Suppress("UNCHECKED_CAST")
-                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-                            val app = navController.context.applicationContext as android.app.Application
-                            return ManualDoseViewModel(app, medId) as T
+                    factory = viewModelFactory {
+                        initializer {
+                            ManualDoseViewModel(
+                                application = this[APPLICATION_KEY] as Application,
+                                initialMedId = medId
+                            )
                         }
                     }
                 )
@@ -284,11 +291,12 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             ) { backStackEntry ->
                 val medId = backStackEntry.arguments?.getLong("medId") ?: 0L
                 val vm: RefillViewModel = viewModel(
-                    factory = object : androidx.lifecycle.ViewModelProvider.Factory {
-                        @Suppress("UNCHECKED_CAST")
-                        override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-                            val app = navController.context.applicationContext as android.app.Application
-                            return RefillViewModel(app, medId) as T
+                    factory = viewModelFactory {
+                        initializer {
+                            RefillViewModel(
+                                application = this[APPLICATION_KEY] as Application,
+                                medId = medId
+                            )
                         }
                     }
                 )

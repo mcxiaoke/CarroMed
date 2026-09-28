@@ -350,8 +350,33 @@ class DoseTrackingService(private val db: AppDatabase) {
     // ==================== 7. 排班重对齐 ====================
 
     /**
-     * 修改计划后的排班对齐核算。
-     * 满足"修改计划后历史打卡数据不可丢失，只重投影未来未执行的 PENDING 槽位"。
+     * 修改计划后的排班对齐核算。满足「改计划后历史打卡数据不可丢失」。
+     *
+     * ## 从"全删重建"改为"幂等 diff"（P1-5）
+     *
+     * 旧实现是 `deleteFuturePendingSlots(...)` + 全量重新投影插入。三个问题：
+     *
+     * 1. **每次对账都换一批 slot id**。而 `slot.id` 是闹钟的 `requestCode`，
+     *    于是旧闹钟变成**孤儿**（新 id 的闹钟注册上去，旧 id 的还在）——
+     *    提醒会响两次，且孤儿闹钟永远不会被取消。
+     * 2. 反复删插会打断已注册的闹钟，**凭空多一次唤醒**。
+     * 3. 删了再插的过程不是原子的（虽然这里包在事务里，但事务外仍有并发对账的可能）。
+     *
+     * ## 时间轴分三区，各区规则不同
+     *
+     * ```
+     *   < fromDate            [ fromDate .. toDate ]              > toDate
+     *   ─────��───────────────┼───────────────────────────────┼──────────────
+     *    过去：绝不触碰        权威窗口：与投影逐条 diff           投机区：整段丢弃
+     *    （已服/已跳/已逾期     删：不再被命中的 PENDING/SNOOZED    理由见
+     *      是既成事实）        留：仍被命中的（**保留原 id**）      deleteSpeculativeFutureSlots
+     *                          插：新增的（DB 唯一约束兜底）
+     * ```
+     *
+     * **投机区必须整段丢弃**，这是本轮补上的一个真实泄漏：
+     * 只 diff 窗口内的话，窗口外那些"上一次顺手多排的猜测"永远删不掉；
+     * 而 `AlarmReconciler` 会给所有开放槽位排闹钟，于是改完计划后
+     * 用户会收到一个**已不存在的服药时间**的提醒，且该闹钟再也取消不掉。
      */
     suspend fun reconcileSchedule(
         medicationId: Long,
@@ -362,12 +387,6 @@ class DoseTrackingService(private val db: AppDatabase) {
         val policy = policyDao.getActivePolicyForMedication(medicationId) ?: return@withTransaction
         val times = policyDao.getTimesForPolicy(policy.id)
 
-        val fromEpochMilli = fromDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
-
-        // 核心保护：只删除未来或当天仍处于 PENDING 状态的旧槽位！
-        // 已完成(COMPLETED)或跳过(SKIPPED)的槽位绝对保留！
-        slotDao.deleteFuturePendingSlots(medicationId, fromEpochMilli)
-
         val projectedSlots = SlotProjectionEngine.projectSlots(
             policy = policy,
             times = times,
@@ -376,21 +395,40 @@ class DoseTrackingService(private val db: AppDatabase) {
             zoneId = zoneId
         )
 
-        // 过滤去重：如果当天已有同时间点且已非待处理的槽位（如已服药或已跳过），避免重复生成
-        val existingSlots = slotDao.getSlotsInRange(
-            startDate = fromDate.format(SlotProjectionEngine.DATE_FORMATTER),
-            endDate = toDate.format(SlotProjectionEngine.DATE_FORMATTER)
-        ).filter { it.medicationId == medicationId }
-        val existingSlotKeys = existingSlots.map { "${it.scheduledDate}_${it.scheduledTime}" }.toSet()
+        val fromStr = fromDate.format(SlotProjectionEngine.DATE_FORMATTER)
+        val toStr = toDate.format(SlotProjectionEngine.DATE_FORMATTER)
+        val existing = slotDao
+            .getSlotsInRange(startDate = fromStr, endDate = toStr)
+            .filter { it.medicationId == medicationId }
 
-        val slotsToInsert = projectedSlots.filter {
-            "${it.scheduledDate}_${it.scheduledTime}" !in existingSlotKeys
+        val projectedKeys = projectedSlots.map { slotKey(it.scheduledDate, it.scheduledTime) }.toSet()
+
+        // ---- 删（窗口内）：不再被投影命中的 PENDING / SNOOZED ----
+        // 已完成 / 已跳过 / 已逾期是既成事实，任何情况下都不动。
+        val obsolete = existing.filter {
+            it.status == SlotStatus.PENDING || it.status == SlotStatus.SNOOZED
+        }.filter { slotKey(it.scheduledDate, it.scheduledTime) !in projectedKeys }
+        if (obsolete.isNotEmpty()) {
+            slotDao.deleteByIds(obsolete.map { it.id })
         }
 
-        if (slotsToInsert.isNotEmpty()) {
-            slotDao.insertAll(slotsToInsert)
+        // ---- 删（投机区）：窗口之外的未来整段丢弃 ----
+        slotDao.deleteSpeculativeFutureSlots(medicationId, toStr)
+
+        // ---- 插：新增的（已被命中的保留原 id，闹钟 requestCode 因此稳定）----
+        val existingKeys = existing.map { slotKey(it.scheduledDate, it.scheduledTime) }.toSet()
+        val toInsert = projectedSlots.filter {
+            slotKey(it.scheduledDate, it.scheduledTime) !in existingKeys
+        }
+        if (toInsert.isNotEmpty()) {
+            // IGNORE + DB 唯一约束：即使与并发对账撞了重复键，也只是这一行被忽略，
+            // 而不是整批插入失败。
+            slotDao.insertAll(toInsert)
         }
     }
+
+    /** 槽位的业务唯一键，与 `dose_slots` 的 UNIQUE 索引定义保持一致 */
+    private fun slotKey(date: String, time: String): String = "$date $time"
 
     // ==================== 工具 ====================
 

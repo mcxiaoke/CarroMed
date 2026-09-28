@@ -29,6 +29,8 @@ google-services.json
 captures/
 .externalNativeBuild/
 .cxx/
+# Kotlin 2.x 的构建期缓存目录（`kotlin { compilerOptions }` 会生成）
+.kotlin/
 
 # 5. 临时文件与日志
 *.log

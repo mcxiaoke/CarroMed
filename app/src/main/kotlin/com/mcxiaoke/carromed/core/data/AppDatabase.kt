@@ -26,7 +26,33 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 
 /**
  * CarroMed Room 数据库单例定义
- * 包含 7 张实体表及 6 个对应 DAO
+ * 包含 8 张实体表及 7 个对应 DAO
+ *
+ * ## `version` 的版本史（改 schema 就必须 +1，不是可选项）
+ *
+ * | 版本 | 步骤 | 变更 |
+ * | :---: | --- | --- |
+ * | 1 | 初版 | 7 张表 |
+ * | 2 | — | （历史迁移已随"不需要迁移代码"的决策删除） |
+ * | 3 | A1 | 删 `medications.current_stock`；6 列 `REAL` → 整数毫单位；`RecordStatus.RETROSPECTIVE` 改布尔列 |
+ * | 4 | A2 | 新增 `reminder_settings` 表；`medications` 删 4 列 |
+ * | 5 | A3 | `dose_slots` 的 `(medication_id, scheduled_date, scheduled_time)` 改 **UNIQUE 索引** |
+ *
+ * ⚠️ **A1 当时漏升了版本（3 → 3）**，靠 A2 的 3 → 4 顺带补救。
+ * 这属于**运气**不是设计。核实依据（反编译 `room-runtime-2.6.1.aar` 的
+ * `androidx/room/RoomOpenHelper.class`）：
+ *
+ * - `onOpen` 只有两条指令：`super.onOpen(db); checkIdentity(db);`，
+ *   **没有 Exception table** ⇒ 异常直接向上抛。
+ * - `checkIdentity` 在 identity hash 不匹配时 `athrow IllegalStateException`，
+ *   同样**没有 Exception table**。
+ * - 破坏性回退只挂在 `onUpgrade`（版本**变大**时）这条路径上。
+ *   版本不变 ⇒ `onUpgrade` 根本不会被调用 ⇒ `fallbackToDestructiveMigration()`
+ *   **完全不覆盖**这个身份校验。
+ *
+ * 后果：版本不变而 schema 变了 ⇒ 冷启动直接崩
+ * `IllegalStateException: Room cannot verify the data integrity`。
+ * 走查脚本永远发现不了，因为每次都 `--clear` 清库。
  */
 @Database(
     entities = [
@@ -39,7 +65,7 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
         AppSettingEntity::class,
         ReminderSettingsEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(AppConverters::class)

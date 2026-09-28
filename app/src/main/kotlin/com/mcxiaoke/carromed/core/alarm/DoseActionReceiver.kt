@@ -49,7 +49,12 @@ class DoseActionReceiver : BroadcastReceiver() {
                             note = "通知栏快捷打卡"
                         )
                         Notifications.cancelDoseNotification(appContext, slotId)
-                        AlarmScheduler.cancel(appContext, slotId)
+                        // 打卡即终结这次提醒：三种闹钟种类一次清干净
+                        slot?.let {
+                            AlarmScheduler.cancelAll(
+                                appContext, it.medicationId, it.scheduledDate, it.scheduledTime, it.id
+                            )
+                        }
                         notifyUser(appContext, if (ok) "已记录服药，库存已同步 💊" else "该提醒已处理过")
                     }
 
@@ -61,7 +66,16 @@ class DoseActionReceiver : BroadcastReceiver() {
                             val snoozedSlot = db.doseSlotDao().getSlotById(slotId)
                             val triggerAt = snoozedSlot?.snoozeUntilTs
                                 ?: (System.currentTimeMillis() + minutes * 60_000L)
-                            AlarmScheduler.schedule(appContext, slotId, triggerAt)
+                            // 推迟后原定准点提醒已无意义：清掉，改排一个 SNOOZE 种类
+                            snoozedSlot?.let {
+                                AlarmScheduler.cancelAll(
+                                    appContext, it.medicationId, it.scheduledDate, it.scheduledTime, it.id,
+                                    kinds = listOf(AlarmScheduler.Kind.MAIN, AlarmScheduler.Kind.ADVANCE)
+                                )
+                                AlarmScheduler.schedule(
+                                    appContext, it, triggerAt, AlarmScheduler.Kind.SNOOZE
+                                )
+                            }
                             notifyUser(appContext, "已推迟 $minutes 分钟，到时再提醒")
                         }
                     }
@@ -69,7 +83,11 @@ class DoseActionReceiver : BroadcastReceiver() {
                     Notifications.ACTION_SKIP -> {
                         val ok = isStillOpen && tracking.skipDose(slotId, reason = "通知栏快捷跳过")
                         Notifications.cancelDoseNotification(appContext, slotId)
-                        AlarmScheduler.cancel(appContext, slotId)
+                        slot?.let {
+                            AlarmScheduler.cancelAll(
+                                appContext, it.medicationId, it.scheduledDate, it.scheduledTime, it.id
+                            )
+                        }
                         notifyUser(appContext, if (ok) "已跳过本次，不扣减库存" else "该提醒已处理过")
                     }
                 }

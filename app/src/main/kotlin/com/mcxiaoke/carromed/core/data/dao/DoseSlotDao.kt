@@ -19,11 +19,24 @@ interface DoseSlotDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(slot: DoseSlotEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    /**
+     * 批量插入。**冲突策略是 IGNORE 而非 REPLACE**（配合 `(medication_id, scheduled_date,
+     * scheduled_time)` 的 UNIQUE 索引）：
+     *
+     * - `REPLACE` 会把已有行删掉再插入新行 → **id 改变 → 闹钟 requestCode 改变 →
+     *   旧闹钟变成永远不会被取消的孤儿**。这是 P1-5 闹钟泄漏的直接成因。
+     * - `IGNORE` 保留已有行（连同它的 id 与状态），重复键只跳过这一行，
+     *   于是"重物化同一窗口"天然幂等。
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(slots: List<DoseSlotEntity>): List<Long>
 
     @Update
     suspend fun update(slot: DoseSlotEntity)
+
+    /** 幂等 diff 的"删"步骤：只删真正不再被投影命中的槽位 */
+    @Query("DELETE FROM dose_slots WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>): Int
 
     @Query("SELECT * FROM dose_slots WHERE id = :id")
     suspend fun getSlotById(id: Long): DoseSlotEntity?
@@ -95,8 +108,29 @@ interface DoseSlotDao {
     )
     suspend fun revertToPending(slotId: Long): Int
 
-    @Query("DELETE FROM dose_slots WHERE medication_id = :medicationId AND status = 'PENDING' AND scheduled_ts >= :fromTs")
-    suspend fun deleteFuturePendingSlots(medicationId: Long, fromTs: Long): Int
+    /**
+     * 丢弃**投机区**（`scheduled_date > :afterDate`）里仍开放的槽位。
+     *
+     * 投机区 = 对账窗口 `toDate` 之外的未来。之所以整段丢弃而不是逐个 diff：
+     * 我们**只对窗口内做过权威投影**，窗口外那些行是上一次对账按当时计划版本
+     * 顺手多排的猜测。计划一改（改时刻、改频次、停药），这些猜测就变成了
+     * 「已不存在的时刻」上的待服槽位。
+     *
+     * 若不清理，`AlarmReconciler` 的"给所有开放槽位排闹钟"会给它们注册闹钟，
+     * 而后续对账再也不会去改它们 —— 用户收到一个**已不存在的服药时间的提醒**，
+     * 且该闹钟永远不会被取消。
+     *
+     * 只删 `PENDING` / `SNOOZED`：已完成的槽位是既成事实，投机与否都得留着。
+     */
+    @Query(
+        """
+        DELETE FROM dose_slots
+        WHERE medication_id = :medicationId
+          AND scheduled_date > :afterDate
+          AND status IN ('PENDING', 'SNOOZED')
+        """
+    )
+    suspend fun deleteSpeculativeFutureSlots(medicationId: Long, afterDate: String): Int
 
     @Query("SELECT COUNT(*) FROM dose_slots WHERE scheduled_date = :dateStr AND status = 'COMPLETED'")
     suspend fun countCompletedSlotsForDate(dateStr: String): Int

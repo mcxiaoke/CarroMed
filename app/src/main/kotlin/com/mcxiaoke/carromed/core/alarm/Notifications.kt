@@ -73,6 +73,21 @@ object Notifications {
         nm.createNotificationChannels(listOf(loud, silent))
     }
 
+    /**
+     * 通知栏 Action 的 PendingIntent。
+     *
+     * ## 这里用算术编码是**安全**的，而 `AlarmScheduler` 里同样的写法不安全
+     *
+     * 差别在 `Intent.filterEquals` 会比较 **action**：
+     * - 本方法三个 Action 的 action 互不相同（`DOSE_TAKE` / `DOSE_SNOOZE` / `DOSE_SKIP`），
+     *   所以同一槽位的三个按钮天然是三个不同 PendingIntent；
+     * - 不同槽位之间靠 `requestCode` 区分，`slotId*10+{0,1,2}` 在 `slotId >= 1` 时无交叠。
+     *
+     * 而 `AlarmScheduler` 的 main / advance 两个分支 **action 完全相同**（`DOSE_ALARM`），
+     * 于是只能靠 requestCode 区分，而 `10N+1` 与 `M` 必然相交 —— 那就是 P0-1。
+     *
+     * ⚠️ 若将来要合并这里的算术编码，请一并确认 action 是否仍能区分两者。
+     */
     private fun actionPendingIntent(
         context: Context,
         slotId: Long,
@@ -110,7 +125,14 @@ object Notifications {
          * 拼 `isCriticalReminder`，拼错就是"重要药品夜里被静音"这种静默故障。
          */
         overview: MedicationOverview,
-        behavior: ReminderSettings.Behavior = ReminderSettings.Behavior()
+        behavior: ReminderSettings.Behavior = ReminderSettings.Behavior(),
+        /**
+         * 闹钟种类，决定标题与文案（P1-20）。
+         *
+         * 原先提前提醒和准点提醒的文案**完全一样**，用户看到"该吃药了"却还有 10 分钟，
+         * 分不清是提醒早了还是自己在看手机。
+         */
+        kind: AlarmScheduler.Kind = AlarmScheduler.Kind.MAIN
     ) {
         val med = overview.medication
         ensureChannel(context)
@@ -122,8 +144,19 @@ object Notifications {
         val silent = ReminderSettings.shouldSilence(behavior, overview.isCriticalReminder, hour)
         val channel = if (silent) CHANNEL_DOSE_REMINDER_SILENT else CHANNEL_DOSE_REMINDER
 
+        val advanceMinutes = overview.advanceMinutes
         val body = buildString {
-            append("计划 ${slot.scheduledTime} · 剂量 $doseText")
+            // ⚠️ `slot.scheduledTime` 是**原始计划时点**，不是推迟目标。
+            // 推迟目标是 `snoozeUntilTs`。SNOOZE 闹钟在 `snoozeUntilTs` 那一刻响，
+            // 此时"已推迟到 <scheduledTime>"是错的（那正是用户已经错过的时间）。
+            when (kind) {
+                AlarmScheduler.Kind.ADVANCE ->
+                    append("$advanceMinutes 分钟后到 ${slot.scheduledTime}，该服用 $doseText 了")
+                AlarmScheduler.Kind.SNOOZE ->
+                    append("推迟的时间到了 · 剂量 $doseText")
+                AlarmScheduler.Kind.MAIN ->
+                    append("计划 ${slot.scheduledTime} · 剂量 $doseText")
+            }
             if (med.noticeShort.isNotBlank()) append("\n${med.noticeShort}")
             if (silent) append("\n夜间静音中（可在设置中调整，或将该药设为重要提醒）")
         }
@@ -140,7 +173,13 @@ object Notifications {
         val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(
-                if (overview.isCriticalReminder) "重要提醒：${med.name}" else "该吃药了：${med.name}"
+                when {
+                    // 重要提醒优先：它决定的是"响不响"，不是"什么时候提醒"
+                    overview.isCriticalReminder -> "重要提醒：${med.name}"
+                    kind == AlarmScheduler.Kind.ADVANCE -> "快到时间了：${med.name}"
+                    kind == AlarmScheduler.Kind.SNOOZE -> "该吃药了（推迟后）：${med.name}"
+                    else -> "该吃药了：${med.name}"
+                }
             )
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
