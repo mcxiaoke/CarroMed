@@ -643,14 +643,68 @@ Intent(context, AlarmReceiver::class.java)
 
 ### A4 — 枚举调整 + `kotlinx.serialization` 备份
 
-| 序 | 内容 |
-| ---: | --- |
-| 1 | 删 `RecordStatus.RETROSPECTIVE`；`is_retrospective` 列保留（已是布尔） |
-| 2 | 加 `RecordStatus.REVERTED`；`DoseRecordDao` 删 `@Delete` / `deleteBySlotId`，加 `markRevertedBySlot` |
-| 3 | `undoDose` 改为状态流转（P1-1） |
-| 4 | 备份格式改 `kotlinx.serialization`（§6.4）；`formatVersion` 改为枚举 |
-| 5 | 恢复加**导入前本地快照** + 二次确认（`FINAL-PRODUCT:158` / P1-14） |
-| 6 | **测试**：I4、I11 + 备份往返属性测试（`导出→导入→再导出` 字节相等） |
+> **状态：已完成（2026-09-28 15:23 +08:00）**。1~3 项早已在 A1 落地，本轮做 4~6。
+
+| 序 | 内容 | 状态 |
+| ---: | --- | :--- |
+| 1 | 删 `RecordStatus.RETROSPECTIVE`；`is_retrospective` 列保留（已是布尔） | ✅ 已在 A1 |
+| 2 | 加 `RecordStatus.REVERTED`；`DoseRecordDao` 删 `@Delete` / `deleteBySlotId`，加 `markRevertedBySlot` | ✅ 已在 A1 |
+| 3 | `undoDose` 改为状态流转（P1-1） | ✅ 已在 A1 |
+| 4 | 备份格式改 `kotlinx.serialization`（§6.4）；`formatVersion` 改为枚举 | ⚠️ **格式码在 wire 上仍是 Int**，类型化放在 `BackupFormatVersion.from()`。改成枚举会写 `"V1"` 字符串，**所有旧备份立刻全部不可读** —— 而旧备份仍可读是净收益，没理由为"类型更漂亮"放弃 |
+| 5 | 恢复加**导入前本地快照** + 二次确认（`FINAL-PRODUCT:158` / P1-14） | ✅ 且额外前置了 `validateBackup`：先校验、**再留快照、最后才清库** |
+| 6 | **测试**：I4、I11 + 备份往返属性测试 | ✅ 19 项，见下 |
+| 7 | （计划外）**「从本机备份恢复」入口** | ✅ 实测发现：备份写在 `Android/data/<pkg>/...`，**SAF 不允许浏览该目录** ⇒ 导出了却选不回来。详见 `DataExporter.listLocalBackups` 的 KDoc |
+
+#### A4 抓到的**真实数据丢失**（不是理论风险）
+
+旧 `appSettings` 导出只写 `key` 与 `value`，`AppSettingEntity.updatedAt` **恢复即永久丢失**。
+
+之所以一直没人发现：手写 `JSONObject` 映射**没有 schema**，导出与导入两个方向要人肉同步；
+而且**从来没有一条测试跑过"导出 → 导入 → 再导出"** —— 想测一次往返得先造一个 `Uri`，
+于是编解码全埋在 `importBackup` 里，从来没被单独测过。
+
+#### A4 的核心设计：纯函数与 IO 分层
+
+| 层 | 函数 | 依赖 | 谁能测 |
+| --- | --- | --- | :---: |
+| 纯 | `buildBackup` / `encodeBackup` / `decodeBackup` / `validateBackup` / `restoreBackup` | 只有 `AppDatabase` | ✅ 直接单测 |
+| IO | `exportFullBackupJson` / `inspectBackup` / `importBackup` | `Context` / `Uri` | 需 Robolectric |
+
+**这个分层本身就是修复**：正因为纯编解码可单独测，往返链路才第一次有了测试。
+
+#### A4 实际落地的两处判断
+
+1. **`validateBackup` 必须在任何写操作之前**。旧实现先 `deleteAll*()` 再逐段解析，
+   解析到一半失败就是"清空了但没恢复成" —— 用户两头都没了。
+   它拦的是"解析不报错、但恢复中途会炸在事务里"的一类问题：悬空外键、药品 id 重复、
+   **槽位唯一键重复**、不支持的版本。缺 `reminderSettings` 只算警告（旧版本备份，恢复时补默认值）。
+
+2. **槽位重复那条最要紧**：`dose_slots` 在 A3 有了 UNIQUE 索引，而 `insertAll` 是
+   `OnConflictStrategy.IGNORE` —— 重复键会被**静默丢弃**，恢复"成功"了但少了若干槽位，
+   用户毫无察觉。校验阶段提前报错，而不是事后看行数对不上。
+
+#### A4 的测试策略：为什么"往返相等"还不够
+
+往返相等只能发现**单向**遗漏 —— 导出漏了字段 A、同时也漏了导入字段 A，往返仍然相等。
+
+所以 `BackupFieldPreservationTest` 用**手写期望的 `BackupFile`** 逐字段比对，
+能同时抓住漏字段、张冠李戴、类型不匹配三种错误。
+且种子数据**每一列都取非默认值** —— 用默认值的话"这列没被导出"与"这列恰好等于默认值"
+在断言里长得一样，测试就成了恒真断言（本项目已因此吃过两次亏）。
+
+#### A4 顺带修掉的一个**测试质量**问题：断言随时钟翻转
+
+`AlarmReconcilerIdempotencyTest` 的 4 条断言在 15:0x 全绿、15:5x 全红，
+而那段时间**一行相关代码都没改**。
+
+真因是 fixture 时点 `13:30` 跨过了「计划时间 + 2 小时」的逾期线：
+`rescheduleAll` 把当天那条结算成 `EXPIRED`，而 `reconcileSchedule` **只删
+PENDING / SNOOZED**（EXPIRED 是既成事实）⇒「一条都不剩」多出 1 条。
+
+**第一反应（把时点换成 `23:50`）是错的** —— 那只是把窗口从「每天下午」挪到
+「每天午夜前」，并没有解决问题。真正的修法是断言不变量本身：
+只断言**开放槽位**（PENDING/SNOOZED）、按**日期集合**而非条数，
+并新增一条把「暂停不删除既成事实」钉成显式不变量。已记入 `AGENTS.md` §3。
 
 ### A5 — 测试补全与门禁措辞
 
@@ -758,13 +812,15 @@ Robolectric 每个测试方法重建 `Application` 与沙箱文件系统，**单
 | 2 | **`balance_after` 快照列保留 or 删除** | (a) 保留 + I2 持续校验；(b) 删除，流水列表改显示"变动量"不显示结余 | **(a)** —— `minSdk 26` 无窗口函数，删了就只能显示变动量，UX 退化。I2 把"缓存"变成"被检查的缓存" |
 | 3 | **阶段 B 的 `ical4j` 是否真引入** | (a) 引入库；(b) 只吸收 RRULE 语义 + 官方测试向量，自实现 3 种频率 | **先 (b) 后议 (a)** —— 阶段 B 开工时先确认 `ical4j` 的依赖树与体积是否可接受（`core/domain` 要保持零 Android 依赖 + 可 JVM 直测，这是硬约束）。若 (b)，I7/I8 属性化测试的语料直接来自 RFC 5545 官方示例 |
 | 4 | **暂停是否需要结束日** | (a) `paused_until: String?`（`null`=未暂停 / `''`=无限期 / 日期=暂停至该日含）；(b) 保持纯布尔 | **✅ 已拍板 (a)** —— 用户 2026-09-28 决定。`FINAL-PRODUCT` M-02 明确要求「暂停至某日」，纯布尔无法表达。并入 A2 一次建对，详见 §2.6 |
-| 5 | **暂停中的药品，今日清单怎么表现**（A6 期间新发现） | (a) 清理暂停药的未来 PENDING 槽位，清单变诚实但"暂停中"不可见；(b) 保留槽位但标注「已暂停」，需要新增 UI 状态 | **(b) 更符合用户心智** —— 暂停是用户的主动选择，清单里凭空少几条会让用户怀疑数据丢了。代价是要在 `TodayUiState` 里加一个状态并改 `DoseSlotItem` 的渲染，**超出 A6 范围**，需单独排期。**A6 没有擅自决定**，只把测试改成断言"暂停期间不新增槽位"这一无争议的不变量 |
+| 5 | **暂停中的药品，今日清单怎么表现**（A6 期间新发现） | (a) 清理暂停药的未来 PENDING 槽位，清单变诚实但"暂停中"不可见；(b) 保留槽位但标注「已暂停」，需要新增 UI 状态 | **✅ 已拍板并实现 (a)** —— 用户 2026-09-28：「暂停的不需要在今日显示，某天显示的是当日有提醒的 item，没有提醒存在为啥要显示」。实现上**没有加显示过滤**，而是让暂停参与**投影**（`SlotProjectionEngine.projectSlots` 收 `pausedUntil`），于是今日清单、统计、闹钟三处读同一个"不存在"，不必各自再写一遍判断 |
+| 6 | **`SNOOZED` 槽位永不结算为 `EXPIRED`**（P1-2） | (a) `getStalePendingSlots` 加 `SNOOZED` 分支并按 `snooze_until_ts` 判定过期；(b) 推迟时另建一条 EXPIRED 定时任务 | **(a)** —— 单一结算入口，与 PENDING 走同一条路径。**A3 已逐行确认既没让它变好也没变坏**，仍未修，需单独排期 |
 
-> **#5 的技术事实**（A6 实测确认）：`AlarmReconciler` 把暂停的药从 `activeMeds` 剔掉，
+> **#5 的技术事实**（A6 实测确认，随后已修）：`AlarmReconciler` 原先把暂停的药从 `activeMeds` 剔掉，
 > 所以它的 `reconcileSchedule` 根本不会被调用，旧槽位原样留在库里；
 > 而 `TodayViewModel` 的 `medMap` 来自 `observeActiveOverviews()`，**只过滤 `is_archived`，不过滤暂停**。
 > 两者叠加的结果是：清单上写着"该吃药"，但闹钟已被撤掉，**永远不会响**。
 > 这是 A2 加 `paused_until` 时就存在的既有问题，不是 A3/A6 引入的。
+> 修法是让暂停参与**投影**（而不是加一层显示过滤），见 `SlotProjectionEngine` 的 KDoc。
 
 **另需确认（非阻塞）**：`D-6`（全部文案走 strings.xml）与 `FINAL-PRODUCT` §七（v1 不做多语言）自相矛盾，建议在文档层面择一，不在本期动代码。
 
