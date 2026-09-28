@@ -401,7 +401,11 @@ class DoseTrackingService(private val db: AppDatabase) {
                 times = policyDao.getTimesForPolicy(policy.id),
                 fromDate = fromDate,
                 toDate = toDate,
-                zoneId = zoneId
+                zoneId = zoneId,
+                // 暂停参与投影：暂停期内不产生槽位，于是"没有提醒"就没有"待服项"，
+                // 今日清单、统计、闹钟三处自动一致。见 SlotProjectionEngine 的 KDoc。
+                pausedUntil = db.reminderSettingsDao()
+                    .getByMedicationId(medicationId)?.pausedUntil
             )
         }
 

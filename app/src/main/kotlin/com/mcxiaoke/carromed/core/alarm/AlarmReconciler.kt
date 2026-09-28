@@ -5,6 +5,7 @@ import android.util.Log
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import java.time.LocalDate
 
@@ -90,16 +91,41 @@ object AlarmReconciler {
             Log.i(TAG, "expired ${staleSlots.size} overdue slots")
         }
 
-        // 2. 活跃药品（在服且截至今天未暂停）未来 HORIZON_DAYS 天排班幂等补齐
+        // 2. 在服药品（**含暂停中的**）未来 HORIZON_DAYS 天排班幂等补齐
         //
-        // ⚠️ 暂停判断必须走 `MedicationOverview.isPausedOn(today)`（它转给
+        // ⚠️ 这里**不能**按"截至今天未暂停"来过滤。早先那么写，导致暂停中的药
+        // 它的 `reconcileSchedule` 根本不被调用 ⇒ 暂停前已存在的槽位永远留在库里，
+        // 仍出现在今日清单上（而闹钟已被撤掉，**永远不会响**），还被统计算成"漏服"。
+        //
+        // 现在统一交给投影层：`reconcileSchedule` 会把 `pausedUntil` 传进
+        // `SlotProjectionEngine.projectSlots`，暂停期内压根不产生槽位，
+        // 于是 diff 的"删"分支自然把它们清掉。**暂停是一种排期约束，不是显示过滤。**
+        //
+        // ⚠️ 暂停判断本身必须走 `MedicationOverview.isPausedOn(date)`（它转给
         // `ReminderSettingsEntity.isPausedOn`），**不能**写成 `pausedUntil != null`：
         // 暂停到期后那种写法会让闹钟静默不再排 —— 用户以为有提醒、实际没有。
         val today = LocalDate.now()
-        val activeMeds = db.medicationDao().getActiveOverviews()
-            .filter { !it.isPausedOn(today) }
+        val schedulableMeds = db.medicationDao().getActiveOverviews()
+        val overviewByMed = schedulableMeds.associateBy { it.id }
+
+        /**
+         * 某个槽位所在日期，该药是否处于暂停中。
+         *
+         * ⚠️ 必须按**槽位自己的日期**判断，不能用"截至今天是否暂停"。
+         * 暂停到 10-05、视野到 10-12 的药：10-06~10-12 的槽位**该响**，
+         * 只有 10-05 及之前的该静默。用 `today` 一刀切会让恢复日之后的提醒全部消失。
+         *
+         * 投影层（`SlotProjectionEngine`）用的是同一个判据，两边必须一致。
+         */
+        fun isPausedOn(slot: DoseSlotEntity): Boolean {
+            val date = runCatching {
+                LocalDate.parse(slot.scheduledDate, SlotProjectionEngine.DATE_FORMATTER)
+            }.getOrNull() ?: return false
+            return overviewByMed[slot.medicationId]?.isPausedOn(date) == true
+        }
+
         val tracking = DoseTrackingService(db)
-        for (med in activeMeds) {
+        for (med in schedulableMeds) {
             runCatching {
                 tracking.reconcileSchedule(
                     medicationId = med.id,
@@ -111,12 +137,13 @@ object AlarmReconciler {
 
         // 3. 清理孤儿：快照里已不在库中（被重排删掉）或已不该排的槽位
         val stillOpen = db.doseSlotDao().getOpenSlots().associateBy { it.id }
-        val activeIds = activeMeds.map { it.id }.toSet()
+        val activeIds = schedulableMeds.map { it.id }.toSet()
         var cancelled = 0
         for (id in snapshot) {
             val slot = stillOpen[id.slotId]
             val shouldKeep = slot != null &&
                 slot.medicationId in activeIds &&
+                !isPausedOn(slot) &&
                 (slot.scheduledTs > now || slot.snoozeUntilTs?.let { it > now } == true)
             if (!shouldKeep) {
                 runCatching { id.cancelAll(context) }
@@ -125,11 +152,14 @@ object AlarmReconciler {
             }
         }
 
-        // 4. 注册：库中仍开放且活跃的槽位
-        val advanceByMed = activeMeds.associate { it.id to it.advanceMinutes }
+        // 4. 注册：库中仍开放、属于在服药品、且当日不在暂停期内的槽位
+        val advanceByMed = schedulableMeds.associate { it.id to it.advanceMinutes }
         var scheduled = 0
         for (slot in stillOpen.values) {
             if (slot.medicationId !in activeIds) continue
+            // 暂停期内不排。正常情况下这些槽位已被投影层删掉了，这里是双保险 ——
+            // 快照与本次读取之间若恰好又发生一次暂停，也能立刻撤掉闹钟。
+            if (isPausedOn(slot)) continue
             val mainAt = slot.scheduledTs
             val snoozeAt = slot.snoozeUntilTs
 
@@ -156,13 +186,13 @@ object AlarmReconciler {
             if (mainAt > now) {
                 runCatching { AlarmScheduler.schedule(context, slot, mainAt, AlarmScheduler.Kind.MAIN) }
                     .onFailure { Log.e(TAG, "schedule failed slot=${slot.id}", it) }
+                scheduled++
             }
-            scheduled++
         }
 
         Log.i(
             TAG,
-            "done: horizon=${HORIZON_DAYS}d activeMeds=${activeIds.size}, " +
+            "done: horizon=${HORIZON_DAYS}d meds=${activeIds.size}, " +
                 "openSlots=${stillOpen.size}, scheduled=$scheduled, cancelled=$cancelled"
         )
     }

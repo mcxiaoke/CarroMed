@@ -123,54 +123,98 @@ class AlarmReconcilerIdempotencyTest {
         assertThat(AlarmReconciler.HORIZON_DAYS).isAtLeast(14L)
     }
 
-    // ==================== 暂停：不新增、不补排 ====================
+    // ==================== 暂停：槽位存在 ⟺ 会提醒 ====================
     //
-    // ⚠️ 这里**不断言**"暂停后槽位被清空"。当前实现是：`AlarmReconciler` 把暂停的药
-    // 从 `activeMeds` 里剔掉，于是它的 `reconcileSchedule` 根本不会被调用，
-    // 旧槽位原样留在库里。而 `TodayViewModel` 不过滤暂停（只过滤 `is_archived`），
-    // 于是今日清单会列出这些"永远不会有闹钟"的待服项。
+    // 产品口径（用户 2026-09-28 拍板）：「今日清单显示的是**当日会提醒**的项；
+    // 没有提醒存在，为什么要在今日显示」。
     //
-    // 这是**既有问题**（A2 加的 `paused_until` 与 A3 之前的对账器都是这个行为），
-    // 修法有两条路且都要动产品语义，所以**没有顺手改**：
-    //   (a) 对账时也清理暂停药的未来 PENDING 槽位 —— 清单变得诚实，但"暂停中"不可见；
-    //   (b) 今日清单保留这些槽位但标注"已暂停" —— 需要新的 UI 状态。
-    // 已登记为待拍板项，见 `docs/REMINDER-DOMAIN-REDESIGN.md` §9。
+    // 实现选择是让暂停参与**投影**（`SlotProjectionEngine` 收 `pausedUntil`），
+    // 而不是加一层显示过滤：槽位不产生 ⇒ 今日清单、统计、闹钟三处自动一致。
+    // 早期实现只把暂停当成"影响闹钟"，于是槽位留在库里，被统计算成漏服、
+    // 也仍列在今日清单，而闹钟早已被撤掉 —— 用户看到一条永远不会兑现的待办。
 
     @Test
-    fun `暂停中的药品不再新增槽位`() = runBlocking {
+    fun `暂停期内该药的槽位被清空（而不是留在清单里当待办）`() = runBlocking {
         val medId = db.medicationDao().getActiveOverviews().first { it.name == "维生素D" }.id
         AlarmReconciler.rescheduleAll(context, db)
         val before = allSlots().count { it.medicationId == medId }
-        assertThat(before).isGreaterThan(0)
+        assertThat(before).isEqualTo(AlarmReconciler.HORIZON_DAYS.toInt() + 1)  // 每天 1 次
 
+        // 暂停至明天 ⇒ 今天 + 明天两天的槽位都不该存在
         db.reminderSettingsDao().setPausedUntil(medId, today.plusDays(1).toString())
         repeat(3) { AlarmReconciler.rescheduleAll(context, db) }
 
-        // 暂停期间不增长（其余的药照常排班，说明是按药品粒度过滤）
-        assertThat(allSlots().count { it.medicationId == medId }).isEqualTo(before)
-        assertThat(allSlots().any { it.medicationId != medId }).isTrue()
+        assertThat(allSlots().count { it.medicationId == medId }).isEqualTo(before - 2)
+        // 暂停期内的日期一条都不剩 —— 这正是"今日清单不会显示它"的保证
+        assertThat(allSlots().any { it.medicationId == medId && it.scheduledDate <= today.plusDays(1).toString() })
+            .isFalse()
     }
 
     @Test
-    fun `暂停结束后对账立刻把窗口补满 且 id 稳定`() = runBlocking {
+    fun `暂停只影响该药 其它药照常排班`() = runBlocking {
+        val medId = db.medicationDao().getActiveOverviews().first { it.name == "维生素D" }.id
+        AlarmReconciler.rescheduleAll(context, db)
+        val othersBefore = allSlots().count { it.medicationId != medId }
+
+        db.reminderSettingsDao().setPausedUntil(medId, "")
+        AlarmReconciler.rescheduleAll(context, db)
+
+        assertThat(allSlots().count { it.medicationId != medId }).isEqualTo(othersBefore)
+    }
+
+    @Test
+    fun `无限期暂停清空该药全部未来槽位`() = runBlocking {
+        val medId = db.medicationDao().getActiveOverviews().first { it.name == "维生素D" }.id
+        AlarmReconciler.rescheduleAll(context, db)
+        assertThat(allSlots().count { it.medicationId == medId }).isGreaterThan(0)
+
+        // "" = 无限期，须用户手动恢复
+        db.reminderSettingsDao().setPausedUntil(medId, "")
+        AlarmReconciler.rescheduleAll(context, db)
+
+        assertThat(allSlots().count { it.medicationId == medId }).isEqualTo(0)
+    }
+
+    @Test
+    fun `恢复后窗口补满 恢复日之后的槽位保留原 id`() = runBlocking {
         val medId = db.medicationDao().getActiveOverviews().first { it.name == "维生素D" }.id
         AlarmReconciler.rescheduleAll(context, db)
         val before = allSlots().filter { it.medicationId == medId }
             .sortedWith(compareBy({ it.scheduledDate }, { it.scheduledTime }))
+        val pauseEnd = today                       // 暂停至今天 ⇒ 只压掉今天
+        val idBefore = before.associateBy { it.scheduledDate }
 
-        db.reminderSettingsDao().setPausedUntil(medId, today.toString())
+        db.reminderSettingsDao().setPausedUntil(medId, pauseEnd.toString())
         AlarmReconciler.rescheduleAll(context, db)
-        // 暂停到今天 ⇒ `isPausedOn(today)` 为真，不排新槽位
-        assertThat(allSlots().count { it.medicationId == medId }).isEqualTo(before.size)
+        assertThat(allSlots().count { it.medicationId == medId }).isEqualTo(before.size - 1)
 
         db.reminderSettingsDao().resume(medId)
         AlarmReconciler.rescheduleAll(context, db)
         val after = allSlots().filter { it.medicationId == medId }
             .sortedWith(compareBy({ it.scheduledDate }, { it.scheduledTime }))
 
-        // 恢复后窗口完整，且既有槽位一行不动（闹钟身份因此稳定）
+        // 恢复后窗口完整
         assertThat(after).hasSize(before.size)
-        assertThat(after.map { it.id }).isEqualTo(before.map { it.id })
+        // ⭐ 恢复日**之后**的槽位一行不动 —— 它们的 id 就是闹钟身份，绝不能漂移。
+        //    恢复日当天的槽位被删过又重建，id 必然变，所以只断言"日期集合"而不是全部 id。
+        after.filter { it.scheduledDate > pauseEnd.toString() }.forEach { slot ->
+            val original = idBefore[slot.scheduledDate]
+            assertThat(original).isNotNull()
+            assertThat(slot.id).isEqualTo(original!!.id)
+        }
+    }
+
+    @Test
+    fun `暂停到期后无需用户操作 即自动恢复排班`() = runBlocking {
+        val medId = db.medicationDao().getActiveOverviews().first { it.name == "维生素D" }.id
+        // 暂停到昨天 ⇒ 按 isPausedOn 判据，今天已经不在暂停期内
+        db.reminderSettingsDao().setPausedUntil(medId, today.minusDays(1).toString())
+
+        AlarmReconciler.rescheduleAll(context, db)
+
+        // 关键：不能因为 `paused_until != null` 就判成"还暂停着"
+        assertThat(allSlots().count { it.medicationId == medId })
+            .isEqualTo(AlarmReconciler.HORIZON_DAYS.toInt() + 1)
     }
 
     // ==================== 删掉服用计划 ====================
