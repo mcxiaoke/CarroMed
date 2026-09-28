@@ -75,18 +75,38 @@ python temp\dbdump.py
 ./gradlew testDebugUnitTest
 ```
 
-- **71 项，全绿是提交前的硬门槛。**
+- **全绿是提交前的硬门槛，但门禁不是"项数"而是"不变量"。**
+  当前 118 项，覆盖 12 条不变量（见 `docs/REMINDER-DOMAIN-REDESIGN.md` §4）。
+  新增测试会推高项数，删掉无用测试会降低项数 —— 两者都不该改变门禁强度。
+  改动不变量时，**先确认守它的那条测试还在**。
 - 测试跑在 **Robolectric + 真实内存 SQLite** 上，不是 mock 数据源。
   领域层的数学守恒只有跑真库才验得出来，别为了图省事改成 mock。
+- 测试跑在 **JUnit 5 Platform** 上（`useJUnitPlatform()`），两套并存：
+  - **JUnit 4 + Robolectric**：需要 Android 环境的测试（DAO、服务、Room）
+  - **jqwik `@Property`**：纯逻辑的属性化测试（槽位投影引擎的不变量 I5–I8）
+  不要为了"统一风格"把 Robolectric 测试迁到 JUnit 5 —— 支持不完整，风险大于收益。
 - 新增测试放 `app/src/test/kotlin/com/mcxiaoke/carromed/`，按被测类同名建文件。
+  断言辅助（毫单位 ↔ 展示值换算）统一用 `core.testing.DoseAsserts.kt` 里的
+  `assertLedgerBalance` / `assertDoseValue` / `assertBalanceAfter`，
+  别手写 `Dose(x).asFloat`（A1b 改造中手写漏了 4 处，报错信息还看不出意图）。
 - 断言用 Truth（`assertThat`），不要裸 `assertTrue`。
+- **每条测试都要能失败。** 加完测试做一次变异验证：故意改坏实现，确认对应测试变红。
+  本项目已有两例真实事故是"测试全绿但实现是错的"：
+  1. `DoseTrackingServiceTest` 三项测试从未建立库存台账，却断言"库存未被改变" ——
+     恒真断言，`takeDose` 的扣减逻辑即使整个坏掉也测不出来。
+  2. `AppDatabaseRealTest` 断言 `finalMed.currentStock == ledgerSum`，
+     而 `current_stock` 恰恰是那个会被 `coerceAtLeast(0f)` 打破的列 ——
+     测试选的断言点恰好是唯一不成立的那一个。
+  写测试时先问："实现坏成什么样能让它变红？"
 
 常见失败与定位：
 
 | 现象 | 多半是 |
 | :--- | :--- |
-| `MigrationTest` 挂 | schema 改了但没升 `version` 或没写 `ALTER TABLE` |
-| 库存守恒测试挂 | 某条路径直接改了 `current_stock` 没写流水 |
+| `MigrationTest` 挂 | 该文件已随"不需要迁移代码"的决策删除，见 `docs/CHANGES-20260928.md` |
+| 库存守恒测试挂 | 某条路径绕过了 `DoseTrackingService.appendLedger` 直接写表 |
+| 断言差 1000 倍 | 毫单位（`Int`）与展示值（`Float`）量纲混用，见 `DoseAsserts.kt` |
+| jqwik 属性测试报 `should have no parameters` | JUnit 4 不允许带参，别写进 `@Test` 里 |
 | 统计聚合测试挂 | DAO 聚合 SQL 与 `StatsEngine` 口径不一致 |
 | Robolectric 报找不到资源 | `testOptions.unitTests.isIncludeAndroidResources` 被删了 |
 
