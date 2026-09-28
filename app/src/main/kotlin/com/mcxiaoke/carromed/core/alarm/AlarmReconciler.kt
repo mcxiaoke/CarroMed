@@ -78,17 +78,24 @@ object AlarmReconciler {
         // 0. 拍快照：在重排之前。孤儿闹钟只能靠这份快照找回来。
         val snapshot = db.doseSlotDao().getOpenSlots().map { it.identity() }.toSet()
 
-        // 1. 过期槽位结算: PENDING 且计划时间已过 2 小时 → EXPIRED
+        // 1. 过期槽位结算 → EXPIRED。
+        //    PENDING 按 `scheduled_ts` 判定；SNOOZED 按 `snooze_until_ts` 判定 ——
+        //    用户主动推迟过，就不该再按原计划时间算他逾期（见 DoseSlotDao.getStaleOpenSlots）。
         //    严格限定为「已排期」的历史槽位：用户此刻新建的药品若时点设为 08:30 而当前已 10:36，
         //    那是一条排在过去的槽位，同样应结算为逾期；反之未来槽位永不误判。
-        val staleSlots = db.doseSlotDao().getStalePendingSlots(now - EXPIRE_WINDOW_MS)
-        staleSlots.forEach { stale ->
-            db.doseSlotDao().updateStatus(stale.id, SlotStatus.EXPIRED, null)
+        //
+        //    两个 cutoff 是同一个 `now - EXPIRE_WINDOW_MS`：逾期宽限全 App 只有一个定义。
+        val cutoff = now - EXPIRE_WINDOW_MS
+        val staleSlots = db.doseSlotDao().getStaleOpenSlots(cutoff, cutoff)
+        val expiredCount = staleSlots.count { stale ->
+            // 幂等锚点：受影响行数为 0 说明已被别的路径结算过，不重复撤闹钟
+            if (db.doseSlotDao().markExpired(stale.id) == 0) return@count false
             // 结算即不再需要闹钟；三种种类一次清干净
             stale.identity().cancelAll(context)
+            true
         }
-        if (staleSlots.isNotEmpty()) {
-            Log.i(TAG, "expired ${staleSlots.size} overdue slots")
+        if (expiredCount > 0) {
+            Log.i(TAG, "expired $expiredCount overdue slots (pending+snoozed)")
         }
 
         // 2. 在服药品（**含暂停中的**）未来 HORIZON_DAYS 天排班幂等补齐

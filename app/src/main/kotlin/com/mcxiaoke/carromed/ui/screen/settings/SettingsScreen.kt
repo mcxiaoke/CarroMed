@@ -97,7 +97,11 @@ fun SettingsScreen(
                     if (preview.warnings.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "注意：${preview.warnings.joinToString("；")}",
+                            // 取 [BackupProblem.message]：这些条目是结构化类型，
+                            // 直接 joinToString 会输出 `BackupProblem(kind=…, message=…)`。
+                            // 能进到这里的都是**不拦住恢复**的提示（[BackupProblemKind.blocksRestore]），
+                            // 所以措辞用"注意"而不是"错误"——它们不妨碍恢复。
+                            "注意：${preview.warnings.joinToString("；") { it.message }}",
                             color = MaterialTheme.colorScheme.error
                         )
                     }

@@ -217,7 +217,10 @@ class BackupRoundTripTest {
         )
         val problems = DataExporter.validateBackup(broken)
         assertThat(problems).isNotEmpty()
-        assertThat(problems.joinToString()).contains("999")
+        // 断言**结构化类型**而不是文案：文案改字不该让测试变红/变绿
+        assertThat(problems.map { it.kind }).contains(BackupProblemKind.DANGLING_FK)
+        assertThat(problems.map { it.message }.joinToString()).contains("999")
+        assertThat(problems.all { it.blocksRestore }).isTrue()
     }
 
     @Test
@@ -232,7 +235,9 @@ class BackupRoundTripTest {
             )
         )
         val problems = DataExporter.validateBackup(broken)
-        assertThat(problems.joinToString()).contains("重复槽位")
+        assertThat(problems.map { it.kind }).contains(BackupProblemKind.DUPLICATE_SLOT_KEY)
+        // 这条必须**拦住**恢复 —— 否则 IGNORE 会静默丢行
+        assertThat(problems.all { it.blocksRestore }).isTrue()
     }
 
     @Test
@@ -240,14 +245,19 @@ class BackupRoundTripTest {
         seedMed("环孢素", listOf("08:00"))
         val backup = DataExporter.buildBackup(db, now = now)
         val broken = backup.copy(medications = backup.medications + backup.medications.first())
-        assertThat(DataExporter.validateBackup(broken).joinToString()).contains("出现了")
+        val problems = DataExporter.validateBackup(broken)
+        assertThat(problems.map { it.kind }).contains(BackupProblemKind.DUPLICATE_MEDICATION_ID)
+        // REPLACE + 外键级联 ⇒ 放行就是静默丢药品及其全部子数据
+        assertThat(problems.all { it.blocksRestore }).isTrue()
     }
 
     @Test
     fun `不受支持的版本被拒`() = runTest {
         seedMed("环孢素", listOf("08:00"))
         val broken = DataExporter.buildBackup(db, now = now).copy(formatVersion = 99)
-        assertThat(DataExporter.validateBackup(broken).joinToString()).contains("不受支持")
+        val problems = DataExporter.validateBackup(broken)
+        assertThat(problems.map { it.kind }).contains(BackupProblemKind.UNSUPPORTED_VERSION)
+        assertThat(problems.all { it.blocksRestore }).isTrue()
     }
 
     @Test
@@ -257,9 +267,9 @@ class BackupRoundTripTest {
         seedMed("环孢素", listOf("08:00"))
         val backup = DataExporter.buildBackup(db, now = now).copy(reminderSettings = emptyList())
         val problems = DataExporter.validateBackup(backup)
-        assertThat(problems).isNotEmpty()
-        assertThat(problems.joinToString()).contains("缺少提醒设置")
-        assertThat(problems.none { it.contains("不受支持") || it.contains("不存在的") }).isTrue()
+        assertThat(problems.map { it.kind }).contains(BackupProblemKind.MISSING_REMINDER_SETTINGS)
+        // ★ 唯一**不**拦住恢复的一类：拦住会让 A2 之前的备份永远恢复不了
+        assertThat(problems.none { it.blocksRestore }).isTrue()
 
         // 恢复后每个药品都补上了默认行
         DataExporter.restoreBackup(spare, backup)

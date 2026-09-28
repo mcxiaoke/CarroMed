@@ -22,6 +22,78 @@ import java.util.Date
 import java.util.Locale
 
 /**
+ * 备份校验发现的问题的**类别**。
+ *
+ * ## 为什么要有这个枚举
+ *
+ * 原实现里"这条问题要不要拦住恢复"是这么判的：
+ *
+ * ```kotlin
+ * val fatal = problems.filter { it.contains("不受支持") || it.contains("不存在的") }
+ * ```
+ *
+ * **用中文字符串关键词做控制流**。这不是风格问题，是三处真漏洞的共同根因：
+ *
+ * | 缺陷 | 旧判定的结果 | 后果 |
+ * | :--- | :--- | :--- |
+ * | 药品 id 重复 | 文案不含那两个词 ⇒ **放行** | `MedicationDao.insertAll` 是 `REPLACE`，静默覆盖并**外键级联删掉**该药的设置/计划/槽位/服药记录 |
+ * | 槽位唯一键重复 | 文案不含那两个词 ⇒ **放行** | `DoseSlotDao.insertAll` 是 `IGNORE`，静默丢行 —— 而它自己的 KDoc 写着"必须**报错**而不是静默跳过" |
+ * | 药品缺提醒设置 | `inspectText` 当 warning 放行，`importBackup` 却因 `isNotEmpty()` 整库拒绝 | 预览说"只是提示"，点确认后被拒，**用户卡死且无法绕过** |
+ *
+ * 第三条尤其荒唐：那条提示的文案自己都写着「恢复时会补默认值」，
+ * `restoreBackup` 里也确实写了 `settingsByMed` 兜底 —— 校验层和恢复层对同一件事的判断相反。
+ *
+ * ## 判据应该是什么
+ *
+ * 判据只能是**后果**，不是措辞：
+ *
+ * - 会让 Room 在事务中途抛异常 ⇒ 拦住（`DANGLING_FK`）
+ * - 会被 `REPLACE` / `IGNORE` **静默吞掉** ⇒ 拦住（两种重复）
+ * - 恢复逻辑有兜底 ⇒ 放行（`MISSING_REMINDER_SETTINGS`）
+ *
+ * 加一条新问题时，它属于哪一类是**语义决定**，必须显式写进枚举，
+ * 而不是靠后人记得在中文里加一个特定词。
+ */
+enum class BackupProblemKind(val blocksRestore: Boolean) {
+    /** 备份格式版本超出本 App 支持范围，其语义无法解析 */
+    UNSUPPORTED_VERSION(true),
+
+    /** 外键指向不存在的行：回填到一半会被 Room 的外键约束抛异常 */
+    DANGLING_FK(true),
+
+    /**
+     * 药品主键重复。
+     *
+     * ⚠️ 比外键悬空更危险：外键悬空会**响**（事务崩、用户看到错误），
+     * 而这一类是**静默的** —— `REPLACE` 覆盖掉前一行，且 SQLite 的
+     * `INSERT OR REPLACE` 会按外键定义级联删除子行。
+     * 表现是"恢复成功"，但那个药品的提醒设置、服用计划、槽位、服药记录**全没了**。
+     */
+    DUPLICATE_MEDICATION_ID(true),
+
+    /**
+     * 槽位业务唯一键 `(medication_id, scheduled_date, scheduled_time)` 重复。
+     *
+     * A3 给 `dose_slots` 加了该 UNIQUE 约束，而 `insertAll` 是 `IGNORE` ——
+     * 重复键会被静默丢弃，"恢复成功"但少了若干槽位，用户毫无察觉。
+     */
+    DUPLICATE_SLOT_KEY(true),
+
+    /**
+     * 某个药品缺 `reminder_settings` 行（A2 建立的不变量）。
+     *
+     * 放行：[restoreBackup] 会为它补一行默认值。
+     * 拦住反而会让来自 A2 之前版本的备份**永远恢复不了**。
+     */
+    MISSING_REMINDER_SETTINGS(false),
+}
+
+/** 一条校验问题：[kind] 决定它是否拦住恢复，[message] 只用于展示。 */
+data class BackupProblem(val kind: BackupProblemKind, val message: String) {
+    val blocksRestore: Boolean get() = kind.blocksRestore
+}
+
+/**
  * 数据导出与备份服务
  *
  * 1. CSV 服药明细导出 (UTF-8 带 BOM，Excel/WPS 直接打开无乱码)
@@ -288,12 +360,27 @@ object DataExporter {
      * 检查项都是"外键指向不存在的行"这类结构性错误。它们不会让解析失败，
      * 但会让 Room 的外键约束在事务中途抛异常，结果同样是"清空了但没恢复成"。
      */
-    fun validateBackup(backup: BackupFile): List<String> {
-        val problems = mutableListOf<String>()
+    /**
+     * 校验一份备份能否安全恢复。
+     *
+     * 返回**分类后**的问题列表；是否拦住恢复只看 [BackupProblem.blocksRestore]，
+     * 绝不看 [BackupProblem.message] 的措辞。理由见 [BackupProblemKind] 的 KDoc。
+     *
+     * 检查项都是"回填时会被静默吞掉或让事务中途崩"这类**结构性**错误，
+     * 它们不会让 JSON 解析失败，只会让恢复"看起来成功但数据不对"。
+     */
+    fun validateBackup(backup: BackupFile): List<BackupProblem> {
+        val problems = mutableListOf<BackupProblem>()
+        fun report(kind: BackupProblemKind, message: String) {
+            problems += BackupProblem(kind, message)
+        }
 
         val version = BackupFormatVersion.from(backup.formatVersion)
         if (version == null) {
-            problems += "备份格式版本 ${backup.formatVersion} 不受支持（当前支持 1~${BackupFormatVersion.CURRENT.code}）"
+            report(
+                BackupProblemKind.UNSUPPORTED_VERSION,
+                "备份格式版本 ${backup.formatVersion} 不受支持（当前支持 1~${BackupFormatVersion.CURRENT.code}）"
+            )
         }
 
         val medIds = backup.medications.map { it.id }.toSet()
@@ -302,59 +389,66 @@ object DataExporter {
 
         backup.reminderSettings.forEach {
             if (it.medicationId !in medIds) {
-                problems += "提醒设置引用了不存在的药品 #${it.medicationId}"
+                report(BackupProblemKind.DANGLING_FK, "提醒设置引用了不存在的药品 #${it.medicationId}")
             }
         }
         backup.schedulePolicies.forEach {
             if (it.medicationId !in medIds) {
-                problems += "服用计划 #${it.id} 引用了不存在的药品 #${it.medicationId}"
+                report(BackupProblemKind.DANGLING_FK, "服用计划 #${it.id} 引用了不存在的药品 #${it.medicationId}")
             }
         }
         backup.policyTimes.forEach {
             if (it.policyId !in policyIds) {
-                problems += "服药时点 #${it.id} 引用了不存在的计划 #${it.policyId}"
+                report(BackupProblemKind.DANGLING_FK, "服药时点 #${it.id} 引用了不存在的计划 #${it.policyId}")
             }
         }
         backup.doseSlots.forEach {
             if (it.medicationId !in medIds) {
-                problems += "槽位 #${it.id} 引用了不存在的药品 #${it.medicationId}"
+                report(BackupProblemKind.DANGLING_FK, "槽位 #${it.id} 引用了不存在的药品 #${it.medicationId}")
             }
         }
         backup.doseRecords.forEach {
             if (it.medicationId !in medIds) {
-                problems += "服药记录 #${it.id} 引用了不存在的药品 #${it.medicationId}"
+                report(BackupProblemKind.DANGLING_FK, "服药记录 #${it.id} 引用了不存在的药品 #${it.medicationId}")
             }
             // slotId 可空（手动补录），非空时必须指向存在的槽位
             if (it.slotId != null && it.slotId !in slotIds) {
-                problems += "服药记录 #${it.id} 引用了不存在的槽位 #${it.slotId}"
+                report(BackupProblemKind.DANGLING_FK, "服药记录 #${it.id} 引用了不存在的槽位 #${it.slotId}")
             }
         }
         backup.inventoryTransactions.forEach {
             if (it.medicationId !in medIds) {
-                problems += "库存流水 #${it.id} 引用了不存在的药品 #${it.medicationId}"
+                report(BackupProblemKind.DANGLING_FK, "库存流水 #${it.id} 引用了不存在的药品 #${it.medicationId}")
             }
         }
 
-        // 药品 id 重复 ⇒ 回填时会撞主键
+        // 药品 id 重复 ⇒ `MedicationDao.insertAll` 的 REPLACE 会覆盖前一行，
+        // 并按外键定义级联删掉它的设置/计划/槽位/记录 —— 静默丢数据。
         backup.medications.groupBy { it.id }
             .filterValues { it.size > 1 }
-            .forEach { (id, dup) -> problems += "药品 #$id 在备份中出现了 ${dup.size} 次" }
+            .forEach { (id, dup) ->
+                report(BackupProblemKind.DUPLICATE_MEDICATION_ID, "药品 #$id 在备份中出现了 ${dup.size} 次")
+            }
 
-        // ⚠️ 槽位唯一键重复：必须**报错**而不是静默跳过。
-        // A3 给 `dose_slots` 加了 `(medication_id, scheduled_date, scheduled_time)` UNIQUE 约束，
-        // 而 `insertAll` 用的是 `OnConflictStrategy.IGNORE` —— 重复键会被静默丢弃，
-        // 恢复"成功"了但少了若干槽位，用户毫无察觉。
+        // 槽位唯一键重复 ⇒ `DoseSlotDao.insertAll` 的 IGNORE 会静默丢行。
         backup.doseSlots
             .groupBy { Triple(it.medicationId, it.scheduledDate, it.scheduledTime) }
             .filterValues { it.size > 1 }
             .forEach { (key, dup) ->
-                problems += "药品 #${key.first} 在 ${key.second} ${key.third} 有 ${dup.size} 条重复槽位"
+                report(
+                    BackupProblemKind.DUPLICATE_SLOT_KEY,
+                    "药品 #${key.first} 在 ${key.second} ${key.third} 有 ${dup.size} 条重复槽位"
+                )
             }
 
-        // 每个药品都应有一行提醒运行态（A2 建立的不变量）。缺失的会在恢复时补默认值。
+        // 每个药品都应有一行提醒运行态（A2 建立的不变量）。缺失的会在恢复时补默认值，
+        // 所以这是**提示**而不是错误 —— 拦住会让 A2 之前版本的备份永远恢复不了。
         val medsWithSettings = backup.reminderSettings.map { it.medicationId }.toSet()
         medIds.subtract(medsWithSettings).forEach {
-            problems += "药品 #$it 缺少提醒设置（恢复时会补默认值，建议重新导出备份）"
+            report(
+                BackupProblemKind.MISSING_REMINDER_SETTINGS,
+                "药品 #$it 缺少提醒设置（恢复时会补默认值，建议重新导出备份）"
+            )
         }
 
         return problems
@@ -555,7 +649,14 @@ object DataExporter {
         val recordCount: Int,
         val slotCount: Int,
         val ledgerCount: Int,
-        val warnings: List<String>
+
+        /**
+         * **不拦住恢复**的问题（[BackupProblemKind.blocksRestore] 为 false 的那些）。
+         *
+         * 调用方展示 [BackupProblem.message] 即可 —— 不要在这里再判一次
+         * "这条要不要给用户看"，那是 [BackupProblemKind] 已经决定过的事。
+         */
+        val warnings: List<BackupProblem>
     )
 
     private fun readText(context: Context, uri: Uri): String? =
@@ -623,9 +724,9 @@ object DataExporter {
             return Result.failure(IllegalArgumentException("该文件不是 CarroMed 备份文件"))
         }
         val problems = validateBackup(backup)
-        val fatal = problems.filter { it.contains("不受支持") || it.contains("不存在的") }
+        val fatal = problems.filter { it.blocksRestore }
         if (fatal.isNotEmpty()) {
-            return Result.failure(IllegalArgumentException(fatal.joinToString("；")))
+            return Result.failure(IllegalArgumentException(fatal.joinToString("；") { it.message }))
         }
         val version = BackupFormatVersion.from(backup.formatVersion) ?: BackupFormatVersion.V1
         return Result.success(
@@ -682,9 +783,17 @@ object DataExporter {
         }
 
         val problems = validateBackup(backup)
-        if (problems.isNotEmpty()) {
+        // ⚠️ 判据必须与 [inspectText] **逐字一致**。
+        //
+        // 旧实现这里是 `if (problems.isNotEmpty())` —— 任何问题都整库拒绝，
+        // 而预览那边只把"不受支持 / 不存在的"当致命。两边判据不同源的直接后果是：
+        // 预览页显示"可以恢复，只是有 N 条提示"，用户点确认后被告知恢复失败，
+        // **而且没有任何办法绕过**。其中最常见的一条恰恰是
+        // 「药品缺少提醒设置（恢复时会补默认值）」—— 文案自己都说能补默认值。
+        val fatal = problems.filter { it.blocksRestore }
+        if (fatal.isNotEmpty()) {
             // ⚠️ 在此返回，数据库**尚未被触碰**
-            return RestoreResult.Invalid(problems.joinToString("；"))
+            return RestoreResult.Invalid(fatal.joinToString("；") { it.message })
         }
 
         val snapshot = writeSafetySnapshot(context, db)
