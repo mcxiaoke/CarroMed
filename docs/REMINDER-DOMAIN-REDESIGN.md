@@ -588,16 +588,58 @@ Intent(context, AlarmReceiver::class.java)
 
 ### A3 — 细粒度写命令 + 幂等下沉 + 闹钟内容寻址
 
-| 序 | 内容 |
-| ---: | --- |
-| 1 | 6 条命令落地（§3.1）；`ProfileDraft` 拆为 `ProfileInfoDraft`（仅 C1 自有列） |
-| 2 | `DoseSlotDao`：`markCompletedIfOpen` / `markSkippedIfOpen` 条件更新（§3.4） |
-| 3 | `DoseTrackingService.takeDose` / `skipDose` / `undoDose` 改用条件更新 |
-| 4 | `AppNavigation` 6 处匿名 `ViewModelProvider.Factory` → `viewModelFactory { initializer { } }`（**零新依赖**，减 ~54 行样板） |
-| 5 | `AlarmScheduler` / `Notifications` 改 `setData(Uri)` 内容寻址（§6.2）；`AlarmReceiver` 读 `kind` 区分提前/准点文案（P1-20） |
-| 6 | `reconcileSchedule` 改幂等 diff：只 INSERT 新增、只 DELETE 真正消失的（P1-5，依赖 A1-2 的 unique 约束） |
-| 7 | `AlarmReceiver` 触发后续期（投影 `[today, today+14]` 并重排）+ 窗口 7→14 天（P0-2） |
-| 8 | **测试**：I3、I5、I6、I10 |
+> **状态：已完成（2026-09-28 13:08 +08:00）**。下表保留原计划，末尾"实际落地"记录与计划的偏差。
+
+| 序 | 内容 | 状态 |
+| ---: | --- | :--- |
+| 1 | 6 条命令落地（§3.1）；`ProfileDraft` 拆为 `ProfileInfoDraft`（仅 C1 自有列） | ✅ 大部分在 A2 已完成（A2 一步就落地了 `saveReminderBehavior` / `setPausedUntil` / `resume`） |
+| 2 | `DoseSlotDao`：`markCompletedIfOpen` / `markSkippedIfOpen` 条件更新（§3.4） | ✅ 已在 A1 完成 |
+| 3 | `DoseTrackingService.takeDose` / `skipDose` / `undoDose` 改用条件更新 | ✅ 已在 A1 完成 |
+| 4 | `AppNavigation` 6 处匿名 `ViewModelProvider.Factory` → `viewModelFactory { initializer { } }` | ✅ 零新依赖，实际净减 **22** 行（不是原估的 54） |
+| 5 | `AlarmScheduler` / `Notifications` 改 `setData(Uri)` 内容寻址（§6.2）；`AlarmReceiver` 读 `kind` 区分文案（P1-20） | ✅ **P0-1** |
+| 6 | `reconcileSchedule` 改幂等 diff：只 INSERT 新增、只 DELETE 真正消失的（P1-5） | ✅ **并额外发现投机区泄漏**，见下 |
+| 7 | `AlarmReceiver` 触发后续期（投影 `[today, today+14]` 并重排）+ 窗口 7→14 天 | ✅ **P0-2** |
+| 8 | **测试**：I3、I5、I6、I10 | ✅ 新增 23 项；I3 已由 A1 覆盖 |
+
+#### 实际落地中偏离计划的一处：`reconcileSchedule` 的三区时间轴
+
+原计划只说"只 INSERT 新增、只 DELETE 真正消失的"。**照字面实现会漏一个泄漏**：
+
+纯窗口内 diff ⇒ 窗口**之外**那些"上一次顺手多排的猜测"永远删不掉；
+而 `AlarmReconciler` 会给**所有**开放槽位排闹钟 ⇒ 改完计划后用户会收到一个
+**已不存在的服药时间**的提醒，且该闹钟再也取消不掉。
+
+所以最终的时间轴规则是**三区**（`DoseTrackingService.reconcileSchedule` 的 KDoc 已写全）：
+
+```
+  < fromDate            [ fromDate .. toDate ]              > toDate
+  ─────────────────────┼───────────────────────────────┼──────────────
+   过去：绝不触碰        权威窗口：与投影逐条 diff           投机区：整段丢弃
+   （已服/已跳/已逾期     删：不再被命中的 PENDING/SNOOZED    只删 PENDING / SNOOZED，
+     是既成事实）        留：仍被命中的（**保留原 id**）      已完成的既成事实仍保留
+                        插：新增的（DB 唯一约束兜底）
+```
+
+新增 `DoseSlotDao.deleteSpeculativeFutureSlots`，同时删掉已无调用点的
+`deleteFuturePendingSlots`（旧实现的遗留物）。**这个泄漏是测试先变红才发现的**，
+不是设计阶段想到的 —— 记在这里是因为它说明"按字面实现计划"仍然不够。
+
+#### 闹钟身份：`Notifications` 里的算术编码**不能一起改**
+
+| 位置 | 是否安全 | 原因 |
+| --- | :---: | --- |
+| `AlarmScheduler` main / advance | ❌ **P0-1** | 两个分支的 component 与 action **完全相同**，只能靠 `requestCode` 区分，而 `10N+1` 与 `M` 必然相交 |
+| `Notifications` 通知栏三个 Action | ✅ 安全 | 三个 Action 的 **action 字符串互不相同**，`filterEquals` 能区分；不同槽位再靠 `slotId*10+{0,1,2}` 区分 |
+
+代码里已加注释说明这个差别，防止后人"顺手统一"改坏。
+
+#### A3 **没有**修、但本轮顺带确认仍然存在的问题
+
+| 编号 | 问题 | 状态 |
+| --- | --- | --- |
+| **P1-2** | `SNOOZED` 槽位永不结算为 `EXPIRED`：推迟后关机超过 2 小时，该槽位闹钟被撤、状态永不推进，依从率被系统性高估 | ❌ **A3 未修，也不在 A3 范围**。本轮逐行比对了 `HEAD` 与新版 `AlarmReconciler` 的取消分支，行为**完全一致**（旧版同样走 `triggerAt <= now → cancel`），**A3 没有让它变好也没有变坏**。修法是给 `getStalePendingSlots` 加一个 `SNOOZED` 分支并按 `snooze_until_ts` 判定过期 |
+| **P1-19** | 系统撤销精确闹钟权限后会清空全部闹钟，App 无任何感知与自愈 | ❌ 未修。需要接 `ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED`，与 A6 的周期对账是同一类兜底 |
+| P1-20 | 「提前提醒」与「准点提醒」文案相同 | ✅ A3-5 已修（`Kind` 驱动标题与正文） |
 
 ### A4 — 枚举调整 + `kotlinx.serialization` 备份
 
