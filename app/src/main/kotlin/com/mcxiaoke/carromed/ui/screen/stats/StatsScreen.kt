@@ -2,6 +2,8 @@ package com.mcxiaoke.carromed.ui.screen.stats
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
+import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
@@ -116,12 +119,37 @@ fun StatsScreen(
                         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "${fmt(uiState.totalDoses)}${unitSuffix(uiState.totalDoseUnit)}",
-                        style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimary
-                    )
+                    // 跨单位不能求和（30 片 + 5 ml ≠ 35 片）。
+                    // 只有全部药品同单位时才给一个 36sp 总量大数字；多单位时逐单位列出。
+                    if (uiState.mixedUnits) {
+                        Text(
+                            text = "多种单位",
+                            style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        @OptIn(ExperimentalLayoutApi::class)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            uiState.totalDosesByUnit.entries
+                                .sortedByDescending { it.value }
+                                .forEach { (unit, amount) ->
+                                    Text(
+                                        text = "${Quantity.fmt(amount)}${Quantity.unitSuffix(unit)}",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
+                        }
+                    } else {
+                        Text(
+                            text = "${Quantity.fmt(uiState.totalDoses)}${Quantity.unitSuffix(uiState.totalDoseUnit)}",
+                            style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                     Text(
                         text = "共 ${uiState.scheduledDoseCount} 次计划 · ${uiState.activeMedCount} 种在服药品",
                         style = MaterialTheme.typography.bodySmall,
@@ -212,7 +240,7 @@ fun StatsScreen(
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "${fmt(r.totalDose)}${unitSuffix(r.unit)}",
+                                        text = Quantity.withUnit(r.totalDose, r.unit),
                                         style = MaterialTheme.typography.bodyLarge,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
@@ -378,9 +406,5 @@ private fun LegendDot(color: androidx.compose.ui.graphics.Color, label: String, 
     }
 }
 
-private fun fmt(v: Float): String =
-    if (v % 1f == 0f) v.toInt().toString() else String.format(Locale.getDefault(), "%.1f", v)
-
-/** "片"/"粒" 直接拼接；"ml"/"ml" 之类西文单位前留空格更易读 */
-private fun unitSuffix(unit: String): String =
-    if (unit.all { it.code < 128 }) " $unit" else unit
+// 数量格式化与单位后缀已统一到 com.mcxiaoke.carromed.ui.component.Quantity。
+// 原先本文件用 "%.1f"、其他页面用 "%.2f"，同一数值四处四种写法。

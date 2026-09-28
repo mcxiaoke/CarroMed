@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.ui.screen.reminder
 
 import android.app.Application
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
@@ -110,7 +111,7 @@ class ReminderSettingsViewModel(
                 hasEndDate = policy?.endDate != null,
                 endDate = policy?.endDate,
                 times = times.sortedBy { it.sortOrder }.map {
-                    ReminderTimeDraft(it.timeOfDay, it.doseAmount, it.label)
+                    ReminderTimeDraft(it.timeOfDay, Dose(it.doseAmount).asFloat, it.label)
                 },
                 isCriticalReminder = med.isCriticalReminder,
                 snoozeMinutes = med.snoozeMinutes.coerceIn(0, 120).let { if (it == 0) 30 else it },

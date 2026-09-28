@@ -64,9 +64,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
+import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
@@ -414,7 +416,7 @@ fun MedicationDetailScreen(
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            "${fmtDose(r.doseTaken)} ${med.unit}",
+                                            "${Quantity.fmt(Dose(r.doseTaken).asFloat)} ${med.unit}",
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
@@ -471,7 +473,7 @@ fun MedicationDetailScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
-                                        (if (tx.changeAmount > 0) "+${fmtDose(tx.changeAmount)}" else fmtDose(tx.changeAmount)) +
+                                        (if (tx.changeAmount > 0) "+${Quantity.fmt(Dose(tx.changeAmount).asFloat)}" else Quantity.fmt(Dose(tx.changeAmount).asFloat)) +
                                             " ${med.unit}",
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.SemiBold,
@@ -578,7 +580,7 @@ private fun buildProfileSummary(s: MedDetailUiState): String {
     if (med.precautions.isNotEmpty()) parts += "${med.precautions.size} 条注意事项"
     if (med.expiryDate.isNotBlank()) parts += "效期 ${med.expiryDate}"
     if (med.noticeShort.isNotBlank()) parts += "通知简述已设"
-    return if (parts.isEmpty()) "${med.form} · ${med.unit} · 默认 ${fmtDose(med.defaultDose)} ${med.unit}/次"
+    return if (parts.isEmpty()) "${med.form} · ${med.unit} · 默认 ${Quantity.fmt(Dose(med.defaultDose).asFloat)} ${med.unit}/次"
     else "${med.form} · ${med.unit} · $parts"
 }
 
@@ -605,7 +607,13 @@ private fun buildReminderSummary(s: MedDetailUiState): String {
 private fun buildInventorySummary(s: MedDetailUiState): String {
     val med = s.medication ?: return ""
     if (!med.isStockTracked) return "未开启库存追踪"
-    val stock = "${fmtDose(med.currentStock)} ${med.unit} 剩余"
+    // 账面为负说明账实不符（已吃的超过记录库存），文案要如实说明而不是显示"剩余 -3"
+    val balance = s.stock
+    val stock = if (balance < 0f) {
+        "账面 ${Quantity.fmt(balance)} ${med.unit}，已超出记录库存，请盘点校准"
+    } else {
+        "${Quantity.fmt(balance)} ${med.unit} 剩余"
+    }
     val runway = if (s.runwayDays >= 9999) "" else " · 约可用 ${s.runwayDays} 天"
     return stock + runway
 }
@@ -713,7 +721,7 @@ private fun AdherenceCard(rate: Float, completed: Int, decided: Int, doseSum: Fl
             }
             Spacer(Modifier.height(10.dp))
             Text(
-                text = "按时服药 $completed 次 / 已到期 $decided 次 · 近 30 天共消耗 ${fmtDose(doseSum)} $unit",
+                text = "按时服药 $completed 次 / 已到期 $decided 次 · 近 30 天共消耗 ${Quantity.fmt(doseSum)} $unit",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 18.sp
@@ -752,5 +760,5 @@ private fun RecordStatusChip(status: RecordStatus, isRetrospective: Boolean) {
     }
 }
 
-private fun fmtDose(v: Float): String =
+private fun Quantity.fmt(v: Float): String =
     if (v % 1f == 0f) v.toInt().toString() else String.format(Locale.getDefault(), "%.2f", v)

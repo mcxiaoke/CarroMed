@@ -41,7 +41,7 @@ data class DoseRecordEntity(
     val actualTs: Long, // 实际发生的时间戳 (毫秒)
 
     @ColumnInfo(name = "dose_taken")
-    val doseTaken: Float, // 实际服药剂量
+    val doseTaken: Int, // 实际服药剂量，整数毫单位（1 片 = 1000）
 
     @ColumnInfo(name = "status")
     val status: RecordStatus = RecordStatus.COMPLETED,

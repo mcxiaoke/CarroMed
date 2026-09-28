@@ -5,6 +5,7 @@ import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatusCountRow
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import java.time.LocalDate
 
 /**
@@ -99,11 +100,14 @@ object StatsEngine {
     /**
      * 按日期统计实际总服药剂量
      */
-    fun sumDoseByDate(records: List<DoseRecordEntity>): Float {
-        return records.filter { it.status == RecordStatus.COMPLETED }
-            .map { it.doseTaken }
-            .sum()
-    }
+    /**
+     * 按记录集合汇总实际服药剂量。
+     *
+     * 返回**整数毫单位**（D-7：全程无浮点，累加不漂移）。
+     * 只计 `COMPLETED`；`REVERTED` 的事实已被撤销，不再计入消耗。
+     */
+    fun sumDoseByDate(records: List<DoseRecordEntity>): Dose =
+        Dose(records.filter { it.status == RecordStatus.COMPLETED }.sumOf { it.doseTaken })
 
     // ==================== 真实统计聚合 (P0-1 / P0-2 修复) ====================
 

@@ -52,8 +52,48 @@ interface DoseSlotDao {
     @Query("UPDATE dose_slots SET status = :status, actual_taken_ts = :actualTs WHERE id = :slotId")
     suspend fun updateStatus(slotId: Long, status: SlotStatus, actualTs: Long? = null)
 
+    /**
+     * 幂等打卡：只有仍在等待的槽位才被置为 COMPLETED。
+     *
+     * 返回受影响的行数 —— 0 表示该槽位已被处理过，调用方应放弃后续记账。
+     * 把幂等锚点放在 SQL 的 WHERE 里（而不是"先查后写"）有两个好处：
+     * 1. 读与写合成一个原子操作，不存在"查完还没写"的竞态窗口；
+     * 2. 所有调用方（App 内打卡 / 通知栏 Action / 手表 / 未来任何入口）自动受益。
+     */
+    @Query(
+        """
+        UPDATE dose_slots
+        SET status = 'COMPLETED', actual_taken_ts = :actualTs
+        WHERE id = :slotId AND status IN ('PENDING', 'SNOOZED')
+        """
+    )
+    suspend fun markCompletedIfOpen(slotId: Long, actualTs: Long): Int
+
+    /** 幂等跳过：允许对已逾期(EXPIRED)的槽位补记跳过，但不允许覆盖已完成/已跳过。 */
+    @Query(
+        """
+        UPDATE dose_slots
+        SET status = 'SKIPPED', actual_taken_ts = :actualTs
+        WHERE id = :slotId AND status IN ('PENDING', 'SNOOZED', 'EXPIRED')
+        """
+    )
+    suspend fun markSkippedIfOpen(slotId: Long, actualTs: Long): Int
+
     @Query("UPDATE dose_slots SET status = 'SNOOZED', snooze_until_ts = :snoozeUntilTs WHERE id = :slotId")
-    suspend fun snoozeSlot(slotId: Long, snoozeUntilTs: Long)
+    suspend fun snoozeSlot(slotId: Long, snoozeUntilTs: Long): Int
+
+    /**
+     * 撤销打卡：把槽位置回 PENDING 并清空实际服药时刻。
+     * 仅对已 COMPLETED / SKIPPED 的槽位生效（受影响行数为 0 表示本就无需撤销）。
+     */
+    @Query(
+        """
+        UPDATE dose_slots
+        SET status = 'PENDING', actual_taken_ts = NULL, snooze_until_ts = NULL
+        WHERE id = :slotId AND status IN ('COMPLETED', 'SKIPPED')
+        """
+    )
+    suspend fun revertToPending(slotId: Long): Int
 
     @Query("DELETE FROM dose_slots WHERE medication_id = :medicationId AND status = 'PENDING' AND scheduled_ts >= :fromTs")
     suspend fun deleteFuturePendingSlots(medicationId: Long, fromTs: Long): Int

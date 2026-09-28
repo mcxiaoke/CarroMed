@@ -77,6 +77,19 @@ android {
     }
 }
 
+/**
+ * 单元测试跑在 JUnit 5 Platform 上。
+ *
+ * 为什么要切：属性化测试（jqwik）只支持 JUnit 5，而现存 65 项 JUnit 4 + Robolectric
+ * 测试必须继续可跑 —— Vintage Engine 让两套并存，不必冒 Robolectric JUnit 5 支持
+ * 不完整的风险做全量迁移。
+ *
+ * 迁移背景见 docs/REMINDER-DOMAIN-REDESIGN.md §5.4。
+ */
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
@@ -109,6 +122,14 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("com.google.truth:truth:1.4.4")
+
+    // 属性化测试：覆盖 docs/REMINDER-DOMAIN-REDESIGN.md §4 的不变量 I3/I5/I6/I7/I8。
+    // 选用 jqwik（JVM 原生、成熟、报告可读）而非自造随机生成器。
+    testImplementation(platform("org.junit:junit-bom:5.11.4"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("net.jqwik:jqwik:1.9.2")
+    // 让现存 JUnit 4 + Robolectric 测试继续在 JUnit 5 Platform 上被发现与执行
+    testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

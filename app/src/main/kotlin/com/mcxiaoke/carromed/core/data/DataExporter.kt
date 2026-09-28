@@ -12,6 +12,7 @@ import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import org.json.JSONArray
 import org.json.JSONObject
@@ -59,12 +60,12 @@ object DataExporter {
             val statusText = when (r.status) {
                 RecordStatus.COMPLETED -> if (r.isRetrospective) "已服(补录)" else "已服"
                 RecordStatus.SKIPPED -> "跳过"
-                RecordStatus.RETROSPECTIVE -> "已服(补录)"
+                RecordStatus.REVERTED -> "已撤销"
             }
             val typeText = if (r.slotId != null) "计划打卡" else "手动记录"
             sb.append(escapeCsv(fmt.format(Date(r.actualTs)))).append(',')
             sb.append(escapeCsv(med?.name ?: "未知药品")).append(',')
-            sb.append(trimFloat(r.doseTaken)).append(',')
+            sb.append(Dose(r.doseTaken).asFloat).append(',')
             sb.append(escapeCsv(med?.unit ?: "")).append(',')
             sb.append(statusText).append(',')
             sb.append(typeText).append(',')
@@ -100,9 +101,9 @@ object DataExporter {
             }
             sb.append(escapeCsv(fmt.format(Date(t.createdAt)))).append(',')
             sb.append(escapeCsv(med?.name ?: "未知药品")).append(',')
-            sb.append(trimFloat(t.changeAmount)).append(',')
+            sb.append(Dose(t.changeAmount).asFloat).append(',')
             sb.append(escapeCsv(med?.unit ?: "")).append(',')
-            sb.append(trimFloat(t.balanceAfter)).append(',')
+            sb.append(Dose(t.balanceAfter).asFloat).append(',')
             sb.append(typeText).append(',')
             sb.append(escapeCsv(t.batchNumber ?: "")).append(',')
             sb.append(escapeCsv(t.expiryDate ?: "")).append(',')
@@ -134,18 +135,24 @@ object DataExporter {
         root.put("exportedAt", System.currentTimeMillis())
         root.put("exportedAtText", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()))
 
+        // 库存余额不再是 medications 的一列；导出时附上台账聚合值，仅供人工核对
+
+        val stockByMed = db.inventoryTransactionDao().getAllBalances().associate { it.medicationId to it.balance }
+
+
         root.put("medications", JSONArray().apply {
             db.medicationDao().getAllMedications().forEach { m ->
                 put(JSONObject()
                     .put("id", m.id).put("name", m.name).put("alias", m.alias ?: JSONObject.NULL)
                     .put("category", m.category).put("form", m.form).put("unit", m.unit)
                     .put("colorHex", m.colorHex).put("iconName", m.iconName)
-                    .put("defaultDose", m.defaultDose.toDouble())
+                    .put("defaultDoseMilli", m.defaultDose)
                     .put("description", m.description)
                     .put("precautions", JSONArray(m.precautions))
                     .put("noticeShort", m.noticeShort)
-                    .put("currentStock", m.currentStock.toDouble())
-                    .put("minStockAlert", m.minStockAlert.toDouble())
+                    // 库存余额不再是 medications 的一列；此处附上台账聚合值仅供人工核对
+                    .put("stockMilli", stockByMed[m.id] ?: 0)
+                    .put("minStockAlertMilli", m.minStockAlert)
                     .put("isStockTracked", m.isStockTracked)
                     .put("expiryDate", m.expiryDate)
                     .put("isCriticalReminder", m.isCriticalReminder)
@@ -176,7 +183,7 @@ object DataExporter {
                 put(JSONObject()
                     .put("id", t.id).put("policyId", t.policyId)
                     .put("timeOfDay", t.timeOfDay)
-                    .put("doseAmount", t.doseAmount.toDouble())
+                    .put("doseAmountMilli", t.doseAmount)
                     .put("label", t.label).put("sortOrder", t.sortOrder))
             }
         })
@@ -186,7 +193,7 @@ object DataExporter {
                 put(JSONObject()
                     .put("id", s.id).put("medicationId", s.medicationId).put("policyId", s.policyId)
                     .put("scheduledDate", s.scheduledDate).put("scheduledTime", s.scheduledTime)
-                    .put("scheduledTs", s.scheduledTs).put("doseAmount", s.doseAmount.toDouble())
+                    .put("scheduledTs", s.scheduledTs).put("doseAmountMilli", s.doseAmount)
                     .put("status", s.status.name)
                     .put("actualTakenTs", s.actualTakenTs ?: JSONObject.NULL)
                     .put("snoozeUntilTs", s.snoozeUntilTs ?: JSONObject.NULL)
@@ -199,7 +206,7 @@ object DataExporter {
                 put(JSONObject()
                     .put("id", r.id).put("slotId", r.slotId ?: JSONObject.NULL)
                     .put("medicationId", r.medicationId).put("actualTs", r.actualTs)
-                    .put("doseTaken", r.doseTaken.toDouble())
+                    .put("doseTakenMilli", r.doseTaken)
                     .put("status", r.status.name).put("isRetrospective", r.isRetrospective)
                     .put("note", r.note ?: JSONObject.NULL).put("createdAt", r.createdAt))
             }
@@ -210,8 +217,8 @@ object DataExporter {
                 put(JSONObject()
                     .put("id", t.id).put("medicationId", t.medicationId)
                     .put("recordId", t.recordId ?: JSONObject.NULL)
-                    .put("changeAmount", t.changeAmount.toDouble())
-                    .put("balanceAfter", t.balanceAfter.toDouble())
+                    .put("changeAmountMilli", t.changeAmount)
+                    .put("balanceAfterMilli", t.balanceAfter)
                     .put("txType", t.txType.name)
                     .put("note", t.note ?: JSONObject.NULL)
                     .put("batchNumber", t.batchNumber ?: JSONObject.NULL)
@@ -290,14 +297,13 @@ object DataExporter {
                         unit = m.optString("unit", "片"),
                         colorHex = m.optString("colorHex", "#2563EB"),
                         iconName = m.optString("iconName", "pill"),
-                        defaultDose = m.optDouble("defaultDose", 1.0).toFloat(),
+                        defaultDose = m.optInt("defaultDoseMilli", 1000),
                         description = m.optString("description", ""),
                         precautions = m.optJSONArray("precautions")?.let { arr ->
                             (0 until arr.length()).map { arr.getString(it) }
                         } ?: emptyList(),
                         noticeShort = m.optString("noticeShort", ""),
-                        currentStock = m.optDouble("currentStock", 0.0).toFloat(),
-                        minStockAlert = m.optDouble("minStockAlert", 0.0).toFloat(),
+                        minStockAlert = m.optInt("minStockAlertMilli", 0),
                         isStockTracked = m.optBoolean("isStockTracked", false),
                         expiryDate = m.optString("expiryDate", ""),
                         isCriticalReminder = m.optBoolean("isCriticalReminder", false),
@@ -340,7 +346,7 @@ object DataExporter {
                         id = t.getLong("id"),
                         policyId = t.getLong("policyId"),
                         timeOfDay = t.getString("timeOfDay"),
-                        doseAmount = t.optDouble("doseAmount", 1.0).toFloat(),
+                        doseAmount = t.optInt("doseAmountMilli", 1000),
                         label = t.optString("label", "服药时段"),
                         sortOrder = t.optInt("sortOrder", 0)
                     )
@@ -356,7 +362,7 @@ object DataExporter {
                         scheduledDate = s.getString("scheduledDate"),
                         scheduledTime = s.getString("scheduledTime"),
                         scheduledTs = s.getLong("scheduledTs"),
-                        doseAmount = s.optDouble("doseAmount", 1.0).toFloat(),
+                        doseAmount = s.optInt("doseAmountMilli", 1000),
                         status = com.mcxiaoke.carromed.core.data.model.SlotStatus.valueOf(
                             s.optString("status", "PENDING")
                         ),
@@ -375,7 +381,7 @@ object DataExporter {
                         slotId = if (r.isNull("slotId")) null else r.getLong("slotId"),
                         medicationId = r.getLong("medicationId"),
                         actualTs = r.getLong("actualTs"),
-                        doseTaken = r.optDouble("doseTaken", 1.0).toFloat(),
+                        doseTaken = r.optInt("doseTakenMilli", 1000),
                         status = RecordStatus.valueOf(r.optString("status", "COMPLETED")),
                         isRetrospective = r.optBoolean("isRetrospective", false),
                         note = if (r.isNull("note")) null else r.getString("note"),
@@ -390,8 +396,8 @@ object DataExporter {
                         id = t.getLong("id"),
                         medicationId = t.getLong("medicationId"),
                         recordId = if (t.isNull("recordId")) null else t.getLong("recordId"),
-                        changeAmount = t.optDouble("changeAmount", 0.0).toFloat(),
-                        balanceAfter = t.optDouble("balanceAfter", 0.0).toFloat(),
+                        changeAmount = t.optInt("changeAmountMilli", 0),
+                        balanceAfter = t.optInt("balanceAfterMilli", 0),
                         txType = com.mcxiaoke.carromed.core.data.model.TransactionType.valueOf(
                             t.optString("txType", "CALIBRATION_ADJUST")
                         ),

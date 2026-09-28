@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.core.domain.engine
 
 import com.google.common.truth.Truth.assertThat
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatusCountRow
 import org.junit.Test
@@ -190,7 +191,7 @@ class StatsEngineAggregationTest {
             currentStock = 10f,
             dosesPerScheduledDay = 1f,
             scheduledDosesPerWeek = 0,
-            minStockAlert = 20f
+            minStockAlert = 20000f
         )
         assertThat(days).isEqualTo(Int.MAX_VALUE)
         assertThat(alert).isTrue()

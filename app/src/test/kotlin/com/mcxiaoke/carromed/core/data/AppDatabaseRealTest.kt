@@ -5,6 +5,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import com.mcxiaoke.carromed.core.testing.assertBalanceAfter
+import com.mcxiaoke.carromed.core.testing.assertDoseValue
+import com.mcxiaoke.carromed.core.testing.assertLedgerBalance
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.dao.AppSettingDao
 import com.mcxiaoke.carromed.core.data.dao.DoseRecordDao
 import com.mcxiaoke.carromed.core.data.dao.DoseSlotDao
@@ -77,12 +81,11 @@ class AppDatabaseRealTest {
             unit = "片",
             colorHex = "#E53935",
             iconName = "pill",
-            defaultDose = 1.0f,
+            defaultDose = 1000,
             description = "用于预防心肌梗死",
             precautions = listOf("饭后半小时服用", "避免与布洛芬同服"),
             noticeShort = "饭后温水送服",
-            currentStock = 30.0f,
-            minStockAlert = 7.0f,
+            minStockAlert = 7000,
             isStockTracked = true
         )
         val medId = medDao.insert(med)
@@ -93,27 +96,23 @@ class AppDatabaseRealTest {
         assertThat(retrieved?.name).isEqualTo("阿司匹林肠溶片")
         assertThat(retrieved?.precautions).containsExactly("饭后半小时服用", "避免与布洛芬同服").inOrder()
 
-        val activeList = medDao.observeActiveMedications().first()
+        val activeList = medDao.observeActiveOverviews().first()
         assertThat(activeList).hasSize(1)
         assertThat(activeList[0].id).isEqualTo(medId)
 
         // 软删除（归档）测试
         medDao.updateArchiveStatus(medId, true)
-        val afterDeactivate = medDao.observeActiveMedications().first()
+        val afterDeactivate = medDao.observeActiveOverviews().first()
         assertThat(afterDeactivate).isEmpty()
 
-        val archivedList = medDao.observeArchivedMedications().first()
+        val archivedList = medDao.observeArchivedOverviews().first()
         assertThat(archivedList).hasSize(1)
         assertThat(archivedList[0].id).isEqualTo(medId)
     }
 
     @Test
     fun schedulePolicyAndTimes_foreignKeyCascadeDeletes() = runTest {
-        val med = MedicationEntity(
-            name = "二甲双胍片",
-            unit = "片",
-            currentStock = 60.0f
-        )
+        val med = MedicationEntity(name = "二甲双胍片", unit = "片")
         val medId = medDao.insert(med)
 
         val policy = SchedulePolicyEntity(
@@ -123,9 +122,9 @@ class AppDatabaseRealTest {
             startDate = "2026-09-27"
         )
         val times = listOf(
-            PolicyTimeEntity(policyId = 0, timeOfDay = "08:00", doseAmount = 1.0f, sortOrder = 0),
-            PolicyTimeEntity(policyId = 0, timeOfDay = "12:30", doseAmount = 1.0f, sortOrder = 1),
-            PolicyTimeEntity(policyId = 0, timeOfDay = "18:30", doseAmount = 2.0f, sortOrder = 2)
+            PolicyTimeEntity(policyId = 0, timeOfDay = "08:00", doseAmount = 1000, sortOrder = 0),
+            PolicyTimeEntity(policyId = 0, timeOfDay = "12:30", doseAmount = 1000, sortOrder = 1),
+            PolicyTimeEntity(policyId = 0, timeOfDay = "18:30", doseAmount = 2000, sortOrder = 2)
         )
         val policyId = policyDao.savePolicyWithTimes(policy, times)
         assertThat(policyId).isGreaterThan(0L)
@@ -136,7 +135,7 @@ class AppDatabaseRealTest {
 
         // 级联删除验证：删除药品时，相关策略和用药时间必须同时被数据库外键级联物理清除
         val toDelete = medDao.getMedicationById(medId)!!
-        medDao.delete(toDelete)
+        medDao.deleteById(toDelete.id)
 
         val policiesAfterDelete = policyDao.getAllPoliciesForMedication(medId)
         assertThat(policiesAfterDelete).isEmpty()
@@ -147,7 +146,7 @@ class AppDatabaseRealTest {
 
     @Test
     fun doseSlotsAndRecordTracking_lifecycleTransitionsCorrectly() = runTest {
-        val med = MedicationEntity(name = "络活喜", unit = "片", currentStock = 14.0f)
+        val med = MedicationEntity(name = "络活喜", unit = "片")
         val medId = medDao.insert(med)
 
         val slot = DoseSlotEntity(
@@ -157,7 +156,7 @@ class AppDatabaseRealTest {
             scheduledDate = "2026-09-27",
             scheduledTime = "08:00",
             scheduledTs = 1790467200000L,
-            doseAmount = 1.0f,
+            doseAmount = 1000,
             status = SlotStatus.PENDING
         )
         slotDao.insert(slot)
@@ -174,7 +173,7 @@ class AppDatabaseRealTest {
             medicationId = medId,
             actualTs = actualTs,
             status = RecordStatus.COMPLETED,
-            doseTaken = 1.0f,
+            doseTaken = 1000,
             note = "早餐后正常服用"
         )
         val recordId = recordDao.insert(record)
@@ -199,8 +198,7 @@ class AppDatabaseRealTest {
         val med = MedicationEntity(
             name = "阿托伐他汀钙片",
             unit = "片",
-            currentStock = 0.0f,
-            minStockAlert = 5.0f,
+            minStockAlert = 5000,
             isStockTracked = true
         )
         val medId = medDao.insert(med)
@@ -209,61 +207,74 @@ class AppDatabaseRealTest {
         inventoryDao.insert(
             InventoryTransactionEntity(
                 medicationId = medId,
-                changeAmount = 30.0f,
-                balanceAfter = 30.0f,
+                changeAmount = 30000,
+                balanceAfter = 30000,
                 txType = TransactionType.CALIBRATION_ADJUST,
                 note = "开药建档初始录入"
             )
         )
-        medDao.updateStock(medId, 30.0f)
 
         // 2. 正常按时服药扣减: -1 片
         inventoryDao.insert(
             InventoryTransactionEntity(
                 medicationId = medId,
-                changeAmount = -1.0f,
-                balanceAfter = 29.0f,
+                changeAmount = -1000,
+                balanceAfter = 29000,
                 txType = TransactionType.TAKEN_DEDUCT,
                 note = "按时服药"
             )
         )
-        medDao.updateStock(medId, 29.0f)
 
         // 3. 用户补货 60 片: +60 片
         inventoryDao.insert(
             InventoryTransactionEntity(
                 medicationId = medId,
-                changeAmount = 60.0f,
-                balanceAfter = 89.0f,
+                changeAmount = 60000,
+                balanceAfter = 89000,
                 txType = TransactionType.REFILL,
                 note = "药房取药补仓"
             )
         )
-        medDao.updateStock(medId, 89.0f)
 
         // 4. 用户点错“已服药”，进行撤销回滚: +1 片冲正
         inventoryDao.insert(
             InventoryTransactionEntity(
                 medicationId = medId,
-                changeAmount = 1.0f,
-                balanceAfter = 90.0f,
+                changeAmount = 1000,
+                balanceAfter = 90000,
                 txType = TransactionType.REVERT_ROLLBACK,
                 note = "撤销点错打卡"
             )
         )
-        medDao.updateStock(medId, 90.0f)
 
-        // 核心实证测试：台账流水累加和 == 药品实时结余库存
-        val ledgerSum = inventoryDao.getSumOfChanges(medId) ?: 0.0f
-        val finalMed = medDao.getMedicationById(medId)
-
+        // 核心实证：余额的唯一权威值就是台账流水累加和
+        val ledgerSum = inventoryDao.getSumOfChanges(medId)?.let { Dose(it).asFloat } ?: 0f
+        val overview = medDao.getOverviewById(medId)
         assertThat(ledgerSum).isEqualTo(90.0f)
-        assertThat(finalMed?.currentStock).isEqualTo(ledgerSum)
+        assertThat(overview?.stock).isEqualTo(ledgerSum)
 
         // 验证台账条数按时间降序完整查询
         val txList = inventoryDao.getTransactionsForMedication(medId)
         assertThat(txList).hasSize(4)
-        assertThat(txList.map { it.changeAmount }).containsExactly(1.0f, 60.0f, -1.0f, 30.0f).inOrder()
+        assertThat(txList.map { it.changeAmount }).containsExactly(1000, 60000, -1000, 30000).inOrder()
+    }
+
+    @Test
+    fun `medications 表已无 current_stock 列 余额只由台账聚合`() = runTest {
+        // 这是"余额只有一份权威定义"的结构性保证：不变量 I1 不是靠纪律维持的。
+        val columns = db.openHelper.readableDatabase
+            .query("PRAGMA table_info(medications)").use { c ->
+                val nameIdx = c.getColumnIndexOrThrow("name")
+                buildSet { while (c.moveToNext()) add(c.getString(nameIdx)) }
+            }
+        assertThat(columns).doesNotContain("current_stock")
+        // 台账的三个金额列仍在
+        val txColumns = db.openHelper.readableDatabase
+            .query("PRAGMA table_info(inventory_transactions)").use { c ->
+                val nameIdx = c.getColumnIndexOrThrow("name")
+                buildSet { while (c.moveToNext()) add(c.getString(nameIdx)) }
+            }
+        assertThat(txColumns).containsAtLeast("change_amount", "balance_after", "tx_type")
     }
 
     @Test
@@ -274,9 +285,15 @@ class AppDatabaseRealTest {
                 alias = "新赛斯平",
                 precautions = listOf("整粒吞服禁嚼碎"),
                 noticeShort = "温水吞服",
-                minStockAlert = 10f,
-                currentStock = 30f,
+                minStockAlert = 10000,
                 isStockTracked = true
+            )
+        )
+        // 建账 30 片，验证"档案编辑绝不能波及账面"
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = medId, changeAmount = 30000, balanceAfter = 30000,
+                txType = TransactionType.CALIBRATION_ADJUST, note = "建档"
             )
         )
         medDao.updatePauseStatus(medId, true)
@@ -292,7 +309,7 @@ class AppDatabaseRealTest {
             form = "软胶囊",
             unit = "粒",
             colorHex = "#8B5CF6",
-            defaultDose = 2f,
+            defaultDose = 2000,
             description = "说明",
             precautions = listOf("整粒吞服禁嚼碎", "禁葡萄柚"),
             noticeShort = "温水吞服",
@@ -300,7 +317,7 @@ class AppDatabaseRealTest {
             isCriticalReminder = true,
             snoozeMinutes = 15,
             advanceMinutes = 10,
-            minStockAlert = 20f,
+            minStockAlert = 20000,
             updatedAt = System.currentTimeMillis()
         )
 
@@ -312,19 +329,25 @@ class AppDatabaseRealTest {
         assertThat(after.isCriticalReminder).isTrue()
         assertThat(after.snoozeMinutes).isEqualTo(15)
         assertThat(after.advanceMinutes).isEqualTo(10)
-        assertThat(after.minStockAlert).isEqualTo(20f)
+        assertDoseValue(after.minStockAlert, 20f)
         // 状态位与账面绝不能被档案编辑波及
         assertThat(after.isPaused).isTrue()
         assertThat(after.isArchived).isTrue()
         assertThat(after.isStockTracked).isTrue()
-        assertThat(after.currentStock).isEqualTo(30f)
+        assertThat(medDao.getOverviewById(medId)?.stock).isEqualTo(30f)
         assertThat(after.createdAt).isEqualTo(before.createdAt)
     }
 
     @Test
     fun updateReminderBehavior_doesNotTouchProfileOrStock() = runTest {
         val medId = medDao.insert(
-            MedicationEntity(name = "胰岛素", currentStock = 8f, isStockTracked = true, minStockAlert = 5f)
+            MedicationEntity(name = "胰岛素", isStockTracked = true, minStockAlert = 5000)
+        )
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = medId, changeAmount = 8000, balanceAfter = 8000,
+                txType = TransactionType.CALIBRATION_ADJUST, note = "建档"
+            )
         )
         val before = medDao.getMedicationById(medId)!!
 
@@ -342,19 +365,9 @@ class AppDatabaseRealTest {
         assertThat(after.advanceMinutes).isEqualTo(5)
         assertThat(after.isPaused).isTrue()
         assertThat(after.name).isEqualTo(before.name)
-        assertThat(after.currentStock).isEqualTo(8f)
-        assertThat(after.minStockAlert).isEqualTo(5f)
+        assertThat(medDao.getOverviewById(medId)?.stock).isEqualTo(8f)
+        assertDoseValue(after.minStockAlert, 5f)
         assertThat(after.isArchived).isEqualTo(before.isArchived)
-    }
-
-    @Test
-    fun v2Columns_haveDefaultsOnLegacyInsert() = runTest {
-        val medId = medDao.insert(MedicationEntity(name = "老数据"))
-        val m = medDao.getMedicationById(medId)!!
-        assertThat(m.expiryDate).isEmpty()
-        assertThat(m.isCriticalReminder).isFalse()
-        assertThat(m.snoozeMinutes).isEqualTo(0)
-        assertThat(m.advanceMinutes).isEqualTo(0)
     }
 
     @Test

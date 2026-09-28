@@ -4,9 +4,10 @@ import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.DataExporter
-import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
+import com.mcxiaoke.carromed.core.data.model.MedicationOverview
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import kotlinx.coroutines.Dispatchers
@@ -42,7 +43,12 @@ data class AdherenceBreakdown(
 data class StatsUiState(
     val selectedPeriod: Int = 0,
     val totalDoses: Float = 0f,
-    val totalDoseUnit: String = "片",
+    /** 单一单位时的单位；`null` 表示无消耗或存在多种单位（此时不应显示总量数字） */
+    val totalDoseUnit: String? = null,
+    /** 按单位分组的累计用量，供多单位时逐项展示 */
+    val totalDosesByUnit: Map<String, Float> = emptyMap(),
+    /** 是否存在多种单位 —— UI 据此决定"显示总量"还是"逐单位列出" */
+    val mixedUnits: Boolean = false,
     val adherenceRate: Float = 0f,
     val breakdown: AdherenceBreakdown = AdherenceBreakdown(),
     val activeMedCount: Int = 0,
@@ -79,9 +85,9 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
      */
     val uiState: StateFlow<StatsUiState> = combine(
         _selectedPeriod,
-        medDao.observeActiveMedications()
-    ) { period, medications ->
-        buildState(period, medications)
+        medDao.observeActiveOverviews()
+    ) { period, overviews ->
+        buildState(period, overviews)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -90,7 +96,7 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun buildState(
         period: StatsPeriod,
-        medications: List<MedicationEntity>
+        overviews: List<MedicationOverview>
     ): StatsUiState {
         val today = LocalDate.now()
         val endDate = today.format(SlotProjectionEngine.DATE_FORMATTER)
@@ -109,26 +115,51 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
 
         // 2. 累计用量：按实际服药时刻聚合
         val doseSums = recordDao.getDoseSumByMedicationInRange(startTs, endTs)
-        val medById = medications.associateBy { it.id }
-        val totalDose = doseSums.sumOf { it.totalDose.toDouble() }.toFloat()
+        val medById = overviews.associateBy { it.id }
 
-        val rankings = doseSums.mapIndexedNotNull { index, row ->
-            val med = medById[row.medicationId] ?: return@mapIndexedNotNull null
-            MedicationConsumption(
-                rank = index + 1,
-                medicationId = row.medicationId,
-                medicationName = med.name,
-                totalDose = row.totalDose,
-                unit = med.unit
-            )
+        // ⚠️ 先过滤掉已归档药品再排名。原先用 mapIndexedNotNull，索引在过滤前就被占用，
+        // 导致"第 1 名若已归档，UI 会从『2.』开始显示，永远没有第 1 名"。
+        val rankings = doseSums
+            .mapNotNull { row -> medById[row.medicationId]?.let { row to it } }
+            .sortedByDescending { (row, _) -> row.totalDose }
+            .mapIndexed { index, (row, med) ->
+                MedicationConsumption(
+                    rank = index + 1,
+                    medicationId = row.medicationId,
+                    medicationName = med.medication.name,
+                    totalDose = Dose(row.totalDose).asFloat,
+                    unit = med.medication.unit
+                )
+            }
+
+        // 跨单位求和没有意义（30 片 + 5 ml ≠ 35 片）。按单位分组，
+        // 只有全部药品同单位时才给出一个"总量"大数字。
+        val byUnit: Map<String, Float> = rankings
+            .groupBy { it.unit }
+            .mapValues { (_, rows) -> rows.sumOf { it.totalDose.toDouble() }.toFloat() }
+
+        val totalDose: Float
+        val totalDoseUnit: String?
+        if (byUnit.isEmpty()) {
+            totalDose = 0f
+            totalDoseUnit = null
+        } else if (byUnit.size == 1) {
+            val (unit, amount) = byUnit.entries.first()
+            totalDose = amount
+            totalDoseUnit = unit
+        } else {
+            // 多单位：不显示总量（宁可不给数字，也不能给错数字）
+            totalDose = 0f
+            totalDoseUnit = null
         }
-
-        val dominantUnit = rankings.firstOrNull()?.unit ?: "片"
 
         return StatsUiState(
             selectedPeriod = _selectedPeriod.value.ordinal,
             totalDoses = totalDose,
-            totalDoseUnit = dominantUnit,
+            totalDoseUnit = totalDoseUnit,
+            // 多单位时把分组结果交给 UI 逐单位展示，而不是给一个假的总数
+            totalDosesByUnit = byUnit,
+            mixedUnits = byUnit.size > 1,
             adherenceRate = StatsEngine.adherenceOf(allBreakdowns),
             breakdown = AdherenceBreakdown(
                 completed = allBreakdowns.completed,
@@ -136,7 +167,7 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
                 missed = allBreakdowns.missed,
                 pending = allBreakdowns.pending
             ),
-            activeMedCount = medications.size,
+            activeMedCount = overviews.size,
             scheduledDoseCount = allBreakdowns.total,
             rankings = rankings,
             isLoading = false

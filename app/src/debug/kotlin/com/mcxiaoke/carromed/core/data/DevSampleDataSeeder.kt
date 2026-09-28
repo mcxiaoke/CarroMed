@@ -62,12 +62,11 @@ object DevSampleDataSeeder {
                 unit = "片",
                 colorHex = "#8B5CF6",
                 iconName = "pill",
-                defaultDose = 1.0f,
+                defaultDose = 1000,
                 description = "预防和治疗同种异体器官移植后的排斥反应。建议每天固定时间整粒温水吞服，切勿与葡萄柚同服。",
                 precautions = listOf("整粒吞服禁嚼碎", "严禁与葡萄柚同食", "固定早晚时点", "定期复查血药浓度"),
                 noticeShort = "温水吞服 · 禁食葡萄柚",
-                currentStock = 6.0f,
-                minStockAlert = 10.0f,
+                minStockAlert = 10000,
                 isStockTracked = true
             )
         )
@@ -78,15 +77,15 @@ object DevSampleDataSeeder {
                 startDate = today.minusDays(10).format(SlotProjectionEngine.DATE_FORMATTER)
             ),
             listOf(
-                PolicyTimeEntity(policyId = 0, timeOfDay = "10:30", doseAmount = 1.0f, sortOrder = 0),
-                PolicyTimeEntity(policyId = 0, timeOfDay = "22:00", doseAmount = 1.0f, sortOrder = 1)
+                PolicyTimeEntity(policyId = 0, timeOfDay = "10:30", doseAmount = 1000, sortOrder = 0),
+                PolicyTimeEntity(policyId = 0, timeOfDay = "22:00", doseAmount = 1000, sortOrder = 1)
             )
         )
         inventoryDao.insert(
             InventoryTransactionEntity(
                 medicationId = med1Id,
-                changeAmount = 30.0f,
-                balanceAfter = 30.0f,
+                changeAmount = 30000,
+                balanceAfter = 30000,
                 txType = TransactionType.REFILL,
                 note = "初始药房采购入库"
             )
@@ -94,8 +93,8 @@ object DevSampleDataSeeder {
         inventoryDao.insert(
             InventoryTransactionEntity(
                 medicationId = med1Id,
-                changeAmount = -24.0f,
-                balanceAfter = 6.0f,
+                changeAmount = -24000,
+                balanceAfter = 6000,
                 txType = TransactionType.TAKEN_DEDUCT,
                 note = "历史服药累计扣减"
             )
@@ -111,12 +110,11 @@ object DevSampleDataSeeder {
                 unit = "片",
                 colorHex = "#3B82F6",
                 iconName = "pill",
-                defaultDose = 1.0f,
+                defaultDose = 1000,
                 description = "免疫调节药物，随餐或温牛奶送服，定期检查眼底。",
                 precautions = listOf("随餐温水送服", "定期检查眼底"),
                 noticeShort = "随餐温水送服",
-                currentStock = 36.0f,
-                minStockAlert = 7.0f,
+                minStockAlert = 7000,
                 isStockTracked = true
             )
         )
@@ -127,14 +125,14 @@ object DevSampleDataSeeder {
                 startDate = today.minusDays(10).format(SlotProjectionEngine.DATE_FORMATTER)
             ),
             listOf(
-                PolicyTimeEntity(policyId = 0, timeOfDay = "09:00", doseAmount = 1.0f, sortOrder = 0)
+                PolicyTimeEntity(policyId = 0, timeOfDay = "09:00", doseAmount = 1000, sortOrder = 0)
             )
         )
         inventoryDao.insert(
             InventoryTransactionEntity(
                 medicationId = med2Id,
-                changeAmount = 36.0f,
-                balanceAfter = 36.0f,
+                changeAmount = 36000,
+                balanceAfter = 36000,
                 txType = TransactionType.CALIBRATION_ADJUST,
                 note = "初始录入"
             )
@@ -150,12 +148,11 @@ object DevSampleDataSeeder {
                 unit = "片",
                 colorHex = "#10B981",
                 iconName = "pill",
-                defaultDose = 1.0f,
+                defaultDose = 1000,
                 description = "糖皮质激素，建议早晨早餐后一次性服用，不可自行突然停药。",
                 precautions = listOf("早晨早餐后服用", "切勿突然擅自停药"),
                 noticeShort = "早餐后一次性服用",
-                currentStock = 121.5f,
-                minStockAlert = 10.0f,
+                minStockAlert = 10000,
                 isStockTracked = true
             )
         )
@@ -167,14 +164,14 @@ object DevSampleDataSeeder {
                 startDate = today.minusDays(10).format(SlotProjectionEngine.DATE_FORMATTER)
             ),
             listOf(
-                PolicyTimeEntity(policyId = 0, timeOfDay = "08:00", doseAmount = 1.0f, sortOrder = 0)
+                PolicyTimeEntity(policyId = 0, timeOfDay = "08:00", doseAmount = 1000, sortOrder = 0)
             )
         )
         inventoryDao.insert(
             InventoryTransactionEntity(
                 medicationId = med3Id,
-                changeAmount = 121.5f,
-                balanceAfter = 121.5f,
+                changeAmount = 121500,
+                balanceAfter = 121500,
                 txType = TransactionType.CALIBRATION_ADJUST,
                 note = "初始录入"
             )
@@ -190,12 +187,11 @@ object DevSampleDataSeeder {
                 unit = "片",
                 colorHex = "#F59E0B",
                 iconName = "pill",
-                defaultDose = 1.0f,
+                defaultDose = 1000,
                 description = "促进骨骼钙质吸收，午餐后温水吞服。",
                 precautions = listOf("午餐后温水送服"),
                 noticeShort = "午餐后温水送服",
-                currentStock = 50.0f,
-                minStockAlert = 15.0f,
+                minStockAlert = 15000,
                 isStockTracked = true
             )
         )
@@ -206,14 +202,14 @@ object DevSampleDataSeeder {
                 startDate = today.minusDays(10).format(SlotProjectionEngine.DATE_FORMATTER)
             ),
             listOf(
-                PolicyTimeEntity(policyId = 0, timeOfDay = "13:30", doseAmount = 1.0f, sortOrder = 0)
+                PolicyTimeEntity(policyId = 0, timeOfDay = "13:30", doseAmount = 1000, sortOrder = 0)
             )
         )
         inventoryDao.insert(
             InventoryTransactionEntity(
                 medicationId = med4Id,
-                changeAmount = 50.0f,
-                balanceAfter = 50.0f,
+                changeAmount = 50000,
+                balanceAfter = 50000,
                 txType = TransactionType.CALIBRATION_ADJUST,
                 note = "初始录入"
             )
@@ -229,7 +225,7 @@ object DevSampleDataSeeder {
                 scheduledDate = todayStr,
                 scheduledTime = "08:00",
                 scheduledTs = slot3Ts,
-                doseAmount = 1.0f,
+                doseAmount = 1000,
                 status = SlotStatus.COMPLETED,
                 actualTakenTs = slot3Ts + 300000L
             )
@@ -239,7 +235,7 @@ object DevSampleDataSeeder {
                 slotId = slot3Id,
                 medicationId = med3Id,
                 actualTs = slot3Ts + 300000L,
-                doseTaken = 1.0f,
+                doseTaken = 1000,
                 status = RecordStatus.COMPLETED,
                 note = "早饭后准时服用"
             )
@@ -254,7 +250,7 @@ object DevSampleDataSeeder {
                 scheduledDate = todayStr,
                 scheduledTime = "09:00",
                 scheduledTs = slot2Ts,
-                doseAmount = 1.0f,
+                doseAmount = 1000,
                 status = SlotStatus.COMPLETED,
                 actualTakenTs = slot2Ts + 60000L
             )
@@ -264,7 +260,7 @@ object DevSampleDataSeeder {
                 slotId = slot2Id,
                 medicationId = med2Id,
                 actualTs = slot2Ts + 60000L,
-                doseTaken = 1.0f,
+                doseTaken = 1000,
                 status = RecordStatus.COMPLETED,
                 note = "随餐温水送服"
             )
@@ -279,7 +275,7 @@ object DevSampleDataSeeder {
                 scheduledDate = todayStr,
                 scheduledTime = "10:30",
                 scheduledTs = slot1aTs,
-                doseAmount = 1.0f,
+                doseAmount = 1000,
                 status = SlotStatus.PENDING
             )
         )
@@ -293,7 +289,7 @@ object DevSampleDataSeeder {
                 scheduledDate = todayStr,
                 scheduledTime = "13:30",
                 scheduledTs = slot4Ts,
-                doseAmount = 1.0f,
+                doseAmount = 1000,
                 status = SlotStatus.PENDING
             )
         )
@@ -307,7 +303,7 @@ object DevSampleDataSeeder {
                 scheduledDate = todayStr,
                 scheduledTime = "22:00",
                 scheduledTs = slot1bTs,
-                doseAmount = 1.0f,
+                doseAmount = 1000,
                 status = SlotStatus.PENDING
             )
         )

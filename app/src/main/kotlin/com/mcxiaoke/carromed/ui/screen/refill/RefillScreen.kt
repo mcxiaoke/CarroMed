@@ -1,4 +1,5 @@
 package com.mcxiaoke.carromed.ui.screen.refill
+import com.mcxiaoke.carromed.core.domain.model.Dose
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.screen.edit.ReadOnlyDateField
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -100,13 +102,19 @@ fun RefillScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                text = "${med?.currentStock?.toInt() ?: 0} ${med?.unit ?: "片"}",
+                                // 0.5 片曾被 toInt() 截断成 "0 片"，而库存 300 片（健康）
+                                // 也曾无条件显示为 error 红 —— 两者都是错的
+                                text = Quantity.withUnit(uiState.stock, med?.unit),
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.error
+                                color = if (uiState.stock <= Dose(med?.minStockAlert ?: 0).asFloat) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                }
                             )
                             Text(
-                                text = " · 预警线: ${med?.minStockAlert?.toInt() ?: 0} ${med?.unit ?: "片"}",
+                                text = " · 预警线: ${Quantity.withUnit(Dose(med?.minStockAlert ?: 0).asFloat, med?.unit)}",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.ui.screen.manual
 
 import android.app.Application
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
@@ -16,7 +17,11 @@ import java.time.format.DateTimeFormatter
 
 data class ManualDoseUiState(
     val medications: List<MedicationEntity> = emptyList(),
+    /** 药品 id -> 台账账面余额，供下拉列表逐项显示（可为负） */
+    val stockByMedicationId: Map<Long, Float> = emptyMap(),
     val selectedMedication: MedicationEntity? = null,
+    /** 选中药品的台账账面余额（可为负，见 FINAL-PRODUCT D-9） */
+    val selectedStock: Float = 0f,
     val doseAmount: String = "1",
     val actualDateTime: LocalDateTime = LocalDateTime.now(),
     val note: String = "",
@@ -49,25 +54,31 @@ class ManualDoseViewModel(
 
     init {
         viewModelScope.launch {
-            val meds = medDao.getActiveMedications()
+            val meds = medDao.getActiveOverviews()
             val initialSelected = if (initialMedId != null) {
                 meds.firstOrNull { it.id == initialMedId } ?: meds.firstOrNull()
             } else {
                 meds.firstOrNull()
             }
             _uiState.value = _uiState.value.copy(
-                medications = meds,
-                selectedMedication = initialSelected,
-                doseAmount = trimFloat(initialSelected?.defaultDose ?: 1.0f)
+                medications = meds.map { it.medication },
+                stockByMedicationId = meds.associate { it.id to it.stock },
+                selectedMedication = initialSelected?.medication,
+                selectedStock = initialSelected?.stock ?: 0f,
+                doseAmount = trimFloat(Dose(initialSelected?.medication?.defaultDose ?: 1000).asFloat)
             )
         }
     }
 
-    fun selectMedication(med: MedicationEntity) {
-        _uiState.value = _uiState.value.copy(
-            selectedMedication = med,
-            doseAmount = trimFloat(med.defaultDose)
-        )
+    fun selectMedication(id: Long) {
+        viewModelScope.launch {
+            val overview = medDao.getOverviewById(id) ?: return@launch
+            _uiState.value = _uiState.value.copy(
+                selectedMedication = overview.medication,
+                selectedStock = overview.stock,
+                doseAmount = trimFloat(Dose(overview.medication.defaultDose).asFloat)
+            )
+        }
     }
 
     fun onDoseAmountChange(amount: String) {

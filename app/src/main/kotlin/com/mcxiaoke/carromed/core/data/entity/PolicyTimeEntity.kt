@@ -35,7 +35,7 @@ data class PolicyTimeEntity(
     val timeOfDay: String, // 时间点格式: "HH:mm" (24小时制，如 "08:30", "20:00")
 
     @ColumnInfo(name = "dose_amount")
-    val doseAmount: Float = 1.0f,
+    val doseAmount: Int = 1000, // 单次剂量，整数毫单位
 
     @ColumnInfo(name = "label")
     val label: String = "服药时段", // 标签: "早餐前", "随早餐", "睡前"

@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.core.domain.engine
 
 import com.google.common.truth.Truth.assertThat
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
@@ -52,7 +53,7 @@ class StatsEngineTest {
         val (days1, alert1) = StatsEngine.calculateStockRunway(
             currentStock = 30.0f,
             dailyEstimatedConsumption = 2.0f,
-            minStockAlert = 5.0f
+            minStockAlert = 5f
         )
         assertThat(days1).isEqualTo(15)
         assertThat(alert1).isFalse()
@@ -61,7 +62,7 @@ class StatsEngineTest {
         val (days2, alert2) = StatsEngine.calculateStockRunway(
             currentStock = 10.0f,
             dailyEstimatedConsumption = 2.0f,
-            minStockAlert = 5.0f
+            minStockAlert = 5f
         )
         assertThat(days2).isEqualTo(5)
         assertThat(alert2).isTrue()
@@ -70,7 +71,7 @@ class StatsEngineTest {
         val (days3, alert3) = StatsEngine.calculateStockRunway(
             currentStock = 4.0f,
             dailyEstimatedConsumption = 0.5f,
-            minStockAlert = 5.0f
+            minStockAlert = 5f
         )
         assertThat(days3).isEqualTo(8)
         assertThat(alert3).isTrue()
@@ -79,12 +80,12 @@ class StatsEngineTest {
     @Test
     fun sumDoseByDate_sumsOnlyCompletedRecords() {
         val records = listOf(
-            DoseRecordEntity(medicationId = 1L, actualTs = 1000L, doseTaken = 2.0f, status = RecordStatus.COMPLETED),
-            DoseRecordEntity(medicationId = 1L, actualTs = 2000L, doseTaken = 1.5f, status = RecordStatus.COMPLETED),
-            DoseRecordEntity(medicationId = 1L, actualTs = 3000L, doseTaken = 0.0f, status = RecordStatus.SKIPPED)
+            DoseRecordEntity(medicationId = 1L, actualTs = 1000L, doseTaken = 2000, status = RecordStatus.COMPLETED),
+            DoseRecordEntity(medicationId = 1L, actualTs = 2000L, doseTaken = 1500, status = RecordStatus.COMPLETED),
+            DoseRecordEntity(medicationId = 1L, actualTs = 3000L, doseTaken = 0, status = RecordStatus.SKIPPED)
         )
         val sum = StatsEngine.sumDoseByDate(records)
-        assertThat(sum).isEqualTo(3.5f)
+        assertThat(sum.asFloat).isEqualTo(3.5f)
     }
 
     private fun createSlot(status: SlotStatus) = DoseSlotEntity(
@@ -93,7 +94,7 @@ class StatsEngineTest {
         scheduledDate = "2026-09-27",
         scheduledTime = "08:00",
         scheduledTs = 1000000L,
-        doseAmount = 1.0f,
+        doseAmount = 1000,
         status = status
     )
 }

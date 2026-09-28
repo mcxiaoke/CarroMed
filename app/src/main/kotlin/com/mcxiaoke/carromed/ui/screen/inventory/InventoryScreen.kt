@@ -1,4 +1,5 @@
 package com.mcxiaoke.carromed.ui.screen.inventory
+import com.mcxiaoke.carromed.core.domain.model.Dose
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.ui.screen.edit.ReadOnlyDateField
+import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
@@ -183,7 +185,9 @@ fun InventoryScreen(
                                 )
                                 MiniStat(
                                     Modifier.weight(1f),
-                                    String.format(Locale.getDefault(), "%.2f", uiState.dailyConsumption),
+                                    // 统一走 Quantity 格式化（此前本页内联 "%.2f"，
+                                    // 与全库其他页面的规则不一致，见 Quantity 的 KDoc）
+                                    Quantity.fmt(uiState.dailyConsumption),
                                     "日均消耗"
                                 )
                                 MiniStat(
@@ -366,8 +370,8 @@ fun InventoryScreen(
                     time = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(tx.createdAt)),
                     label = viewModel.txLabel(tx.txType),
                     note = tx.note,
-                    change = tx.changeAmount,
-                    balance = tx.balanceAfter,
+                    change = Dose(tx.changeAmount).asFloat,
+                    balance = Dose(tx.balanceAfter).asFloat,
                     unit = med.unit,
                     batch = tx.batchNumber,
                     expiry = tx.expiryDate

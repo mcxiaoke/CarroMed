@@ -5,7 +5,12 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import com.mcxiaoke.carromed.core.testing.assertBalanceAfter
+import com.mcxiaoke.carromed.core.testing.assertDoseValue
+import com.mcxiaoke.carromed.core.testing.assertLedgerBalance
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
+import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.TransactionType
@@ -34,6 +39,8 @@ class MedicationAdminServiceTest {
     private lateinit var service: MedicationAdminService
     private lateinit var medDao: com.mcxiaoke.carromed.core.data.dao.MedicationDao
     private lateinit var policyDao: com.mcxiaoke.carromed.core.data.dao.SchedulePolicyDao
+    private lateinit var inventoryDao: com.mcxiaoke.carromed.core.data.dao.InventoryTransactionDao
+    private lateinit var recordDao: com.mcxiaoke.carromed.core.data.dao.DoseRecordDao
 
     @Before
     fun setup() {
@@ -44,6 +51,8 @@ class MedicationAdminServiceTest {
         service = MedicationAdminService(db)
         medDao = db.medicationDao()
         policyDao = db.schedulePolicyDao()
+        inventoryDao = db.inventoryTransactionDao()
+        recordDao = db.doseRecordDao()
     }
 
     @After
@@ -69,7 +78,7 @@ class MedicationAdminServiceTest {
         assertThat(saved.precautions).containsExactly("饭后半小时服用", "避免与布洛芬同服")
         assertThat(saved.noticeShort).isEqualTo("饭后温水送服")
         assertThat(saved.expiryDate).isEqualTo("2027-12-31")
-        assertThat(saved.minStockAlert).isEqualTo(7f)
+        assertDoseValue(saved.minStockAlert, 7f)
     }
 
     @Test
@@ -86,7 +95,12 @@ class MedicationAdminServiceTest {
         medDao.updatePauseStatus(id, true)
         medDao.updateArchiveStatus(id, true)
         medDao.updateStockTracking(id, true)
-        medDao.updateStock(id, 42f)
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = id, changeAmount = 42000, balanceAfter = 42000,
+                txType = TransactionType.CALIBRATION_ADJUST, note = "建档"
+            )
+        )
         val before = medDao.getMedicationById(id)!!
 
         service.saveProfile(
@@ -110,15 +124,15 @@ class MedicationAdminServiceTest {
         assertThat(after.name).isEqualTo("环孢素 缓释")
         assertThat(after.category).isEqualTo("处方药 · 免疫")
         assertThat(after.unit).isEqualTo("粒")
-        assertThat(after.defaultDose).isEqualTo(2f)
+        assertDoseValue(after.defaultDose, 2f)
         assertThat(after.precautions).containsExactly("仅保留一条")
-        assertThat(after.minStockAlert).isEqualTo(20f)
+        assertDoseValue(after.minStockAlert, 20f)
         // 不可编辑/未提交的字段必须原样保留
         assertThat(after.alias).isEqualTo("新赛斯平")
         assertThat(after.isPaused).isTrue()
         assertThat(after.isArchived).isTrue()
         assertThat(after.isStockTracked).isTrue()
-        assertThat(after.currentStock).isEqualTo(42f)
+        db.assertLedgerBalance(id, 42f)
         assertThat(after.createdAt).isEqualTo(before.createdAt)
     }
 
@@ -190,8 +204,7 @@ class MedicationAdminServiceTest {
         val medId = medDao.insert(MedicationEntity(name = "建档药", unit = "片"))
 
         service.ensureInitialStockLedger(medId, 30f)
-        medDao.updateStock(medId, 30f)
-        assertThat(db.inventoryTransactionDao().getSumOfChanges(medId)).isEqualTo(30f)
+        db.assertLedgerBalance(medId, 30f)
 
         // 重复调用不应重复记账
         service.ensureInitialStockLedger(medId, 30f)
@@ -201,52 +214,63 @@ class MedicationAdminServiceTest {
     @Test
     fun calibrateStock_writesLedgerAndKeepsInvariant() = runTest {
         val medId = medDao.insert(MedicationEntity(name = "盘点药", unit = "片"))
-        service.ensureInitialStockLedger(medId, 20f)
-        medDao.updateStock(medId, 20f)
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = medId, changeAmount = 20000, balanceAfter = 20000,
+                txType = TransactionType.CALIBRATION_ADJUST, note = "建档"
+            )
+        )
 
         val tracking = DoseTrackingService(db)
         assertThat(tracking.calibrateStock(medId, 17.5f, "实物比账面少 2.5 片")).isTrue()
 
-        val med = medDao.getMedicationById(medId)!!
-        assertThat(med.currentStock).isEqualTo(17.5f)
-        val sum = db.inventoryTransactionDao().getSumOfChanges(medId)!!
-        assertThat(sum).isEqualTo(med.currentStock)
+        // 余额的唯一权威值就是台账流水累加和
+        db.assertLedgerBalance(medId, 17.5f)
+        assertThat(medDao.getOverviewById(medId)?.stock).isEqualTo(17.5f)
         // 校准流水必须是 CALIBRATION_ADJUST
-        val last = db.inventoryTransactionDao().getTransactionsForMedication(medId).first()
+        val last = inventoryDao.getTransactionsForMedication(medId).first()
         assertThat(last.txType).isEqualTo(TransactionType.CALIBRATION_ADJUST)
-        assertThat(last.changeAmount).isEqualTo(-2.5f)
+        assertDoseValue(last.changeAmount, -2.5f)
     }
 
     @Test
     fun calibrateStock_noOpWhenAlreadyMatching() = runTest {
         val medId = medDao.insert(MedicationEntity(name = "无需校准", unit = "片"))
-        service.ensureInitialStockLedger(medId, 12f)
-        medDao.updateStock(medId, 12f)
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = medId, changeAmount = 12000, balanceAfter = 12000,
+                txType = TransactionType.CALIBRATION_ADJUST, note = "建档"
+            )
+        )
 
         val tracking = DoseTrackingService(db)
         assertThat(tracking.calibrateStock(medId, 12f)).isFalse()
-        assertThat(db.inventoryTransactionDao().getTransactionsForMedication(medId)).hasSize(1)
+        assertThat(inventoryDao.getTransactionsForMedication(medId)).hasSize(1)
     }
 
     @Test
     fun logManualDose_deductStockFalse_keepsStockIntact() = runTest {
         val medId = medDao.insert(
-            MedicationEntity(name = "补录药", unit = "片", currentStock = 10f, isStockTracked = true)
+            MedicationEntity(name = "补录药", unit = "片", isStockTracked = true)
+        )
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = medId, changeAmount = 10000, balanceAfter = 10000,
+                txType = TransactionType.CALIBRATION_ADJUST, note = "建档"
+            )
         )
         val tracking = DoseTrackingService(db)
         val now = System.currentTimeMillis()
 
         tracking.logManualDose(medId, now, 2f, isRetrospective = true, note = "已在别处吃过", deductStock = false)
         // 事实记录要写
-        assertThat(db.doseRecordDao().getRecordsForMedication(medId)).hasSize(1)
+        assertThat(recordDao.getRecordsForMedication(medId)).hasSize(1)
         // 但库存与流水都不动
-        assertThat(medDao.getMedicationById(medId)!!.currentStock).isEqualTo(10f)
-        assertThat(db.inventoryTransactionDao().getSumOfChanges(medId)).isNull()
+        db.assertLedgerBalance(medId, 10f)
 
         // 默认 deductStock=true 时才扣减
         tracking.logManualDose(medId, now + 1000, 2f, isRetrospective = true, note = "确实没吃")
-        assertThat(medDao.getMedicationById(medId)!!.currentStock).isEqualTo(8f)
-        assertThat(db.inventoryTransactionDao().getSumOfChanges(medId)).isEqualTo(-2f)
+        db.assertLedgerBalance(medId, 8f)
     }
 
     @Test
@@ -254,29 +278,30 @@ class MedicationAdminServiceTest {
         val medId = medDao.insert(MedicationEntity(name = "后开追踪", unit = "片"))
         val tracking = DoseTrackingService(db)
 
-        tracking.setStockTracking(medId, true, currentStock = 50f)
+        tracking.setStockTracking(medId, true, initialStock = 50f)
 
-        val med = medDao.getMedicationById(medId)!!
-        assertThat(med.isStockTracked).isTrue()
-        assertThat(med.currentStock).isEqualTo(50f)
-        assertThat(db.inventoryTransactionDao().getSumOfChanges(medId)).isEqualTo(50f)
+        assertThat(medDao.getMedicationById(medId)!!.isStockTracked).isTrue()
+        db.assertLedgerBalance(medId, 50f)
     }
 
     @Test
     fun setStockTracking_disablingKeepsLedgerIntact() = runTest {
         val medId = medDao.insert(
-            MedicationEntity(name = "关闭追踪", unit = "片", currentStock = 30f, isStockTracked = true)
+            MedicationEntity(name = "关闭追踪", unit = "片", isStockTracked = true)
         )
-        service.ensureInitialStockLedger(medId, 30f)
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = medId, changeAmount = 30000, balanceAfter = 30000,
+                txType = TransactionType.CALIBRATION_ADJUST, note = "建档"
+            )
+        )
         val tracking = DoseTrackingService(db)
 
         tracking.setStockTracking(medId, false)
 
-        val med = medDao.getMedicationById(medId)!!
-        assertThat(med.isStockTracked).isFalse()
+        assertThat(medDao.getMedicationById(medId)!!.isStockTracked).isFalse()
         // 账面与流水仍守恒，只是不再自动扣减
-        assertThat(med.currentStock).isEqualTo(30f)
-        assertThat(db.inventoryTransactionDao().getSumOfChanges(medId)).isEqualTo(30f)
+        db.assertLedgerBalance(medId, 30f)
     }
 
     @Test

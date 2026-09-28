@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
+import com.mcxiaoke.carromed.core.data.model.MedicationOverview
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
@@ -19,11 +20,16 @@ import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 
 data class MedicationItemUi(
-    val medication: MedicationEntity,
+    val overview: MedicationOverview,
     val policy: SchedulePolicyEntity?,
     val times: List<PolicyTimeEntity>,
     val frequencyDescription: String
-)
+) {
+    /** 代理到实体，避免调用方到处写 `.overview.medication.` */
+    val medication: MedicationEntity get() = overview.medication
+    /** 由台账聚合出的账面余额（可为负，见 FINAL-PRODUCT D-9） */
+    val stock: Float get() = overview.stock
+}
 
 /** 药箱排序方式 */
 enum class CabinetSortOrder(val label: String) {
@@ -62,7 +68,7 @@ private fun List<MedicationItemUi>.sortedBy(order: CabinetSortOrder): List<Medic
         CabinetSortOrder.DEFAULT -> sortedByDescending { it.medication.id }
         CabinetSortOrder.NAME -> sortedBy { it.medication.name }
         CabinetSortOrder.STOCK_LOW ->
-            sortedBy { if (it.medication.isStockTracked) it.medication.currentStock else Float.MAX_VALUE }
+            sortedBy { if (it.medication.isStockTracked) it.stock else Float.MAX_VALUE }
         CabinetSortOrder.EXPIRY_SOON ->
             sortedBy { it.medication.expiryDate.takeIf { d -> d.isNotBlank() } ?: "9999-12-31" }
     }
@@ -82,15 +88,14 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
         _selectedTab,
         _keyword,
         _sortOrder,
-        medDao.observeActiveMedications(),
-        medDao.observeArchivedMedications()
-    ) { tab, kw, order, activeMeds, archivedMeds ->
+        medDao.observeAllOverviews()
+    ) { tab, kw, order, allMeds ->
         CabinetUiState(
             selectedTab = tab,
             keyword = kw,
             sortOrder = order,
-            activeList = activeMeds.map { buildItemUi(it) },
-            archivedList = archivedMeds.map { buildItemUi(it) },
+            activeList = allMeds.filter { !it.medication.isArchived }.map { buildItemUi(it) },
+            archivedList = allMeds.filter { it.medication.isArchived }.map { buildItemUi(it) },
             isLoading = false
         )
     }.stateIn(
@@ -111,7 +116,8 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
         _sortOrder.value = order
     }
 
-    private suspend fun buildItemUi(med: MedicationEntity): MedicationItemUi {
+    private suspend fun buildItemUi(overview: MedicationOverview): MedicationItemUi {
+        val med = overview.medication
         val policy = policyDao.getActivePolicyForMedication(med.id)
         val times = if (policy != null) policyDao.getTimesForPolicy(policy.id) else emptyList()
 
@@ -134,7 +140,7 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
         }
 
         return MedicationItemUi(
-            medication = med,
+            overview = overview,
             policy = policy,
             times = times,
             frequencyDescription = freqDesc

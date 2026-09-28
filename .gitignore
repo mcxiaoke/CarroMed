@@ -48,6 +48,11 @@ ehthumbs.db
 .cursor/
 .claude/
 
+# 7.1 jqwik 属性化测试的失败样本数据库
+# jqwik 会把反例（shrunk counterexample）写进这个文件用于复现，
+# 它是**测试产物**而非源码，不应进版本库。
+.jqwik-database
+
 # 8. 必须保留的版本控制文件
 !gradle/wrapper/gradle-wrapper.jar
 

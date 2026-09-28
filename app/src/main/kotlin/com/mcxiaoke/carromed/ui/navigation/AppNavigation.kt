@@ -130,6 +130,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                     onNavigateToAddMedication = { navController.navigate(Screen.AddEditMedication.createRoute()) },
                     onNavigateToManualDose = { navController.navigate(Screen.ManualDose.createRoute()) },
                     onNavigateToRefill = { medId -> navController.navigate(Screen.Refill.createRoute(medId)) },
+                    onNavigateToInventory = { medId -> navController.navigate(Screen.Inventory.createRoute(medId)) },
                     onNavigateToMedDetail = { medId -> navController.navigate(Screen.MedicationDetail.createRoute(medId)) }
                 )
             }

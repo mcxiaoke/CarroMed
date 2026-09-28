@@ -18,8 +18,14 @@ data class SlotStatusCountRow(
     @ColumnInfo(name = "cnt") val count: Int
 )
 
-/** 按药品汇总的区间实际消耗剂量 (仅 COMPLETED 事实) */
+/**
+ * 按药品汇总的区间实际消耗剂量 (仅 COMPLETED 事实)
+ *
+ * `totalDose` 是**整数毫单位**（1 片 = 1000），与 `dose_records.dose_taken` 同口径。
+ * 聚合层若用 Float 而实体用 Int，会在 DAO 边界上产生一次静默的量级错误 ——
+ * 所以这里保持与实体一致的整数口径，由 UI 层负责换算（D-7）。
+ */
 data class MedDoseSumRow(
     @ColumnInfo(name = "medId") val medicationId: Long,
-    @ColumnInfo(name = "total") val totalDose: Float
+    @ColumnInfo(name = "total") val totalDose: Int
 )

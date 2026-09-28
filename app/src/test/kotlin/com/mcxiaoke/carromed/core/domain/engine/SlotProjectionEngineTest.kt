@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.core.domain.engine
 
 import com.google.common.truth.Truth.assertThat
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
@@ -27,8 +28,8 @@ class SlotProjectionEngineTest {
             endDate = null
         )
         val times = listOf(
-            PolicyTimeEntity(policyId = 1L, timeOfDay = "08:00", doseAmount = 1.0f, sortOrder = 0),
-            PolicyTimeEntity(policyId = 1L, timeOfDay = "20:00", doseAmount = 2.0f, sortOrder = 1)
+            PolicyTimeEntity(policyId = 1L, timeOfDay = "08:00", doseAmount = 1000, sortOrder = 0),
+            PolicyTimeEntity(policyId = 1L, timeOfDay = "20:00", doseAmount = 2000, sortOrder = 1)
         )
 
         val from = LocalDate.of(2026, 10, 1)
@@ -44,8 +45,8 @@ class SlotProjectionEngineTest {
             "2026-10-02 08:00", "2026-10-02 20:00",
             "2026-10-03 08:00", "2026-10-03 20:00"
         ).inOrder()
-        assertThat(slots[0].doseAmount).isEqualTo(1.0f)
-        assertThat(slots[1].doseAmount).isEqualTo(2.0f)
+        assertThat(Dose(slots[0].doseAmount).asFloat).isEqualTo(1.0f)
+        assertThat(Dose(slots[1].doseAmount).asFloat).isEqualTo(2.0f)
     }
 
     @Test
@@ -59,7 +60,7 @@ class SlotProjectionEngineTest {
             startDate = "2028-02-27"
         )
         val times = listOf(
-            PolicyTimeEntity(policyId = 2L, timeOfDay = "09:00", doseAmount = 1.0f)
+            PolicyTimeEntity(policyId = 2L, timeOfDay = "09:00", doseAmount = 1000)
         )
 
         val from = LocalDate.of(2028, 2, 27)
@@ -91,7 +92,7 @@ class SlotProjectionEngineTest {
             startDate = "2026-10-05" // 2026-10-05 是周一
         )
         val times = listOf(
-            PolicyTimeEntity(policyId = 3L, timeOfDay = "07:30", doseAmount = 1.0f)
+            PolicyTimeEntity(policyId = 3L, timeOfDay = "07:30", doseAmount = 1000)
         )
 
         // 一整周：2026-10-05(周一) 到 2026-10-11(周日)
@@ -120,7 +121,7 @@ class SlotProjectionEngineTest {
             startDate = "2026-10-01"
         )
         val times = listOf(
-            PolicyTimeEntity(policyId = 4L, timeOfDay = "10:00", doseAmount = 1.0f)
+            PolicyTimeEntity(policyId = 4L, timeOfDay = "10:00", doseAmount = 1000)
         )
 
         val from = LocalDate.of(2026, 10, 1)
@@ -146,7 +147,7 @@ class SlotProjectionEngineTest {
             startDate = "2026-10-01"
         )
         val times = listOf(
-            PolicyTimeEntity(policyId = 5L, timeOfDay = "08:00", doseAmount = 1.0f)
+            PolicyTimeEntity(policyId = 5L, timeOfDay = "08:00", doseAmount = 1000)
         )
 
         val slots = SlotProjectionEngine.projectSlots(
@@ -168,7 +169,7 @@ class SlotProjectionEngineTest {
             endDate = "2026-10-03" // 疗程在 10-03 截止
         )
         val times = listOf(
-            PolicyTimeEntity(policyId = 6L, timeOfDay = "08:00", doseAmount = 1.0f)
+            PolicyTimeEntity(policyId = 6L, timeOfDay = "08:00", doseAmount = 1000)
         )
 
         // 尝试向后投影到 10-10

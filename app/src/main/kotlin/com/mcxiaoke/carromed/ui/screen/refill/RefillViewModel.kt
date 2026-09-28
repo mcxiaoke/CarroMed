@@ -2,12 +2,10 @@ package com.mcxiaoke.carromed.ui.screen.refill
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
-import androidx.room.withTransaction
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
-import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
-import com.mcxiaoke.carromed.core.data.model.TransactionType
+import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +13,8 @@ import kotlinx.coroutines.launch
 
 data class RefillUiState(
     val medication: MedicationEntity? = null,
+    /** 台账聚合出的账面余额（可为负，见 FINAL-PRODUCT D-9） */
+    val stock: Float = 0f,
     val addAmount: String = "30",
     val channel: String = "同仁堂实体药房",
     val batchNumber: String = "",
@@ -39,17 +39,18 @@ class RefillViewModel(
 
     private val db = AppDatabase.getInstance(application)
     private val medDao = db.medicationDao()
-    private val inventoryDao = db.inventoryTransactionDao()
+    private val trackingService = DoseTrackingService(db)
 
     private val _uiState = MutableStateFlow(RefillUiState())
     val uiState: StateFlow<RefillUiState> = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
-            val med = medDao.getMedicationById(medId)
+            val overview = medDao.getOverviewById(medId)
             _uiState.value = _uiState.value.copy(
-                medication = med,
-                // 预填上次的有效期，方便连续补货；不预填假日期
+                medication = overview?.medication,
+                stock = overview?.stock ?: 0f,
+                // 不预填假日期
                 expiryDate = ""
             )
         }
@@ -89,30 +90,25 @@ class RefillViewModel(
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
-            // 事务保证「流水 + 账面 + 追踪开关」三者原子，账面恒等于 SUM(change_amount)
-            db.withTransaction {
-                val med = medDao.getMedicationById(medId) ?: return@withTransaction
-                val newStock = med.currentStock + amt
-                inventoryDao.insert(
-                    InventoryTransactionEntity(
-                        medicationId = medId,
-                        changeAmount = amt,
-                        balanceAfter = newStock,
-                        txType = TransactionType.REFILL,
-                        note = buildString {
-                            append("采购入库 (${s.channel})")
-                            if (s.note.isNotBlank()) append(" · ${s.note}")
-                        },
-                        batchNumber = s.batchNumber.ifBlank { null },
-                        expiryDate = s.expiryDate.ifBlank { null }
-                    )
-                )
-                medDao.updateStock(medId, newStock)
-                // 入库即自动开启库存追踪（此前需用户手工在表单里填初始库存才开）
-                if (!med.isStockTracked) {
-                    medDao.updateStockTracking(medId, true)
-                }
+            // 复用领域层的入库路径，而不是自己重写一遍内联事务 ——
+            // 内联版本曾直接调 updateStock 改账面（现已不存在该 API），
+            // 而重复实现本身就是两处逻辑漂移的来源。
+            val ok = trackingService.refillStock(
+                medicationId = medId,
+                addedAmount = amt,
+                note = buildString {
+                    append("采购入库 (${s.channel})")
+                    if (s.note.isNotBlank()) append(" · ${s.note}")
+                },
+                batchNumber = s.batchNumber.ifBlank { null },
+                expiryDate = s.expiryDate.ifBlank { null }
+            )
+            if (!ok) {
+                _uiState.value = _uiState.value.copy(isSaving = false, error = "药品已不存在，入库未执行")
+                return@launch
             }
+            // 入库即自动开启库存追踪（此前需用户手工在表单里填初始库存才开）
+            trackingService.setStockTracking(medId, true)
             _uiState.value = _uiState.value.copy(isSaving = false)
             onSuccess()
         }

@@ -76,7 +76,7 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
 
     val uiState: StateFlow<ProgressUiState> = combine(
         _selectedTab,
-        medDao.observeActiveMedications(),
+        medDao.observeActiveOverviews(),
         slotDao.observeSlotStatusCounts(
             weekDates.first().format(SlotProjectionEngine.DATE_FORMATTER),
             weekDates.last().format(SlotProjectionEngine.DATE_FORMATTER)
@@ -84,12 +84,12 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
         _selectedTab.flatMapLatest { _ ->
             slotDao.observeSlotsForDate(today.format(SlotProjectionEngine.DATE_FORMATTER))
         }
-    ) { tab, medications, statusRows, todaySlots ->
-        val medMap = medications.associateBy { it.id }
+    ) { tab, overviews, statusRows, todaySlots ->
+        val medMap = overviews.associateBy { it.id }
         val byMedDate = StatsEngine.aggregateBreakdowns(statusRows)
 
-        val matrixItems = medications.map { med ->
-            val byDate = byMedDate[med.id].orEmpty()
+        val matrixItems = overviews.map { overview ->
+            val byDate = byMedDate[overview.id].orEmpty()
             val days = weekDates.map { d ->
                 val b = byDate[d.format(SlotProjectionEngine.DATE_FORMATTER)] ?: StatsEngine.DayStatusBreakdown()
                 DayAdherence(
@@ -105,7 +105,7 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
                 weekDates.map { it.format(SlotProjectionEngine.DATE_FORMATTER) }
             )
             MedMatrixItem(
-                medication = med,
+                medication = overview.medication,
                 completionRate = StatsEngine.adherenceOf(total),
                 completedCount = total.completed,
                 decidedCount = total.decided,
@@ -124,7 +124,7 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
         val timeline = todaySlots.map { slot ->
             TimelineItem(
                 slot = slot,
-                medication = medMap[slot.medicationId],
+                medication = medMap[slot.medicationId]?.medication,
                 record = if (slot.status == com.mcxiaoke.carromed.core.data.model.SlotStatus.COMPLETED) {
                     recordDao.getRecordBySlotId(slot.id)
                 } else null

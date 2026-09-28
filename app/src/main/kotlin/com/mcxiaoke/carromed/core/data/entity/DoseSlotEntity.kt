@@ -51,7 +51,7 @@ data class DoseSlotEntity(
     val scheduledTs: Long, // 计划精确绝对时间戳 (毫秒)，用于 AlarmManager 唤醒
 
     @ColumnInfo(name = "dose_amount")
-    val doseAmount: Float,
+    val doseAmount: Int, // 计划剂量，整数毫单位
 
     @ColumnInfo(name = "status")
     val status: SlotStatus = SlotStatus.PENDING,

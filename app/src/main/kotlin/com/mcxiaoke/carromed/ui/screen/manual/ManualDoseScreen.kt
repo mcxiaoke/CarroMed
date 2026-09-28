@@ -57,6 +57,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.ui.component.Quantity
 import java.time.format.DateTimeFormatter
 
 /**
@@ -168,11 +169,15 @@ fun ManualDoseScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             val selected = uiState.selectedMedication
+                            val selectedStock = uiState.selectedStock
+                            val stocksById = uiState.stockByMedicationId
                             val selectedText = when {
                                 selected == null -> "请选择药品"
-                                selected.isStockTracked ->
-                                    "${selected.name} (剩 ${fmtQty(selected.currentStock)} ${selected.unit})"
-                                else -> selected.name
+                                !selected.isStockTracked -> selected.name
+                                selectedStock < 0f ->
+                                    "${selected.name} (账面 ${Quantity.fmt(selectedStock)} ${selected.unit}，将扣成负数)"
+                                else ->
+                                    "${selected.name} (剩 ${Quantity.fmt(selectedStock)} ${selected.unit})"
                             }
                             OutlinedTextField(
                                 value = selectedText,
@@ -197,16 +202,17 @@ fun ManualDoseScreen(
                                     )
                                 }
                                 uiState.medications.forEach { med ->
+                                    val stock = stocksById[med.id] ?: 0f
                                     DropdownMenuItem(
                                         text = {
                                             Text(
                                                 if (med.isStockTracked) {
-                                                    "${med.name} (剩 ${fmtQty(med.currentStock)} ${med.unit})"
+                                                    "${med.name} (剩 ${Quantity.fmt(stock)} ${med.unit})"
                                                 } else med.name
                                             )
                                         },
                                         onClick = {
-                                            viewModel.selectMedication(med)
+                                            viewModel.selectMedication(med.id)
                                             medDropdownExpanded = false
                                         }
                                     )
@@ -439,5 +445,4 @@ fun ManualDoseScreen(
 private fun Modifier.androidxClickable(onClick: () -> Unit): Modifier =
     this.clickable(onClick = onClick)
 
-private fun fmtQty(v: Float): String =
-    if (v % 1f == 0f) v.toInt().toString() else String.format(java.util.Locale.getDefault(), "%.2f", v)
+// 数量格式化已统一到 com.mcxiaoke.carromed.ui.component.Quantity。

@@ -1,4 +1,5 @@
 package com.mcxiaoke.carromed.ui.screen.today
+import com.mcxiaoke.carromed.core.domain.model.Dose
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -65,6 +66,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
+import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
@@ -90,6 +92,8 @@ fun TodayScreen(
     onNavigateToAddMedication: () -> Unit,
     onNavigateToManualDose: () -> Unit,
     onNavigateToRefill: (Long) -> Unit,
+    /** 账面为负时引导去库存管理页做盘点校准（而不是补药） */
+    onNavigateToInventory: (Long) -> Unit,
     onNavigateToMedDetail: (Long) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -144,9 +148,21 @@ fun TodayScreen(
 
             // 低库存告警：显示全部告急药品，不再只显示第一个
             if (uiState.lowStockAlertMeds.isNotEmpty()) {
-                items(uiState.lowStockAlertMeds.size) { i ->
-                    val med = uiState.lowStockAlertMeds[i]
+                // ⚠️ key 必须带类型前缀，不能直接用药品 id。
+                // 本 LazyColumn 里同时挂着 `lowStockAlertMeds`（药品）与
+                // `pendingItems` / `completedItems` / `skippedItems`（槽位），
+                // 而 medications.id 与 dose_slots.id 是**两条独立的自增序列**，
+                // 首条记录都是 1。直接用裸 id 会撞号，Compose 在渲染到第二个
+                // 冲突项时抛 `IllegalArgumentException: Key "1" was already used`
+                // 直接崩掉 —— 而且只在**滚动到该项时**才崩，第一屏看起来完全正常。
+                items(uiState.lowStockAlertMeds, key = { "lowstock-${it.id}" }) { overview ->
+                    val med = overview.medication
                     val unit = med.unit
+                    val stock = overview.stock
+                    val alert = overview.minStockAlert   // 展示值，不是毫单位
+                    // 账面为负说明账实不符（已吃的比记录的库存还多），这比"快没药了"更严重，
+                    // 文案与配色都要区分开，并引导去盘点。见 FINAL-PRODUCT D-9。
+                    val isOverspent = stock < 0f
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = WarningAmberContainer),
@@ -169,17 +185,29 @@ fun TodayScreen(
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    text = "${med.name} 仅剩 ${fmtQty(med.currentStock)} $unit" +
-                                        " (低于警戒线 ${fmtQty(med.minStockAlert)})",
+                                    text = if (isOverspent) {
+                                        "${med.name} 账面 ${Quantity.fmt(stock)} $unit，已超出记录库存，请盘点校准"
+                                    } else {
+                                        "${med.name} 仅剩 ${Quantity.fmt(stock)} $unit" +
+                                            " (低于警戒线 ${Quantity.fmt(alert)})"
+                                    },
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
                                     color = OnWarningAmberContainer
                                 )
                             }
                             TextButton(
-                                onClick = { onNavigateToRefill(med.id) },
+                                onClick = {
+                                    if (isOverspent) onNavigateToInventory(med.id) else onNavigateToRefill(med.id)
+                                },
                                 contentPadding = PaddingValues(0.dp)
-                            ) { Text("去补药 >", fontWeight = FontWeight.Bold, color = WarningAmber) }
+                            ) {
+                                Text(
+                                    text = if (isOverspent) "去盘点 >" else "去补药 >",
+                                    fontWeight = FontWeight.Bold,
+                                    color = WarningAmber
+                                )
+                            }
                         }
                     }
                 }
@@ -250,7 +278,7 @@ fun TodayScreen(
                     }
                 }
             } else {
-                items(uiState.pendingItems, key = { it.slot.id }) { item ->
+                items(uiState.pendingItems, key = { "slot-${it.slot.id}" }) { item ->
                     PendingDoseCard(
                         item = item,
                         onTakeDose = { viewModel.takeDose(item.slot.id) },
@@ -282,7 +310,7 @@ fun TodayScreen(
                         )
                     }
                 }
-                items(uiState.completedItems, key = { it.slot.id }) { item ->
+                items(uiState.completedItems, key = { "slot-${it.slot.id}" }) { item ->
                     CompletedDoseCard(
                         item = item,
                         onUndoDose = { viewModel.undoDose(item.slot.id) },
@@ -301,7 +329,7 @@ fun TodayScreen(
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
-                items(uiState.skippedItems, key = { it.slot.id }) { item ->
+                items(uiState.skippedItems, key = { "slot-${it.slot.id}" }) { item ->
                     SkippedDoseCard(
                         item = item,
                         onUndoDose = { viewModel.undoDose(item.slot.id) },
@@ -331,7 +359,7 @@ fun TodayScreen(
                 )
                 Text(
                     text = "计划 ${target.slot.scheduledTime} · " +
-                        "${fmtQty(target.slot.doseAmount)} ${target.medication?.unit ?: "片"}",
+                        "${Quantity.fmt(Dose(target.slot.doseAmount).asFloat)} ${target.medication?.unit ?: "片"}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -472,15 +500,22 @@ private fun PendingDoseCard(
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = "${item.slot.scheduledTime} · ${fmtQty(item.slot.doseAmount)} $unit",
+                        text = "${item.slot.scheduledTime} · ${Quantity.fmt(Dose(item.slot.doseAmount).asFloat)} $unit",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    if (med?.isStockTracked == true) {
+                    if (med?.isStockTracked == true && item.stock != null) {
                         Spacer(Modifier.width(6.dp))
-                        val isLow = med.minStockAlert > 0f && med.currentStock <= med.minStockAlert
+                        val stock = item.stock
+                        val alert = item.minStockAlert   // 展示值，不是毫单位
+                        val isOverspent = stock < 0f
+                        val isLow = isOverspent || (alert > 0f && stock <= alert)
                         Text(
-                            text = "· 剩 ${fmtQty(med.currentStock)} $unit",
+                            text = if (isOverspent) {
+                                "· 账面 ${Quantity.fmt(stock)} $unit (待盘点)"
+                            } else {
+                                "· 剩 ${Quantity.fmt(stock)} $unit"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = if (isLow) FontWeight.Bold else FontWeight.Normal,
                             color = if (isLow) MaterialTheme.colorScheme.error
@@ -504,7 +539,7 @@ private fun PendingDoseCard(
                         Spacer(Modifier.height(4.dp))
                         StatusBadge(
                             icon = Icons.Default.WarningAmber,
-                            text = "已逾期 ${fmtQty(item.slot.doseAmount)} $unit，尚未确认",
+                            text = "已逾期 ${Quantity.fmt(Dose(item.slot.doseAmount).asFloat)} $unit，尚未确认",
                             color = WarningAmber
                         )
                     }
@@ -663,7 +698,7 @@ private fun CompletedDoseCard(
                     text = buildString {
                         append("${item.slot.scheduledTime} 完成")
                         item.record?.let { r ->
-                            append(" · ${fmtQty(r.doseTaken)} ${med?.unit ?: "片"}")
+                            append(" · ${Quantity.fmt(Dose(r.doseTaken).asFloat)} ${med?.unit ?: "片"}")
                             if (!r.note.isNullOrBlank()) append(" · ${r.note}")
                         }
                     },
@@ -807,5 +842,4 @@ private fun formatSnooze(ts: Long?): String {
     return String.format(Locale.getDefault(), "%02d:%02d", dt.hour, dt.minute)
 }
 
-private fun fmtQty(v: Float): String =
-    if (v % 1f == 0f) v.toInt().toString() else String.format(Locale.getDefault(), "%.2f", v)
+// 数量格式化已统一到 com.mcxiaoke.carromed.ui.component.Quantity（消除全库四套写法）。

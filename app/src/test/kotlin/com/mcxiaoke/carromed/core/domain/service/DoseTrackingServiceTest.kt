@@ -5,6 +5,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import com.mcxiaoke.carromed.core.testing.assertBalanceAfter
+import com.mcxiaoke.carromed.core.testing.assertDoseValue
+import com.mcxiaoke.carromed.core.testing.assertLedgerBalance
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
@@ -61,7 +65,6 @@ class DoseTrackingServiceTest {
             MedicationEntity(
                 name = "立普妥",
                 unit = "片",
-                currentStock = 20.0f,
                 isStockTracked = true
             )
         )
@@ -69,8 +72,8 @@ class DoseTrackingServiceTest {
         inventoryDao.insert(
             com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity(
                 medicationId = medId,
-                changeAmount = 20.0f,
-                balanceAfter = 20.0f,
+                changeAmount = 20000,
+                balanceAfter = 20000,
                 txType = TransactionType.CALIBRATION_ADJUST,
                 note = "初始录入"
             )
@@ -84,7 +87,7 @@ class DoseTrackingServiceTest {
                 scheduledDate = "2026-09-27",
                 scheduledTime = "08:00",
                 scheduledTs = 1790467200000L,
-                doseAmount = 2.0f,
+                doseAmount = 2000,
                 status = SlotStatus.PENDING
             )
         )
@@ -100,14 +103,14 @@ class DoseTrackingServiceTest {
 
         val recordAfterTake = recordDao.getRecordBySlotId(slotId)
         assertThat(recordAfterTake).isNotNull()
-        assertThat(recordAfterTake?.doseTaken).isEqualTo(2.0f)
+        assertDoseValue(recordAfterTake?.doseTaken ?: 0, 2.0f)
         assertThat(recordAfterTake?.status).isEqualTo(RecordStatus.COMPLETED)
 
         val medAfterTake = medDao.getMedicationById(medId)
-        assertThat(medAfterTake?.currentStock).isEqualTo(18.0f)
+        db.assertLedgerBalance(medId, 18.0f)
 
-        // 验证台账不变式：SUM(change_amount) == currentStock (20 - 2 = 18)
-        assertThat(inventoryDao.getSumOfChanges(medId)).isEqualTo(18.0f)
+        // 验证台账不变式：余额 == SUM(change_amount) (20 - 2 = 18)
+        db.assertLedgerBalance(medId, 18.0f)
 
         // 4. 用户反馈点错了，执行【撤销打卡 (undoDose)】
         val undoSuccess = service.undoDose(slotId)
@@ -119,20 +122,22 @@ class DoseTrackingServiceTest {
         assertThat(slotAfterUndo?.status).isEqualTo(SlotStatus.PENDING)
         assertThat(slotAfterUndo?.actualTakenTs).isNull()
 
-        // b. 该 slot 对应的历史打卡记录已清除
+        // b. 服药事实**不被删除**，而是标记为 REVERTED
+        //    （产品第二承诺「吃过的药永不丢失」+ FINAL-PRODUCT 场景 2「事实层追加 REVERT 修正…全程留痕」）
         val recordAfterUndo = recordDao.getRecordBySlotId(slotId)
-        assertThat(recordAfterUndo).isNull()
+        assertThat(recordAfterUndo).isNotNull()
+        assertThat(recordAfterUndo?.status).isEqualTo(RecordStatus.REVERTED)
+        assertDoseValue(recordAfterUndo?.doseTaken ?: 0, 2.0f)
 
-        // c. 药品库存精准恢复回 20 片
-        val medAfterUndo = medDao.getMedicationById(medId)
-        assertThat(medAfterUndo?.currentStock).isEqualTo(20.0f)
+        // c. 台账余额精准恢复回 20 片
+        db.assertLedgerBalance(medId, 20.0f)
 
         // d. 台账产生了一条 REVERT_ROLLBACK (+2.0f) 冲正记录，全量台账求和仍然严格守恒 (20 - 2 + 2 = 20)
-        assertThat(inventoryDao.getSumOfChanges(medId)).isEqualTo(20.0f)
+        db.assertLedgerBalance(medId, 20.0f)
         val transactions = inventoryDao.getTransactionsForMedication(medId)
         assertThat(transactions).hasSize(3) // 初始 + 扣除 + 冲正
         assertThat(transactions[0].txType).isEqualTo(TransactionType.REVERT_ROLLBACK)
-        assertThat(transactions[0].changeAmount).isEqualTo(2.0f)
+        assertDoseValue(transactions[0].changeAmount, 2.0f)
     }
 
     @Test
@@ -140,13 +145,20 @@ class DoseTrackingServiceTest {
         val medDao = db.medicationDao()
         val slotDao = db.doseSlotDao()
         val recordDao = db.doseRecordDao()
+        val inventoryDao = db.inventoryTransactionDao()
 
         val medId = medDao.insert(
             MedicationEntity(
                 name = "降压药",
                 unit = "片",
-                currentStock = 10.0f,
                 isStockTracked = true
+            )
+        )
+        // 建账 10 片，这样"跳过不动账面"才有可断言的基准
+        inventoryDao.insert(
+            com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity(
+                medicationId = medId, changeAmount = 10000, balanceAfter = 10000,
+                txType = TransactionType.CALIBRATION_ADJUST, note = "建档"
             )
         )
         val slotId = slotDao.insert(
@@ -156,7 +168,7 @@ class DoseTrackingServiceTest {
                 scheduledDate = "2026-09-27",
                 scheduledTime = "12:00",
                 scheduledTs = 1790481600000L,
-                doseAmount = 1.0f,
+                doseAmount = 1000,
                 status = SlotStatus.PENDING
             )
         )
@@ -169,11 +181,10 @@ class DoseTrackingServiceTest {
 
         val record = recordDao.getRecordBySlotId(slotId)
         assertThat(record?.status).isEqualTo(RecordStatus.SKIPPED)
-        assertThat(record?.doseTaken).isEqualTo(0.0f)
+        assertDoseValue(record?.doseTaken ?: 0, 0f)
 
         // 跳过不应扣减库存
-        val med = medDao.getMedicationById(medId)
-        assertThat(med?.currentStock).isEqualTo(10.0f)
+        db.assertLedgerBalance(medId, 10.0f)
     }
 
     @Test
@@ -185,22 +196,27 @@ class DoseTrackingServiceTest {
             MedicationEntity(
                 name = "维生素C",
                 unit = "片",
-                currentStock = 5.0f,
                 isStockTracked = true
+            )
+        )
+        // 建账 5 片（余额不再是 medications 的一列，必须先有流水）
+        inventoryDao.insert(
+            com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity(
+                medicationId = medId, changeAmount = 5000, balanceAfter = 5000,
+                txType = TransactionType.CALIBRATION_ADJUST, note = "建档"
             )
         )
 
         val success = service.refillStock(medId, addedAmount = 100.0f, note = "新开一瓶")
         assertThat(success).isTrue()
 
-        val med = medDao.getMedicationById(medId)
-        assertThat(med?.currentStock).isEqualTo(105.0f)
+        db.assertLedgerBalance(medId, 105.0f)
 
         val txList = inventoryDao.getTransactionsForMedication(medId)
-        assertThat(txList).hasSize(1)
+        assertThat(txList).hasSize(2)
         assertThat(txList[0].txType).isEqualTo(TransactionType.REFILL)
-        assertThat(txList[0].changeAmount).isEqualTo(100.0f)
-        assertThat(txList[0].balanceAfter).isEqualTo(105.0f)
+        assertDoseValue(txList[0].changeAmount, 100.0f)
+        assertBalanceAfter(txList[0].balanceAfter, 105.0f)
     }
 
     @Test
@@ -210,7 +226,7 @@ class DoseTrackingServiceTest {
         val slotDao = db.doseSlotDao()
 
         val medId = medDao.insert(
-            MedicationEntity(name = "二甲双胍", unit = "片", currentStock = 30.0f)
+            MedicationEntity(name = "二甲双胍", unit = "片")
         )
 
         val today = LocalDate.of(2026, 10, 1)
@@ -222,7 +238,7 @@ class DoseTrackingServiceTest {
             startDate = "2026-10-01"
         )
         val oldTimes = listOf(
-            PolicyTimeEntity(policyId = 0, timeOfDay = "08:00", doseAmount = 1.0f)
+            PolicyTimeEntity(policyId = 0, timeOfDay = "08:00", doseAmount = 1000)
         )
         val policyId = policyDao.savePolicyWithTimes(oldPolicy, oldTimes)
 
@@ -234,7 +250,7 @@ class DoseTrackingServiceTest {
             scheduledDate = "2026-10-01",
             scheduledTime = "08:00",
             scheduledTs = today.atTime(8, 0).atZone(java.time.ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli(),
-            doseAmount = 1.0f,
+            doseAmount = 1000,
             status = SlotStatus.PENDING
         )
         slotDao.insert(oldSlotToday)
@@ -251,8 +267,8 @@ class DoseTrackingServiceTest {
             version = 2
         )
         val newTimes = listOf(
-            PolicyTimeEntity(policyId = policyId, timeOfDay = "08:00", doseAmount = 1.0f, sortOrder = 0),
-            PolicyTimeEntity(policyId = policyId, timeOfDay = "18:00", doseAmount = 1.0f, sortOrder = 1)
+            PolicyTimeEntity(policyId = policyId, timeOfDay = "08:00", doseAmount = 1000, sortOrder = 0),
+            PolicyTimeEntity(policyId = policyId, timeOfDay = "18:00", doseAmount = 1000, sortOrder = 1)
         )
         policyDao.updatePolicy(newPolicy)
         policyDao.insertTimes(newTimes)

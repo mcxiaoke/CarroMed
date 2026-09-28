@@ -3,6 +3,7 @@ package com.mcxiaoke.carromed.ui.screen.detail
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
@@ -24,6 +25,8 @@ data class MedDetailUiState(
     val policy: SchedulePolicyEntity? = null,
     val times: List<PolicyTimeEntity> = emptyList(),
     val transactions: List<InventoryTransactionEntity> = emptyList(),
+    /** 台账聚合出的账面余额（可为负，见 FINAL-PRODUCT D-9） */
+    val stock: Float = 0f,
     val runwayDays: Int = Int.MAX_VALUE,
     val isStockAlert: Boolean = false,
     val isLoading: Boolean = true,
@@ -56,11 +59,13 @@ class MedicationDetailViewModel(
 
     fun loadData() {
         viewModelScope.launch {
-            val med = medDao.getMedicationById(medId)
-            if (med == null) {
+            val overview = medDao.getOverviewById(medId)
+            if (overview == null) {
                 _uiState.value = _uiState.value.copy(isLoading = false, error = "药品不存在或已被删除")
                 return@launch
             }
+            val med = overview.medication
+            val stock = overview.stock
             val policy = policyDao.getActivePolicyForMedication(medId)
             val times = if (policy != null) policyDao.getTimesForPolicy(policy.id) else emptyList()
             val txList = inventoryDao.getTransactionsForMedication(medId)
@@ -83,11 +88,13 @@ class MedicationDetailViewModel(
             val doseSum = recordDao.getSumDoseTakenForMedication(medId, startTs, endTs) ?: 0f
             val recent = recordDao.getRecordsForMedication(medId).take(RECENT_RECORD_LIMIT)
 
-            val dailyDose = times.sumOf { it.doseAmount.toDouble() }.toFloat()
+            val dailyDose = Dose(times.sumOf { it.doseAmount }).asFloat
             val (runway, isAlert) = StatsEngine.calculateStockRunwayBySchedule(
-                currentStock = med.currentStock,
+                currentStock = stock,
                 dosesPerScheduledDay = dailyDose,
-                scheduledDosesPerWeek = scheduledDosesPerWeek(policy, times.size)
+                scheduledDosesPerWeek = scheduledDosesPerWeek(policy, times.size),
+                // 与库存页一致：必须传用户配置的预警线，否则本页低库存判定会与今日/药箱页冲突
+                minStockAlert = Dose(med.minStockAlert).asFloat
             )
 
             _uiState.value = MedDetailUiState(
@@ -95,6 +102,7 @@ class MedicationDetailViewModel(
                 policy = policy,
                 times = times,
                 transactions = txList,
+                stock = stock,
                 runwayDays = runway,
                 isStockAlert = isAlert,
                 isLoading = false,
@@ -143,7 +151,7 @@ class MedicationDetailViewModel(
     fun deleteMedication(onDeleted: () -> Unit) {
         val med = _uiState.value.medication ?: return
         viewModelScope.launch {
-            medDao.delete(med)
+            medDao.deleteById(med.id)
             rescheduleAlarms()
             onDeleted()
         }

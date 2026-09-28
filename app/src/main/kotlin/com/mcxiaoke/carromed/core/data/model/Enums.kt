@@ -26,10 +26,32 @@ enum class SlotStatus {
  * 服药事实状态 (DoseRecord)
  */
 enum class RecordStatus {
-    COMPLETED,      // 正常按时或推迟后完成
+    COMPLETED,      // 已服药（含按时打卡、推迟后打卡、事后补录）
     SKIPPED,        // 记录跳过事实
-    RETROSPECTIVE   // 事后补录
+    REVERTED        // 已被用户撤销（事实保留，不物理删除）
 }
+
+/**
+ * 服用事实状态 (DoseRecord) ——
+ *
+ * ## 为什么"事后补录"不再是 RecordStatus 的一个取值
+ *
+ * 此前存在 `RETROSPECTIVE` 枚举值，用于标记"这条是补录的"。这造成了一个长期 bug：
+ * 所有消耗聚合查询都写死 `WHERE status = 'COMPLETED'`（`DoseRecordDao` 的三个查询 +
+ * `StatsEngine.sumDoseByDate`），于是**凡���补录时间距今超过 2 分钟的服药，
+ * 库存照扣、统计不计** —— 账面与消耗排行永远对不上。
+ *
+ * 根因是 `status` 同时承担了两件事：
+ * 1. **依从分类**（吃了 / 跳过 / 被撤销）
+ * 2. **记录来源**（实时打卡 / 事后补录）
+ *
+ * 两者正交，不该塞进一个枚举。现在：
+ * - `status` 只管依从分类；
+ * - 来源由 `DoseRecordEntity.isRetrospective`（布尔列）承载。
+ *
+ * 于是 `status = 'COMPLETED'` 天然包含补录，统计口径无需任何特判。
+ * 见 `docs/REMINDER-DOMAIN-REDESIGN.md` §2.5 与 P1-4。
+ */
 
 /**
  * 不可变库存台账流水类型 (InventoryTransaction)

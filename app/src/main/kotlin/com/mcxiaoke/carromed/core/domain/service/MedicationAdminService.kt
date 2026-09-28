@@ -8,6 +8,7 @@ import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.TransactionType
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import java.time.LocalDate
 
 /**
@@ -38,7 +39,7 @@ class MedicationAdminService(private val db: AppDatabase) {
         val form: String = "片剂",
         val unit: String = "片",
         val colorHex: String = "#2563EB",
-        val defaultDose: Float = 1.0f,
+        val defaultDose: Float = 1.0f,  // 展示值，落库时转毫单位
         val description: String = "",
         val precautions: List<String> = emptyList(),
         val noticeShort: String = "",
@@ -94,7 +95,7 @@ class MedicationAdminService(private val db: AppDatabase) {
                 form = draft.form,
                 unit = draft.unit,
                 colorHex = draft.colorHex,
-                defaultDose = draft.defaultDose,
+                defaultDose = Dose.of(draft.defaultDose).milli,
                 description = draft.description.trim(),
                 precautions = draft.precautions.map { it.trim() }.filter { it.isNotEmpty() },
                 noticeShort = draft.noticeShort.trim(),
@@ -102,7 +103,7 @@ class MedicationAdminService(private val db: AppDatabase) {
                 isCriticalReminder = draft.isCriticalReminder,
                 snoozeMinutes = draft.snoozeMinutes,
                 advanceMinutes = draft.advanceMinutes,
-                minStockAlert = draft.minStockAlert.coerceAtLeast(0f),
+                minStockAlert = Dose.of(draft.minStockAlert.coerceAtLeast(0f)).milli,
                 updatedAt = System.currentTimeMillis()
             )
             return@withTransaction draft.medId
@@ -117,7 +118,7 @@ class MedicationAdminService(private val db: AppDatabase) {
                 form = draft.form,
                 unit = draft.unit,
                 colorHex = draft.colorHex,
-                defaultDose = draft.defaultDose,
+                defaultDose = Dose.of(draft.defaultDose).milli,
                 description = draft.description.trim(),
                 precautions = draft.precautions.map { it.trim() }.filter { it.isNotEmpty() },
                 noticeShort = draft.noticeShort.trim(),
@@ -125,7 +126,7 @@ class MedicationAdminService(private val db: AppDatabase) {
                 isCriticalReminder = draft.isCriticalReminder,
                 snoozeMinutes = draft.snoozeMinutes,
                 advanceMinutes = draft.advanceMinutes,
-                minStockAlert = draft.minStockAlert.coerceAtLeast(0f)
+                minStockAlert = Dose.of(draft.minStockAlert.coerceAtLeast(0f)).milli
             )
         )
     }
@@ -162,7 +163,7 @@ class MedicationAdminService(private val db: AppDatabase) {
                     PolicyTimeEntity(
                         policyId = 0,
                         timeOfDay = t.time,
-                        doseAmount = t.dose,
+                        doseAmount = Dose.of(t.dose).milli,
                         label = t.label.ifBlank { "服药时段" },
                         sortOrder = index
                     )
@@ -182,8 +183,8 @@ class MedicationAdminService(private val db: AppDatabase) {
         inventoryDao.insert(
             InventoryTransactionEntity(
                 medicationId = medicationId,
-                changeAmount = stock,
-                balanceAfter = stock,
+                changeAmount = Dose.of(stock).milli,
+                balanceAfter = Dose.of(stock).milli,
                 txType = TransactionType.CALIBRATION_ADJUST,
                 note = "初始录入建档"
             )

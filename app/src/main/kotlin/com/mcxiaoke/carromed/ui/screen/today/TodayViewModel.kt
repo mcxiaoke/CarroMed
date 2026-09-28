@@ -7,29 +7,52 @@ import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
+import com.mcxiaoke.carromed.core.data.model.MedicationOverview
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+/**
+ * 一条待服 / 已服 / 已跳过槽位的展示模型。
+ *
+ * ## 为什么带 `overview` 而不是 `medication` + 各自散落的 `stock`
+ *
+ * 库存余额与预警线都是**整数毫单位**（D-7），只有 `MedicationOverview` 上那两个
+ * Float 代理是可直接用于渲染的展示值。若这里放实体 `MedicationEntity` 再单挂一个
+ * `stock: Float`，UI 里就会出现 `item.medication.minStockAlert`（Int 毫单位）
+ * 与 `item.stock`（Float 展示值）混着比大小 —— `50f <= 15000` 恒真，
+ * 结果是**每个药都误报低库存**。这类量纲错误编译器抓不到，只能靠类型设计挡住。
+ *
+ * 所以这里只暴露一个入口：[medication]（实体，仅用于纯展示字段）与
+ * [stock] / [minStockAlert]（均已换算为展示值）。
+ */
 data class DoseSlotItem(
     val slot: DoseSlotEntity,
     val medication: MedicationEntity?,
-    val record: DoseRecordEntity? = null
+    val record: DoseRecordEntity? = null,
+    /** 该药品的台账账面余额（**展示值**，可为负）；未开启库存追踪时为 null */
+    val stock: Float? = null,
+    /** 低库存预警线（**展示值**）。0 表示关闭低库存告警。 */
+    val minStockAlert: Float = 0f
 )
 
 data class TodayUiState(
     val selectedDate: LocalDate = LocalDate.now(),
     val weekDates: List<LocalDate> = emptyList(),
-    val lowStockAlertMeds: List<MedicationEntity> = emptyList(),
+    /** 低库存告急药品（含台账聚合出的账面余额，可能为负 —— 见 FINAL-PRODUCT D-9） */
+    val lowStockAlertMeds: List<MedicationOverview> = emptyList(),
     val pendingItems: List<DoseSlotItem> = emptyList(),
     val skippedItems: List<DoseSlotItem> = emptyList(),
     val completedItems: List<DoseSlotItem> = emptyList(),
@@ -66,7 +89,7 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
     val uiState: StateFlow<TodayUiState> = combine(
         _selectedDate,
-        medDao.observeActiveMedications(),
+        medDao.observeActiveOverviews(),
         _selectedDate.flatMapLatest { date ->
             val dateStr = date.format(SlotProjectionEngine.DATE_FORMATTER)
             slotDao.observeSlotsForDate(dateStr)
@@ -74,21 +97,36 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         db.appSettingDao().observeValue(
             com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES
         )
-    ) { selectedDate, medications, slots, snoozeSetting ->
-        val medMap = medications.associateBy { it.id }
+    ) { selectedDate, overviews, slots, snoozeSetting ->
+        val medMap = overviews.associateBy { it.id }
 
         val pending = mutableListOf<DoseSlotItem>()
         val completed = mutableListOf<DoseSlotItem>()
         val skipped = mutableListOf<DoseSlotItem>()
 
+        // 一次批量取回已完成/已跳过槽位对应的服药事实，避免循环内 N+1 查询
+        val decidedSlotIds = slots
+            .filter { it.status == SlotStatus.COMPLETED || it.status == SlotStatus.SKIPPED }
+            .map { it.id }
+        val recordsBySlot = recordDao.getCompletedRecordsForSlots(decidedSlotIds).associateBy { it.slotId }
+
         for (slot in slots) {
-            val med = medMap[slot.medicationId]
+            val overview = medMap[slot.medicationId]
+            val med = overview?.medication
             val record = when (slot.status) {
-                SlotStatus.COMPLETED, SlotStatus.SKIPPED -> recordDao.getRecordBySlotId(slot.id)
+                SlotStatus.COMPLETED -> recordsBySlot[slot.id]
+                SlotStatus.SKIPPED -> recordDao.getRecordBySlotId(slot.id)
                 else -> null
             }
 
-            val item = DoseSlotItem(slot = slot, medication = med, record = record)
+            val item = DoseSlotItem(
+                slot = slot,
+                medication = med,
+                record = record,
+                stock = if (med?.isStockTracked == true) overview?.stock else null,
+                // 走 Overview 的 Float 代理，绝不直接读实体的毫单位 Int
+                minStockAlert = overview?.minStockAlert ?: 0f
+            )
             when (slot.status) {
                 SlotStatus.PENDING, SlotStatus.SNOOZED, SlotStatus.EXPIRED -> pending.add(item)
                 SlotStatus.COMPLETED -> completed.add(item)
@@ -97,8 +135,8 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // 低库存告急检测：返回全部告急药品（此前只取第一个，多药告警时会被静默吞掉）
-        val lowStock = medications.filter {
-            it.isStockTracked && it.minStockAlert > 0f && it.currentStock <= it.minStockAlert
+        val lowStock = overviews.filter {
+            it.isStockTracked && it.minStockAlert > 0f && it.stock <= it.minStockAlert
         }
 
         val weekDates = (-3L..3L).map { selectedDate.plusDays(it) }
@@ -112,7 +150,7 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             completedItems = completed.sortedByDescending { it.slot.actualTakenTs ?: it.slot.scheduledTs },
             globalSnoozeMinutes = snoozeSetting?.toIntOrNull()
                 ?: com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_SNOOZE_MINUTES,
-            hasAnyMedication = medications.isNotEmpty(),
+            hasAnyMedication = overviews.isNotEmpty(),
             isLoading = false
         )
     }.stateIn(
@@ -130,8 +168,9 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
     fun takeDose(slotId: Long) {
         viewModelScope.launch {
-            trackingService.takeDose(slotId)
+            val ok = trackingService.takeDose(slotId)
             com.mcxiaoke.carromed.core.alarm.AlarmScheduler.cancel(getApplication<Application>(), slotId)
+            if (!ok) emitEvent("该服药记录已处理过，未重复扣减库存")
         }
     }
 
@@ -147,8 +186,9 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
     fun skipDose(slotId: Long) {
         viewModelScope.launch {
-            trackingService.skipDose(slotId)
+            val ok = trackingService.skipDose(slotId)
             com.mcxiaoke.carromed.core.alarm.AlarmScheduler.cancel(getApplication<Application>(), slotId)
+            if (!ok) emitEvent("该服药记录已处理过")
         }
     }
 
@@ -156,13 +196,32 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
     fun snoozeDose(slotId: Long, minutes: Int) {
         viewModelScope.launch {
             val app = getApplication<Application>()
-            trackingService.snoozeDose(slotId, minutes)
+            val ok = trackingService.snoozeDose(slotId, minutes)
+            if (!ok) {
+                emitEvent("该服药记录已处理过，无法推迟")
+                return@launch
+            }
             com.mcxiaoke.carromed.core.alarm.Notifications.cancelDoseNotification(app, slotId)
             val slot = db.doseSlotDao().getSlotById(slotId)
             val triggerAt = slot?.snoozeUntilTs ?: (System.currentTimeMillis() + minutes * 60_000L)
             runCatching {
                 com.mcxiaoke.carromed.core.alarm.AlarmScheduler.schedule(app, slotId, triggerAt)
-            }
+            }.onFailure { emitEvent("推迟失败：${it.message}") }
         }
+    }
+
+    // ---------------- 一次性提示事件 ----------------
+
+    /**
+     * 页面反馈通道。
+     *
+     * 原先 `takeDose` / `skipDose` 的返回值被直接丢弃，操作失败时**没有任何提示** ——
+     * 用户点 ✓ 后卡片不动，既不知道成功也不知道失败。
+     */
+    private val _events = Channel<String>(Channel.BUFFERED)
+    val events: Flow<String> = _events.receiveAsFlow()
+
+    private fun emitEvent(message: String) {
+        _events.trySend(message)
     }
 }

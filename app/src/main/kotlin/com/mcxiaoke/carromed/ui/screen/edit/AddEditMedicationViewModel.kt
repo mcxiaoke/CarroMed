@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
@@ -149,7 +150,7 @@ class AddEditMedicationViewModel(
                 form = med.form,
                 unit = med.unit,
                 colorHex = med.colorHex,
-                defaultDose = trimFloat(med.defaultDose),
+                defaultDose = trimFloat(Dose(med.defaultDose).asFloat),
                 description = med.description,
                 precautions = med.precautions,
                 noticeShort = med.noticeShort,
@@ -163,10 +164,16 @@ class AddEditMedicationViewModel(
                 endDate = policy?.endDate,
                 timeSlots = times
                     .sortedBy { it.sortOrder }
-                    .map { TimeSlotDraft(it.timeOfDay, it.doseAmount, it.label) }
+                    .map { TimeSlotDraft(it.timeOfDay, Dose(it.doseAmount).asFloat, it.label) }
                     .ifEmpty { listOf(TimeSlotDraft("08:30", 1.0f, "服药时段")) },
-                currentStock = if (med.isStockTracked) trimFloat(med.currentStock) else "",
-                minStockAlert = if (med.minStockAlert > 0f) trimFloat(med.minStockAlert) else "10"
+                // ⚠️ 编辑模式不预填库存余额：账面是台账聚合值，在本页编辑它
+                // 语义上等于"直接改账面"，必须走盘点校准（库存页）或补药入库。
+                // 这里保持空字符串，保存时不会产生任何库存写入。
+                currentStock = "",
+                // ⚠️ 预警线不要用业务默认值"10"污染用户数据：minStockAlert = 0
+                // 在本项目里语义是"关闭低库存告警"，预填 10 会让用户在只改药名时
+                // 意外把已关闭的告警又打开。
+                minStockAlert = trimFloat(Dose(med.minStockAlert).asFloat)
             )
         }
     }
@@ -343,12 +350,12 @@ class AddEditMedicationViewModel(
                 )
             }
 
-            // 3) 初始库存建档 (写流水，守恒不变量)
-            if (stockFloat > 0f) {
-                adminService.enableStockTrackingIfNeeded(medId, stockFloat)
-                if (!s.isEdit) {
-                    adminService.ensureInitialStockLedger(medId, stockFloat)
-                }
+            // 3) 初始库存建档 —— **仅新增时**。
+            // 编辑路径绝不碰库存：账面是台账聚合值，改它必须走盘点校准或补药入库。
+            // （编辑表单也不再预填库存，故此处 stockFloat 恒为 0，显式加 !s.isEdit
+            //   是为了让"编辑永远不写库存"这条规则在代码里一目了然。）
+            if (!s.isEdit && stockFloat > 0f) {
+                trackingService.setStockTracking(medId, true, stockFloat)
             }
 
             // 4) 平滑重排未来排班 (历史事实不可变)

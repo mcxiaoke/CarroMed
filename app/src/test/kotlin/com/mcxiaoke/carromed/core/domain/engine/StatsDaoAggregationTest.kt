@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import com.mcxiaoke.carromed.core.testing.assertDoseValue
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.dao.DoseRecordDao
 import com.mcxiaoke.carromed.core.data.dao.DoseSlotDao
@@ -71,7 +73,7 @@ class StatsDaoAggregationTest {
                 scheduledDate = date,
                 scheduledTime = time,
                 scheduledTs = date.hashCode().toLong() * 1000 + time.hashCode(),
-                doseAmount = dose,
+                doseAmount = Dose.of(dose).milli,
                 status = status
             )
         )
@@ -160,7 +162,7 @@ class StatsDaoAggregationTest {
                 DoseRecordEntity(
                     medicationId = a,
                     actualTs = now - 1000L * (i + 1),
-                    doseTaken = 1f,
+                    doseTaken = 1000,
                     status = RecordStatus.COMPLETED
                 )
             )
@@ -169,7 +171,7 @@ class StatsDaoAggregationTest {
             DoseRecordEntity(
                 medicationId = b,
                 actualTs = now - 5000L,
-                doseTaken = 2f,
+                doseTaken = 2000,
                 status = RecordStatus.COMPLETED
             )
         )
@@ -178,7 +180,7 @@ class StatsDaoAggregationTest {
             DoseRecordEntity(
                 medicationId = b,
                 actualTs = now - 6000L,
-                doseTaken = 99f,
+                doseTaken = 99000,
                 status = RecordStatus.SKIPPED
             )
         )
@@ -187,10 +189,10 @@ class StatsDaoAggregationTest {
         assertThat(sums).hasSize(2)
         // 环孢素 2 片 < 羟氯喹 3 片，所以排第一的是羟氯喹
         assertThat(sums[0].medicationId).isEqualTo(a)
-        assertThat(sums[0].totalDose).isEqualTo(3f)
+        assertThat(sums[0].totalDose).isEqualTo(3000)
         assertThat(sums[1].medicationId).isEqualTo(b)
-        assertThat(sums[1].totalDose).isEqualTo(2f)
-        assertThat(sums.sumOf { it.totalDose.toDouble() }).isEqualTo(5.0)
+        assertThat(sums[1].totalDose).isEqualTo(2000)
+        assertThat(sums.sumOf { it.totalDose }).isEqualTo(5000)
     }
 
     @Test
@@ -201,7 +203,7 @@ class StatsDaoAggregationTest {
             DoseRecordEntity(
                 medicationId = medId,
                 actualTs = now - 10L * 24 * 3600 * 1000,
-                doseTaken = 5f,
+                doseTaken = 5000,
                 status = RecordStatus.COMPLETED
             )
         )
@@ -209,16 +211,16 @@ class StatsDaoAggregationTest {
             DoseRecordEntity(
                 medicationId = medId,
                 actualTs = now - 1000L,
-                doseTaken = 1f,
+                doseTaken = 1000,
                 status = RecordStatus.COMPLETED
             )
         )
 
         val week = recordDao.getDoseSumByMedicationInRange(now - 7L * 24 * 3600 * 1000, now)
         assertThat(week).hasSize(1)
-        assertThat(week[0].totalDose).isEqualTo(1f)
+        assertThat(week[0].totalDose).isEqualTo(1000)
 
         val year = recordDao.getDoseSumByMedicationInRange(now - 365L * 24 * 3600 * 1000, now)
-        assertThat(year[0].totalDose).isEqualTo(6f)
+        assertThat(year[0].totalDose).isEqualTo(6000)
     }
 }

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
@@ -71,22 +72,32 @@ class InventoryViewModel(
 
     fun load() {
         viewModelScope.launch {
-            val med = medDao.getMedicationById(medId)
-            if (med == null) {
+            val overview = medDao.getOverviewById(medId)
+            if (overview == null) {
                 _uiState.value = _uiState.value.copy(isLoading = false, error = "药品不存在或已被删除")
                 return@launch
             }
+            val med = overview.medication
+            val stock = overview.stock
             val policy = policyDao.getActivePolicyForMedication(medId)
             val times = if (policy != null) policyDao.getTimesForPolicy(policy.id) else emptyList()
             val txs = inventoryDao.getTransactionsForMedication(medId)
 
-            // 日均消耗：按"排班日"折算，避免隔日/每周用药被高估消耗
-            val dosesPerScheduledDay = times.sumOf { it.doseAmount.toDouble() }.toFloat()
-            val perWeek = scheduledDosesPerWeek(policy?.policyType, policy?.intervalDays, policy?.daysOfWeek)
+            // 日均消耗：按"排班日"折算，避免隔日/每周用药被高估消耗。
+            // ⚠️ doseAmount 是整数毫单位（D-7），必须先聚合成毫单位再一次性换算，
+            //    绝不能逐项 asFloat —— 那会把 1 片的两个时点算成 2.0 而不是 1.0。
+            val dosesPerScheduledDay = Dose(times.sumOf { it.doseAmount }).asFloat
+            val perWeek = scheduledDosesPerWeek(
+                policy?.policyType, policy?.intervalDays, policy?.daysOfWeek,
+                policy?.cycleOnDays, policy?.cycleOffDays
+            )
             val (runway, alert) = StatsEngine.calculateStockRunwayBySchedule(
-                currentStock = med.currentStock,
+                currentStock = stock,
                 dosesPerScheduledDay = dosesPerScheduledDay,
-                scheduledDosesPerWeek = perWeek
+                scheduledDosesPerWeek = perWeek,
+                // 必须传用户配置的预警线，否则本页的"低库存"判定会与今日页/药箱页不一致
+                // （引擎在 minStockAlert=0 时只剩"7 天内"一条硬规则）
+                minStockAlert = Dose(med.minStockAlert).asFloat
             )
 
             val expiryDays = if (med.expiryDate.isNotBlank()) {
@@ -100,19 +111,21 @@ class InventoryViewModel(
 
             _uiState.value = _uiState.value.copy(
                 medication = med,
-                frequencyDescription = describe(policy?.policyType, times),
+                frequencyDescription = describe(
+                    policy?.policyType, policy?.intervalDays, policy?.daysOfWeek, times
+                ),
                 isLoading = false,
                 isTracked = med.isStockTracked,
-                currentStock = med.currentStock,
-                minStockAlert = med.minStockAlert,
+                currentStock = stock,
+                minStockAlert = Dose(med.minStockAlert).asFloat,
                 runwayDays = runway,
                 isLowStock = alert,
                 dailyConsumption = if (perWeek > 0) dosesPerScheduledDay * (perWeek / 7.0f) else dosesPerScheduledDay,
                 expiryDate = med.expiryDate,
                 daysToExpiry = expiryDays,
-                minStockAlertInput = fmt(med.minStockAlert),
+                minStockAlertInput = fmt(Dose(med.minStockAlert).asFloat),
                 transactions = txs,
-                calibrateInput = if (med.currentStock > 0f) fmt(med.currentStock) else ""
+                calibrateInput = if (stock > 0f) fmt(stock) else ""
             )
         }
     }
@@ -176,6 +189,17 @@ class InventoryViewModel(
         }
     }
 
+    /**
+     * 保存本页设置：**只写本页真正拥有的两列**。
+     *
+     * 此前这里调用的是整行档案命令 `updateProfile`，被迫手工重传 19 个无关字段
+     * （含 `isCriticalReminder` / `snoozeMinutes` / `advanceMinutes`）。
+     * 那些重传值来自进页面时的快照 `s.medication`，因此内含一个 read-modify-write 竞态：
+     * 用户在别处改了提醒行为，回到本页改个有效期，就会用**陈旧值覆盖回去**。
+     *
+     * 这正是 `docs/REMINDER-DOMAIN-REDESIGN.md` §1.2 所说的"P0-5 的第二种症状"，
+     * 单靠"提醒页写回三列"无法修复，必须让写命令粒度对齐屏幕所有权。
+     */
     fun saveSettings() {
         val s = _uiState.value
         val alert = s.minStockAlertInput.toFloatOrNull() ?: s.minStockAlert
@@ -183,31 +207,9 @@ class InventoryViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
             if (expiry != null) {
-                val med = s.medication
-                if (med != null) {
-                    medDao.updateProfile(
-                        id = medId,
-                        name = med.name,
-                        alias = med.alias,
-                        category = med.category,
-                        form = med.form,
-                        unit = med.unit,
-                        colorHex = med.colorHex,
-                        defaultDose = med.defaultDose,
-                        description = med.description,
-                        precautions = med.precautions,
-                        noticeShort = med.noticeShort,
-                        expiryDate = expiry,
-                        isCriticalReminder = med.isCriticalReminder,
-                        snoozeMinutes = med.snoozeMinutes,
-                        advanceMinutes = med.advanceMinutes,
-                        minStockAlert = alert,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                }
-            } else {
-                medDao.updateMinStockAlert(medId, alert)
+                medDao.updateExpiryDate(medId, expiry)
             }
+            medDao.updateMinStockAlert(medId, alert)
             _uiState.value = _uiState.value.copy(isSaving = false, message = "已保存")
             load()
         }
@@ -220,7 +222,9 @@ class InventoryViewModel(
     private fun scheduledDosesPerWeek(
         type: PolicyType?,
         intervalDays: Int?,
-        daysOfWeek: List<Int>?
+        daysOfWeek: List<Int>?,
+        cycleOnDays: Int?,
+        cycleOffDays: Int?
     ): Int = when (type) {
         PolicyType.DAILY -> 7
         PolicyType.INTERVAL -> {
@@ -228,18 +232,52 @@ class InventoryViewModel(
             Math.round(7.0 / n).toInt().coerceAtLeast(1)
         }
         PolicyType.DAYS_OF_WEEK -> (daysOfWeek?.size ?: 0).coerceAtLeast(0)
-        PolicyType.CYCLE -> 5 // 周期用药按 5 天/周保守折算
+        // 周期用药按真实配置折算：吃 N 天停 M 天 ⇒ 每周 7·N/(N+M) 天。
+        // 原先写死 5，对"吃 2 停 6"这类配置会把日均消耗高估 20 倍，
+        // 从而给出"预计可用天数缩水 20 倍"的假告警。
+        PolicyType.CYCLE -> {
+            val on = (cycleOnDays ?: 21).coerceAtLeast(1)
+            val off = (cycleOffDays ?: 7).coerceAtLeast(0)
+            val total = on + off
+            if (total == 0) 0 else Math.max(1, Math.round(7.0 * on / total).toInt())
+        }
         PolicyType.PRN, null -> 0
     }
 
-    private fun describe(type: PolicyType?, times: List<PolicyTimeEntity>): String {
+    /**
+     * 频次描述文案。
+     *
+     * ⚠️ `INTERVAL` 分支此前用 `times.size`（时点个数）当"间隔天数"渲染，
+     * 于是"隔天一次、1 个时点"会显示成「每隔 1 天 1 次」，而引擎实际是隔 2 天。
+     * 这与同页 `scheduledDosesPerWeek`（用真实 intervalDays）自相矛盾 ——
+     * 同一屏上"频次文案"与"预计可用天数"互相打架。
+     *
+     * 语义统一到引擎口径（不变量 I7）：`intervalDays` 是**周期天数**，
+     * 2 = 每 2 天一次（隔天），3 = 每 3 天一次。
+     */
+    private fun describe(
+        type: PolicyType?,
+        intervalDays: Int?,
+        daysOfWeek: List<Int>?,
+        times: List<PolicyTimeEntity>
+    ): String {
         if (type == null || times.isEmpty()) return "暂无排班"
-        val n = times.size
+        val perDay = times.size
+        val timeStr = times.joinToString(", ") { it.timeOfDay }
         return when (type) {
-            PolicyType.DAILY -> "每天 $n 次 (${times.joinToString { it.timeOfDay }})"
-            PolicyType.INTERVAL -> "每隔 $n 天 $n 次"
-            PolicyType.DAYS_OF_WEEK -> "每周 ${times.size} 天各 $n 次"
-            PolicyType.CYCLE -> "周期用药 $n 次/服药日"
+            PolicyType.DAILY -> "每天 $perDay 次 ($timeStr)"
+            PolicyType.INTERVAL -> {
+                val n = (intervalDays ?: 2).coerceAtLeast(1)
+                val dayText = if (n <= 1) "每天" else if (n == 2) "隔天" else "每 $n 天"
+                "$dayText $perDay 次 ($timeStr)"
+            }
+            PolicyType.DAYS_OF_WEEK -> {
+                val dayNames = listOf("一", "二", "三", "四", "五", "六", "日")
+                val picked = (daysOfWeek ?: emptyList()).sorted()
+                    .joinToString("·") { dayNames.getOrElse(it - 1) { "?" } }
+                "每周 $picked 各 $perDay 次 ($timeStr)"
+            }
+            PolicyType.CYCLE -> "周期用药 $perDay 次/服药日 ($timeStr)"
             PolicyType.PRN -> "按需服用"
         }
     }

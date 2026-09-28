@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
+import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 
@@ -279,6 +280,7 @@ fun CabinetMedCard(
     onClick: () -> Unit
 ) {
     val med = item.medication
+    val stock = item.stock
     val medColor = med.colorHex.let {
         runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
     } ?: MaterialTheme.colorScheme.primary
@@ -352,17 +354,17 @@ fun CabinetMedCard(
 
             // 右侧库存胶囊徽章与箭头
             if (med.isStockTracked) {
-                val isLow = med.currentStock <= med.minStockAlert && med.minStockAlert > 0f
+                // ⚠️ 必须用 MedicationOverview 的 Float 代理，不能直接读实体的
+                // `medication.minStockAlert`（那是整数毫单位）。
+                // 直接比较会让 50 片 <= 15000 恒成立，导致**每个药都误报低库存**。
+                val alert = item.overview.minStockAlert
+                val isLow = stock <= alert && alert > 0f
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = if (isLow) WarningAmberContainer
                     else MaterialTheme.colorScheme.surfaceVariant
                 ) {
-                    val stockText = if (med.currentStock % 1f == 0f) {
-                        med.currentStock.toInt().toString()
-                    } else {
-                        String.format(java.util.Locale.getDefault(), "%.2f", med.currentStock)
-                    }
+                    val stockText = Quantity.fmt(stock)
                     Text(
                         text = if (isLow) "⚠️ 剩 $stockText ${med.unit}" else "剩 $stockText ${med.unit}",
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),

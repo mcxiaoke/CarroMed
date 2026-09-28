@@ -35,7 +35,8 @@ data class MedicationEntity(
     val iconName: String = "pill",
 
     @ColumnInfo(name = "default_dose")
-    val defaultDose: Float = 1.0f,
+    /** 单次默认剂量，整数毫单位（1 片 = 1000）。见 core.domain.model.Dose */
+    val defaultDose: Int = 1000,
 
     @ColumnInfo(name = "description")
     val description: String = "",
@@ -46,11 +47,18 @@ data class MedicationEntity(
     @ColumnInfo(name = "notice_short")
     val noticeShort: String = "", // 通知栏单行简述 (如 "温水送服 · 忌葡萄柚")
 
-    @ColumnInfo(name = "current_stock")
-    val currentStock: Float = 0f,
+    // ❗ 账面余额 `current_stock` 已从本表删除。
+    //
+    // 库存余额的唯一权威定义是 `SUM(inventory_transactions.change_amount)`，
+    // 见 docs/REMINDER-DOMAIN-REDESIGN.md §2.3。
+    // 改用派生余额后，P0-3（打卡扣减超库存时 `coerceAtLeast(0f)` 把账面钳到 0、
+    // 而流水记全额，导致 `SUM(change_amount) != current_stock` 守恒被打破）
+    // 从"靠纪律维持的约束"变成"由定义成立"。
+    // 读列表请用 `MedicationOverview`（映射 medication_overview 视图，带 `stock` 字段）。
 
     @ColumnInfo(name = "min_stock_alert")
-    val minStockAlert: Float = 0f,
+    /** 低库存预警线，整数毫单位。0 = 关闭低库存告警（见 FINAL-PRODUCT 与 TodayViewModel 的判定） */
+    val minStockAlert: Int = 0,
 
     @ColumnInfo(name = "is_stock_tracked")
     val isStockTracked: Boolean = false,

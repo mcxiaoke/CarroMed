@@ -1,4 +1,5 @@
 package com.mcxiaoke.carromed.ui.screen.progress
+import com.mcxiaoke.carromed.core.domain.model.Dose
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
+import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
 import java.util.Locale
@@ -406,7 +408,7 @@ private fun TodayTimelineCard(items: List<TimelineItem>) {
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        if (!item.slot.doseAmount.isNaN()) {
+                        if (Dose(item.slot.doseAmount).asFloat > 0f) {
                             Text(
                                 text = doseText,
                                 style = MaterialTheme.typography.bodySmall,

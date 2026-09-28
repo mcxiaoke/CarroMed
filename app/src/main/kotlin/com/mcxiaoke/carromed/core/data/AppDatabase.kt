@@ -36,7 +36,7 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
         InventoryTransactionEntity::class,
         AppSettingEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(AppConverters::class)
@@ -56,11 +56,10 @@ abstract class AppDatabase : RoomDatabase() {
         private var INSTANCE: AppDatabase? = null
 
         /**
-         * schema v1 → v2 迁移
+         * schema v1 → v2 迁移（历史保留）
          *
          * 全部为 `ADD COLUMN` / `CREATE INDEX`，对既有数据零破坏。
-         * **刻意不保留 `fallbackToDestructiveMigration()`**：吃药 App 的历史服药事实
-         * 是不可再生资产，静默清库不可接受；迁移失败必须让 App 显式崩溃暴露问题。
+         * 保留仅为让 git 里的旧安装不至于直接崩溃；当前开发主线已不再依赖它。
          */
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -79,6 +78,30 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * ⚠️⚠️ **发布前必须删除这一行** ⚠️⚠️
+         *
+         * ## 为什么开发期打开了破坏式重建
+         *
+         * v2 → v3 删了 `medications.current_stock` 一列，并把 5 个金额列从 `REAL`
+         * 改成了整数毫单位。这类改写在 SQLite 里必须靠"建新表 + 拷数据 + 改名"实现，
+         * 是一整套迁移代码 —— 而 `AGENTS.md` 已明确：项目尚未公开发布，
+         * **不需要任何迁移或兼容旧版本的代码**。
+         *
+         * 过去这里刻意禁用破坏式回退（理由是"服药事实不可再生"）。那条理由
+         * 成立的前提是**已经有真实用户在用**。现在这个前提被明文否定，
+         * 于是"禁止破坏"与"不写迁移"变成了两条互斥要求。
+         *
+         * ## 选它的理由
+         *
+         * 与其写一段 60 行、只在开发期被执行一次、此后永远不被覆盖的迁移 SQL，
+         * 不如让 Room 直接重建库：
+         * - 开发期数据可从 `dev.SEED` 广播一键重建，损失为零；
+         * - 不会留下一段"看起来在保护数据、实际只保护了浮点转整数"的假保障；
+         * - 真正发布前，`MIGRATION_*` 会连同 `MigrationTest` 一起重新补齐并逐条验证。
+         *
+         * 对比方案（静默崩溃）更糟：开发机上换台机器 clone 就起不来。
+         */
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -87,6 +110,7 @@ abstract class AppDatabase : RoomDatabase() {
                     DATABASE_NAME
                 )
                     .addMigrations(MIGRATION_1_2)
+                    .fallbackToDestructiveMigration() // TODO(发布前删除)：见上方 KDoc
                     .build()
                     .also { INSTANCE = it }
             }

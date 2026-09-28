@@ -40,10 +40,13 @@ data class InventoryTransactionEntity(
     val recordId: Long? = null, // 关联的 dose_records.id (补药入库或盘点时为 null)
 
     @ColumnInfo(name = "change_amount")
-    val changeAmount: Float, // 变动数值: -1.0f (打卡扣除), +30.0f (入库), +1.0f (撤销冲正)
+    val changeAmount: Int, // 变动数值，整数毫单位: -1000 (打卡扣除), +30000 (入库), +1000 (撤销冲正)
 
     @ColumnInfo(name = "balance_after")
-    val balanceAfter: Float, // 交易完成后的库存结余快照
+    /** 交易完成后的库存结余**快照**（展示用，非权威值）。
+     *  权威值恒为 SUM(change_amount)，见 InventoryTransactionDao.getSumOfChanges。
+     *  minSdk 26 的 SQLite 3.18 不支持窗口函数，无法生成累计和，故保留本列。 */
+    val balanceAfter: Int,
 
     @ColumnInfo(name = "tx_type")
     val txType: TransactionType,

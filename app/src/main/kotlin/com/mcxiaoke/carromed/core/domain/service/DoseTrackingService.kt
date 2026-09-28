@@ -9,15 +9,38 @@ import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import java.time.LocalDate
 import java.time.ZoneId
 
 /**
  * 核心用药追踪与调度核算服务 (DoseTrackingService)
- * 封装核心业务用例，保证：
- * 1. 打卡与库存扣减的原子性事务
- * 2. 误触撤销的冲正与台账守恒
- * 3. 计划修改时的排班重对齐 (历史事实不可变，未来排班平滑重投影)
+ *
+ * ## 库存记账的绝对不变式
+ *
+ * > `balance(medicationId) := SUM(inventory_transactions.change_amount)`
+ *
+ * `medications` 表**不再存储 `current_stock`**（见 `MedicationEntity`）。
+ * 这意味着本服务里**不再有任何"改账面"的操作** —— 5/6 的库存路径退化为
+ * **单条 INSERT**（append-only）：
+ *
+ * | 操作 | 流水 | 是否需要读余额 |
+ * | --- | --- | :---: |
+ * | [takeDose] | `TAKEN_DEDUCT` | ❌ |
+ * | [undoDose] | `REVERT_ROLLBACK` | ❌ |
+ * | [logManualDose] | `TAKEN_DEDUCT` | ❌ |
+ * | [refillStock] | `REFILL` | ❌ |
+ * | [calibrateStock] | `CALIBRATION_ADJUST` | ✅（本质要求：算差额） |
+ * | [setStockTracking] | `CALIBRATION_ADJUST` | ✅（需要判断是否建档） |
+ *
+ * 附带收益：并发打卡从 read-modify-write 变成 append，**不再可能丢失更新**。
+ *
+ * ## 负库存是被支持的（D-9）
+ *
+ * `FINAL-PRODUCT` D-9：「允许扣为负数，绝不阻止打卡；负库存单独视觉化提示盘点。
+ * 服药是物理事实，优先于库存记账。」
+ * 因此本服务**不再有 `coerceAtLeast(0f)`** —— 那种钳制正是 P0-3 的直接成因
+ * （账面钉在 0、流水记全额，守恒被打破）。
  */
 class DoseTrackingService(private val db: AppDatabase) {
 
@@ -28,8 +51,49 @@ class DoseTrackingService(private val db: AppDatabase) {
     private val inventoryDao = db.inventoryTransactionDao()
 
     /**
-     * 1. 确认服药打卡
-     * 原子事务：更新槽位状态 -> 创建服药事实记录 -> (若追踪库存) 写入不可变台账扣减流水并更新药品库存
+     * 读出该药品当前的账面余额（权威值）。
+     *
+     * 只有 [calibrateStock] 与 [setStockTracking] 需要它 —— 其余路径直接追加流水即可。
+     */
+    private suspend fun balanceOf(medicationId: Long): Int =
+        inventoryDao.getSumOfChanges(medicationId) ?: 0
+
+    /**
+     * 追加一条台账流水。**唯一的余额变更入口**。
+     *
+     * [balanceAfter] 是展示用快照（`minSdk 26` 的 SQLite 3.18 不支持窗口函数，
+     * 无法用 `SUM(...) OVER` 生成累计和）。它不是权威值，权威值恒为 `SUM(change_amount)`；
+     * 不变量 I2 会持续校验"最后一条流水的 balanceAfter == SUM(change_amount)"，
+     * 一旦分叉立即失败。
+     */
+    private suspend fun appendLedger(
+        medicationId: Long,
+        recordId: Long?,
+        changeAmount: Dose,
+        txType: TransactionType,
+        note: String?
+    ) {
+        val balanceAfter = balanceOf(medicationId) + changeAmount.milli
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = medicationId,
+                recordId = recordId,
+                changeAmount = changeAmount.milli,
+                balanceAfter = balanceAfter,
+                txType = txType,
+                note = note
+            )
+        )
+    }
+
+    // ==================== 1. 确认服药打卡 ====================
+
+    /**
+     * 原子事务：更新槽位状态 → 创建服药事实 → （若追踪库存）追加扣减流水。
+     *
+     * 库存部分**只有一条 INSERT**，不读也不写 `medications`。
+     * 幂等锚点：槽位若已被处理（COMPLETED / SKIPPED）则直接返回 false，
+     * 连点多次不会重复扣库存（见 `DoseSlotDao.markCompletedIfOpen`）。
      */
     suspend fun takeDose(
         slotId: Long,
@@ -40,58 +104,59 @@ class DoseTrackingService(private val db: AppDatabase) {
         val slot = slotDao.getSlotById(slotId) ?: return@withTransaction false
         val medication = medDao.getMedicationById(slot.medicationId) ?: return@withTransaction false
 
-        val finalDose = takenAmount ?: slot.doseAmount
+        val finalDose: Dose = takenAmount?.let { Dose.of(it) } ?: Dose(slot.doseAmount)
 
-        // 1. 更新槽位状态为 COMPLETED
-        slotDao.updateStatus(slotId = slotId, status = SlotStatus.COMPLETED, actualTs = actualTs)
+        // 幂等锚点下沉到 SQL：只有仍在等待的槽位才被置为 COMPLETED。
+        // 受影响行数为 0 ⇒ 已被处理过，直接放弃记账（连点不会重复扣库存）。
+        if (slotDao.markCompletedIfOpen(slotId, actualTs) == 0) {
+            return@withTransaction false
+        }
 
-        // 2. 插入服药历史事实记录
         val record = DoseRecordEntity(
             slotId = slotId,
             medicationId = slot.medicationId,
             actualTs = actualTs,
-            doseTaken = finalDose,
+            doseTaken = finalDose.milli,
             status = RecordStatus.COMPLETED,
             isRetrospective = false,
             note = note
         )
         val recordId = recordDao.insert(record)
 
-        // 3. 库存联动处理 (若开启库存追踪)
+        // 库存：单条流水，允许扣成负数（D-9）
         if (medication.isStockTracked) {
-            val newStock = (medication.currentStock - finalDose).coerceAtLeast(0f)
-            val tx = InventoryTransactionEntity(
+            appendLedger(
                 medicationId = slot.medicationId,
                 recordId = recordId,
                 changeAmount = -finalDose,
-                balanceAfter = newStock,
                 txType = TransactionType.TAKEN_DEDUCT,
                 note = note ?: "按时服药打卡扣减"
             )
-            inventoryDao.insert(tx)
-            medDao.updateStock(slot.medicationId, newStock)
         }
 
         return@withTransaction true
     }
 
-    /**
-     * 2. 跳过服药
-     * 原子事务：更新槽位状态为 SKIPPED -> 插入 SKIPPED 事实记录 -> 不影响库存
-     */
+    // ==================== 2. 跳过服药 ====================
+
+    /** 原子事务：更新槽位状态为 SKIPPED → 插入 SKIPPED 事实记录。不影响库存。 */
     suspend fun skipDose(
         slotId: Long,
         reason: String? = null
     ): Boolean = db.withTransaction {
         val slot = slotDao.getSlotById(slotId) ?: return@withTransaction false
 
-        slotDao.updateStatus(slotId = slotId, status = SlotStatus.SKIPPED, actualTs = System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        // 幂等锚点下沉到 SQL（允许对已逾期的槽位补记跳过）
+        if (slotDao.markSkippedIfOpen(slotId, now) == 0) {
+            return@withTransaction false
+        }
 
         val record = DoseRecordEntity(
             slotId = slotId,
             medicationId = slot.medicationId,
-            actualTs = System.currentTimeMillis(),
-            doseTaken = 0f,
+            actualTs = now,
+            doseTaken = 0,
             status = RecordStatus.SKIPPED,
             note = reason ?: "主动跳过本次服药"
         )
@@ -99,57 +164,58 @@ class DoseTrackingService(private val db: AppDatabase) {
         return@withTransaction true
     }
 
-    /**
-     * 3. 推迟提醒 (Snooze)
-     */
+    // ==================== 3. 推迟提醒 (Snooze) ====================
+
     suspend fun snoozeDose(
         slotId: Long,
         snoozeMinutes: Int
     ): Boolean {
         val snoozeUntilTs = System.currentTimeMillis() + (snoozeMinutes * 60 * 1000L)
-        slotDao.snoozeSlot(slotId, snoozeUntilTs)
-        return true
+        return slotDao.snoozeSlot(slotId, snoozeUntilTs) > 0
     }
 
+    // ==================== 4. 误触/点错撤销 (Undo) ====================
+
     /**
-     * 4. 误触/点错撤销 (Undo / Revert)
-     * 满足用户明确要求：点错了可以撤销，历史数据不丢，库存精确冲正
+     * 撤销打卡：槽位回到 PENDING、事实标记为 REVERTED、追加库存冲正流水。
+     *
+     * ⚠️ **不再物理删除服药事实**（`FINAL-PRODUCT` 场景 2 要求"事实层追加 REVERT 修正…全程留痕"，
+     * 产品第二承诺是"吃过的药永不丢失"）。此前的 `DELETE FROM dose_records` 会让
+     * 台账里指向该记录的 `record_id` 变成悬空引用。
      */
     suspend fun undoDose(slotId: Long): Boolean = db.withTransaction {
         val slot = slotDao.getSlotById(slotId) ?: return@withTransaction false
-        val previousRecord = recordDao.getRecordBySlotId(slotId) ?: return@withTransaction false
+        // 幂等锚点：只有"已产生结论"的槽位才可撤销，与 takeDose/skipDose 的返回语义保持一致
+        if (slot.status != SlotStatus.COMPLETED && slot.status != SlotStatus.SKIPPED) {
+            return@withTransaction false
+        }
+        val record = recordDao.getRecordBySlotId(slotId) ?: return@withTransaction false
         val medication = medDao.getMedicationById(slot.medicationId) ?: return@withTransaction false
 
-        // 若之前是 COMPLETED 并且扣减了库存，必须做台账冲正
-        if (previousRecord.status == RecordStatus.COMPLETED && medication.isStockTracked && previousRecord.doseTaken > 0f) {
-            val restoredStock = medication.currentStock + previousRecord.doseTaken
-            val rollbackTx = InventoryTransactionEntity(
+        // 条件回退（原子；受影响行数为 0 表示并发下已被别人撤销）
+        if (slotDao.revertToPending(slotId) == 0) return@withTransaction false
+
+        // 事实层：保留记录，仅改状态（append-only 的补偿，而不是抹除）
+        recordDao.markRevertedBySlot(slotId)
+
+        // 库存层：追加一条冲正流水（台账只增不改）
+        if (record.status == RecordStatus.COMPLETED && medication.isStockTracked && record.doseTaken > 0) {
+            appendLedger(
                 medicationId = slot.medicationId,
-                recordId = previousRecord.id,
-                changeAmount = previousRecord.doseTaken,
-                balanceAfter = restoredStock,
+                recordId = record.id,
+                changeAmount = Dose(record.doseTaken),
                 txType = TransactionType.REVERT_ROLLBACK,
                 note = "用户误触打卡撤销冲正"
             )
-            inventoryDao.insert(rollbackTx)
-            medDao.updateStock(slot.medicationId, restoredStock)
         }
-
-        // 删除该 slot 对应的打卡记录
-        recordDao.deleteBySlotId(slotId)
-
-        // 将槽位重新恢复为待服药状态
-        slotDao.updateStatus(slotId = slotId, status = SlotStatus.PENDING, actualTs = null)
-
         return@withTransaction true
     }
 
+    // ==================== 5. 补充录入 / 临时按需服药 ====================
+
     /**
-     * 5. 补充录入/临时按需服药 (PRN 或 事后补录)
-     *
      * @param deductStock 是否联动扣减库存台账。
-     *   补录历史服药时用户常需要"只记事实、不动库存"(例如从别处已经吃过的那一片)，
-     *   开关关闭时仅写服药事实，不产生任何库存流水，台账守恒不受影响。
+     *   补录历史服药时用户常需要"只记事实、不动库存"，开关关闭时仅写服药事实。
      *   服药是不可否认的事实，因此 **绝不因为库存不足而阻止记账**。
      */
     suspend fun logManualDose(
@@ -167,36 +233,31 @@ class DoseTrackingService(private val db: AppDatabase) {
             slotId = null,
             medicationId = medicationId,
             actualTs = actualTs,
-            doseTaken = doseAmount,
-            status = if (isRetrospective) RecordStatus.RETROSPECTIVE else RecordStatus.COMPLETED,
+            doseTaken = Dose.of(doseAmount).milli,
+            status = RecordStatus.COMPLETED,
             isRetrospective = isRetrospective,
             note = note
         )
         val recordId = recordDao.insert(record)
 
         if (deductStock && medication.isStockTracked) {
-            val newStock = (medication.currentStock - doseAmount).coerceAtLeast(0f)
-            val tx = InventoryTransactionEntity(
+            appendLedger(
                 medicationId = medicationId,
                 recordId = recordId,
-                changeAmount = -doseAmount,
-                balanceAfter = newStock,
+                changeAmount = -Dose.of(doseAmount),
                 txType = TransactionType.TAKEN_DEDUCT,
                 note = note ?: if (isRetrospective) "事后补录服药扣减" else "按需/临时服药扣减"
             )
-            inventoryDao.insert(tx)
-            medDao.updateStock(medicationId, newStock)
         }
 
         return@withTransaction recordId
     }
 
+    // ==================== 5b. 库存盘点校准 ====================
+
     /**
-     * 5b. 库存盘点校准
-     *
-     * 用户手中实物与系统账面不符时 (换了包装 / 之前漏记 / 初次建档修正)，
-     * 通过写入一条 CALIBRATION_ADJUST 流水把账面拉回真实值，
-     * 绝不直接 UPDATE current_stock，保证 `SUM(change_amount) == current_stock` 守恒。
+     * 用户手中实物与系统账面不符时（换包装 / 之前漏记 / 初次建档修正），
+     * 通过写入一条 `CALIBRATION_ADJUST` 流水把账面拉回真实值。
      */
     suspend fun calibrateStock(
         medicationId: Long,
@@ -204,88 +265,93 @@ class DoseTrackingService(private val db: AppDatabase) {
         note: String? = null
     ): Boolean = db.withTransaction {
         val medication = medDao.getMedicationById(medicationId) ?: return@withTransaction false
-        val delta = actualStock - medication.currentStock
-        if (kotlin.math.abs(delta) < 0.0001f) return@withTransaction false
+        val currentBalance = balanceOf(medicationId)
+        val delta = Dose.of(actualStock) - Dose(currentBalance)
+        if (delta.isZero) return@withTransaction false
 
-        val tx = InventoryTransactionEntity(
+        appendLedger(
             medicationId = medicationId,
+            recordId = null,
             changeAmount = delta,
-            balanceAfter = actualStock,
             txType = TransactionType.CALIBRATION_ADJUST,
-            note = note ?: "库存盘点校准 (账面 ${trimFloat(medication.currentStock)} → 实物 ${trimFloat(actualStock)})"
+            note = note ?: "库存盘点校准 (账面 ${Dose(currentBalance).asFloat} → 实物 ${Dose.of(actualStock).asFloat})"
         )
-        inventoryDao.insert(tx)
-        medDao.updateStock(medicationId, actualStock)
         return@withTransaction true
     }
 
+    // ==================== 5c. 开启 / 关闭库存追踪 ====================
+
     /**
-     * 5c. 开启 / 关闭库存追踪
-     * 关闭时不产生任何流水，仅切换开关位；重新开启时以当前账面作为基准写入一条建档流水。
+     * 开启追踪时，若账面为 0 而用户给了一个初始值，则追加一条**建档流水**。
+     * 关闭追踪不产生任何流水（只是不再自动扣减）。
      */
     suspend fun setStockTracking(
         medicationId: Long,
         enabled: Boolean,
-        currentStock: Float? = null
+        initialStock: Float? = null
     ): Boolean = db.withTransaction {
         val medication = medDao.getMedicationById(medicationId) ?: return@withTransaction false
         medDao.updateStockTracking(medicationId, enabled)
 
         if (enabled) {
-            val target = currentStock ?: medication.currentStock
-            if (target > 0f && medication.currentStock <= 0f) {
-                // 从零建档：写一条建档流水并同步账面，守恒不变量成立
-                inventoryDao.insert(
-                    InventoryTransactionEntity(
-                        medicationId = medicationId,
-                        changeAmount = target,
-                        balanceAfter = target,
-                        txType = TransactionType.CALIBRATION_ADJUST,
-                        note = "开启库存追踪建档"
-                    )
+            val current = balanceOf(medicationId)
+            val target = initialStock?.let { Dose.of(it) } ?: Dose(current)
+            if (target.milli > 0 && current <= 0) {
+                // 从零建档：一条流水即可，账面随之成立
+                appendLedger(
+                    medicationId = medicationId,
+                    recordId = null,
+                    changeAmount = target,
+                    txType = TransactionType.CALIBRATION_ADJUST,
+                    note = "开启库存追踪建档"
                 )
-                medDao.updateStock(medicationId, target)
-            } else if (target != medication.currentStock) {
-                medDao.updateStock(medicationId, target)
+            } else if (target.milli != current) {
+                // 用户给了与账面不同的初值 → 走盘点校准，绝不直接改账面
+                appendLedger(
+                    medicationId = medicationId,
+                    recordId = null,
+                    changeAmount = Dose(target.milli - current),
+                    txType = TransactionType.CALIBRATION_ADJUST,
+                    note = "开启库存追踪建档校准"
+                )
             }
         }
         return@withTransaction true
     }
 
-    private fun trimFloat(v: Float): String =
-        if (v % 1f == 0f) v.toInt().toString() else v.toString()
+    // ==================== 6. 药房补货采购入库 ====================
 
-    /**
-     * 6. 药房补货采购入库
-     */
+    /** 追加一条 REFILL 流水。不读也不改 `medications`。 */
     suspend fun refillStock(
         medicationId: Long,
         addedAmount: Float,
-        note: String? = null
+        note: String? = null,
+        batchNumber: String? = null,
+        expiryDate: String? = null
     ): Boolean = db.withTransaction {
         val medication = medDao.getMedicationById(medicationId) ?: return@withTransaction false
-        val newStock = medication.currentStock + addedAmount
 
-        val tx = InventoryTransactionEntity(
-            medicationId = medicationId,
-            changeAmount = addedAmount,
-            balanceAfter = newStock,
-            txType = TransactionType.REFILL,
-            note = note ?: "采购入库补货"
+        val balanceAfter = balanceOf(medicationId) + Dose.of(addedAmount).milli
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = medicationId,
+                recordId = null,
+                changeAmount = Dose.of(addedAmount).milli,
+                balanceAfter = balanceAfter,
+                txType = TransactionType.REFILL,
+                note = note ?: "采购入库补货",
+                batchNumber = batchNumber,
+                expiryDate = expiryDate
+            )
         )
-        inventoryDao.insert(tx)
-        medDao.updateStock(medicationId, newStock)
         return@withTransaction true
     }
 
+    // ==================== 7. 排班重对齐 ====================
+
     /**
-     * 7. 提醒计划变更时的排班对齐核算 (Reconcile Schedule)
-     * 满足用户明确要求：修改计划后，历史打卡数据不可丢失，只重投影未来未执行的 PENDING 槽位
-     *
-     * @param medicationId 药品 ID
-     * @param fromDate 重排起始日期 (通常为当天)
-     * @param toDate 投影截止日期 (通常为未来 14 天)
-     * @param zoneId 时区
+     * 修改计划后的排班对齐核算。
+     * 满足"修改计划后历史打卡数据不可丢失，只重投影未来未执行的 PENDING 槽位"。
      */
     suspend fun reconcileSchedule(
         medicationId: Long,
@@ -298,10 +364,10 @@ class DoseTrackingService(private val db: AppDatabase) {
 
         val fromEpochMilli = fromDate.atStartOfDay(zoneId).toInstant().toEpochMilli()
 
-        // 核心保护：只删除未来或当天仍处于 PENDING 状态的旧槽位！已完成(COMPLETED)或跳过(SKIPPED)的槽位绝对保留！
+        // 核心保护：只删除未来或当天仍处于 PENDING 状态的旧槽位！
+        // 已完成(COMPLETED)或跳过(SKIPPED)的槽位绝对保留！
         slotDao.deleteFuturePendingSlots(medicationId, fromEpochMilli)
 
-        // 根据最新策略投影计算新槽位
         val projectedSlots = SlotProjectionEngine.projectSlots(
             policy = policy,
             times = times,
@@ -325,4 +391,8 @@ class DoseTrackingService(private val db: AppDatabase) {
             slotDao.insertAll(slotsToInsert)
         }
     }
+
+    // ==================== 工具 ====================
+
+    private fun fmtQty(v: Float): String = if (v % 1f == 0f) v.toInt().toString() else v.toString()
 }
