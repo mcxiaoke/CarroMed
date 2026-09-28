@@ -667,6 +667,8 @@ Intent(context, AlarmReceiver::class.java)
 
 ### A6 — 周期对账兜底（兑现 D-14，新增步骤）
 
+> **状态：已完成（2026-09-28 13:45 +08:00）**。下表为原计划，末尾"实际落地"记录偏差。
+
 > **为什么单独成为一步而不是塞进 A3**：它是**产品承诺的缺口**，不是重构的一部分。混进 A3 会让"重构顺手加了个 Worker"与"补上了一个一直缺的能力"混在一起，回滚时无法分离。
 
 | 序 | 内容 |
@@ -692,6 +694,45 @@ Intent(context, AlarmReceiver::class.java)
 
 **已知取舍**：`PeriodicWorkRequest` 的实际执行间隔由系统按电量/厂商策略决定，**15 分钟是名义下限不是保证**。因此 A6 是**第二层兜底**，第一层仍是 A3-7 的 `AlarmReceiver` 触发后续期（那个是即时的）。两者缺一不可。
 
+#### A6 实际落地（2026-09-28）
+
+| 序 | 计划 | 实际 |
+| ---: | --- | --- |
+| 1 | 引入 `work-runtime` | `work-runtime-ktx:2.9.1`（运行时唯一新增依赖）+ `work-testing:2.9.1`（测试） |
+| 2 | `ReconcileWorker` 只调 `rescheduleAll` | ✅ 额外把 `catch` 的返回值定为 `retry()` 而非 `failure()`：后者等于永久放弃这一轮 |
+| 3 | 15 分钟 + `KEEP` + 指数退避 | ✅ 退避起点设 10 分钟（不设的话翻几轮就涨到几十分钟，对 15 分钟尺度的事太慢） |
+| 4 | `BootReceiver` / `App.onCreate` 统一 enqueue | ✅ 新建 `CarroMedApp : Application`。**理由**：`MainActivity` 与 `BootReceiver` 各有盲区（前者覆盖不了"用户不开 App"，后者覆盖不了"正常冷启动"），而 `Application.onCreate` 覆盖**任何**组件拉起进程的场景 —— 这是"周期对账是否已排上"的唯一真相来源 |
+| 5 | 复用 `rescheduleAll`，零重复逻辑 | ✅ |
+
+**触发点为什么需要冗余**：`WorkManager` 的周期任务**不会**随 `BOOT_COMPLETED` 自动恢复，
+也**不会**随换包恢复（系统升级 App 或用户清数据后既有任务被丢弃且不重建，不报错）。
+所以 `CarroMedApp.onCreate` 用 `REPLACE` 幂等重排（覆盖"进程被拉起"），
+`BootReceiver` 里再 `REPLACE` 一次（覆盖"开机后进程压根没被拉起"）。两者都在才不留缺口。
+
+**`Application.onCreate` 里刻意不做的事**：不跑 `AlarmReconciler.rescheduleAll`。
+那会拖慢每次冷启动，且 `MainActivity` 已经会跑一次。Worker 是**兜底**不是首发路径。
+
+#### A6 期间改掉的实现问题与发现的产品问题
+
+| 项 | 性质 | 处理 |
+| :--- | :--- | :--- |
+| `reconcileSchedule` 在无有效计划时**提前返回**，窗口内的 PENDING 槽位永远删不掉 | **实现 bug**（既有） | ✅ 已修：无计划时把投影当空集，删除逻辑照常执行 |
+| 暂停中的药品，今日清单仍列出待服项但**永远不会有闹钟** | **产品决策**，见 §9 #5 | ⏸ 登记待拍板，**未擅自决定** |
+
+#### A6 期间踩到的测试基建坑
+
+`doWork()` 走 `AppDatabase.getInstance()`，而那是 `companion object` 的静态单例。
+Robolectric 每个测试方法重建 `Application` 与沙箱文件系统，**单例不重置**，
+于是后一个测试拿到失效句柄而抛异常，被 `doWork` 的 `catch (Throwable) → Result.retry()` 吞成"退避重试"。
+
+**失败信息（Retry）与真实原因完全无关，比不测更糟。**
+所以 `ReconcileWorkerTest` 不断言 `doWork`；`rescheduleAll` 的幂等性由
+`AlarmReconcilerIdempotencyTest` 用**显式传入的内存库**来守 —— 那本来就是 A6 真正依赖的不变量。
+
+> 附带一条给未来的人的提醒：work-runtime **2.9.1** 的 `WorkSpec.intervalDuration` /
+> `flexDuration` / `backoffDelayDuration` 是**毫秒 `long`**；
+> `WorkRequest.intervalDuration: Duration` 那个扩展要到 **2.10** 才有。别照新版文档写。
+
 ---
 
 ## 八、风险与回滚
@@ -709,7 +750,7 @@ Intent(context, AlarmReceiver::class.java)
 
 ---
 
-## 九、需要拍板的决策点（3 处）
+## 九、需要拍板的决策点
 
 | # | 决策点 | 选项 | 我的建议 |
 | ---: | --- | --- | --- |
@@ -717,6 +758,13 @@ Intent(context, AlarmReceiver::class.java)
 | 2 | **`balance_after` 快照列保留 or 删除** | (a) 保留 + I2 持续校验；(b) 删除，流水列表改显示"变动量"不显示结余 | **(a)** —— `minSdk 26` 无窗口函数，删了就只能显示变动量，UX 退化。I2 把"缓存"变成"被检查的缓存" |
 | 3 | **阶段 B 的 `ical4j` 是否真引入** | (a) 引入库；(b) 只吸收 RRULE 语义 + 官方测试向量，自实现 3 种频率 | **先 (b) 后议 (a)** —— 阶段 B 开工时先确认 `ical4j` 的依赖树与体积是否可接受（`core/domain` 要保持零 Android 依赖 + 可 JVM 直测，这是硬约束）。若 (b)，I7/I8 属性化测试的语料直接来自 RFC 5545 官方示例 |
 | 4 | **暂停是否需要结束日** | (a) `paused_until: String?`（`null`=未暂停 / `''`=无限期 / 日期=暂停至该日含）；(b) 保持纯布尔 | **✅ 已拍板 (a)** —— 用户 2026-09-28 决定。`FINAL-PRODUCT` M-02 明确要求「暂停至某日」，纯布尔无法表达。并入 A2 一次建对，详见 §2.6 |
+| 5 | **暂停中的药品，今日清单怎么表现**（A6 期间新发现） | (a) 清理暂停药的未来 PENDING 槽位，清单变诚实但"暂停中"不可见；(b) 保留槽位但标注「已暂停」，需要新增 UI 状态 | **(b) 更符合用户心智** —— 暂停是用户的主动选择，清单里凭空少几条会让用户怀疑数据丢了。代价是要在 `TodayUiState` 里加一个状态并改 `DoseSlotItem` 的渲染，**超出 A6 范围**，需单独排期。**A6 没有擅自决定**，只把测试改成断言"暂停期间不新增槽位"这一无争议的不变量 |
+
+> **#5 的技术事实**（A6 实测确认）：`AlarmReconciler` 把暂停的药从 `activeMeds` 剔掉，
+> 所以它的 `reconcileSchedule` 根本不会被调用，旧槽位原样留在库里；
+> 而 `TodayViewModel` 的 `medMap` 来自 `observeActiveOverviews()`，**只过滤 `is_archived`，不过滤暂停**。
+> 两者叠加的结果是：清单上写着"该吃药"，但闹钟已被撤掉，**永远不会响**。
+> 这是 A2 加 `paused_until` 时就存在的既有问题，不是 A3/A6 引入的。
 
 **另需确认（非阻塞）**：`D-6`（全部文案走 strings.xml）与 `FINAL-PRODUCT` §七（v1 不做多语言）自相矛盾，建议在文档层面择一，不在本期动代码。
 
