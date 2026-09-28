@@ -223,6 +223,56 @@ class InventoryLedgerInvariantTest {
         assertThat(balanceOf(medId)).isEqualTo(20f)   // 跳过永不扣库存
     }
 
+    /**
+     * I3 的**穷举**版：重复次数 0..6 全跑一遍，每次重复都带**不同的剂量**。
+     *
+     * ## 为什么穷举而不是随机
+     *
+     * 设计文档 §4 写的是"属性化测试（随机重复次数 0..5）"。但这个定义域只有 6 个元素 ——
+     * 穷举严格强于随机采样，而 `markCompletedIfOpen` 的幂等锚点在
+     * 真实 SQLite 上跑，jqwik（JUnit Platform）也搭不起 Robolectric 环境。
+     * 在一个 6 元素的定义域上追求"随机"，只是把确定性换成了不确定性。
+     *
+     * ## 为什么要每次都换剂量
+     *
+     * 前面那条 `I3 打卡后重复调用不产生第二条事实` 用的是同一个 `takenAmount = 2f`，
+     * 于是"后一次把前一次的剂量改掉"这类缺陷在它眼里和没发生一样。
+     * 这里第 i 次传 `1f + i`，任何"后来者覆盖先来者"的实现都会立刻现形。
+     */
+    @Test
+    fun `I3 任意重复次数下 只记一条事实 只扣一次 且以首次剂量为准`() = runTest {
+        for (n in 0..6) {
+            val (medId, slotId) = newMed(name = "药$n", stock = 20f)
+
+            val results = (0 until n).map { i ->
+                service.takeDose(slotId, takenAmount = 1f + i, note = "第${i + 1}次")
+            }
+            // 恰好一次成功，且是第一次（n=0 时压根没调用，成功 0 次才是对的）
+            assertThat(results.count { it }).isEqualTo(if (n == 0) 0 else 1)
+            if (n > 0) assertThat(results.first()).isTrue()
+
+            val records = db.doseRecordDao().getAllRecordsBySlotId(slotId)
+            assertThat(records).hasSize(if (n == 0) 0 else 1)
+            if (n == 0) {
+                // 一次都没打 ⇒ 不该产生任何扣减
+                assertThat(balanceOf(medId)).isEqualTo(20f)
+                continue
+            }
+
+            // ★ 剂量取**第一次**的值（1.0），不是最后一次（1.0 + n - 1）
+            assertDoseValue(records.single().doseTaken, 1f)
+
+            // 扣减流水恰好一条，且指向那条事实
+            val deduction = db.inventoryTransactionDao()
+                .getTransactionsForMedication(medId)
+                .filter { it.recordId == records.single().id }
+            assertThat(deduction).hasSize(1)
+            assertDoseValue(deduction.single().changeAmount, -1f)
+
+            assertThat(balanceOf(medId)).isEqualTo(19f)
+        }
+    }
+
     // ==================== I4 撤销对称 ====================
 
     @Test

@@ -43,7 +43,7 @@ python temp\dbdump.py
 
 | 改动位置 | 必须连带做的事 |
 | :--- | :--- |
-| `core/data/entity/*`（加字段） | ① `AppDatabase` 升 `version`；② 在 `MIGRATION_*` 里加 `ADD COLUMN`；③ `MigrationTest` 补一条；④ 检查所有 `insert(REPLACE)` 路径 |
+| `core/data/entity/*`（加字段） | ① `AppDatabase` 升 `version`（**唯一必做项，且没有任何兜底能替你发现**）；② 补一条 schema 断言（`AppDatabaseRealTest` 查 `PRAGMA table_info`）；③ 检查所有 `insert(REPLACE)` 路径 |
 | `core/data/dao/*` | 补 DAO 层聚合测试（`StatsDaoAggregationTest` 那种真库查询） |
 | `core/domain/engine/*` | 补边界测试（跨月、闰年 2/29、0/0、负库存） |
 | `core/domain/service/*` | 补事务守恒测试（`SUM(change_amount) == currentStock`） |
