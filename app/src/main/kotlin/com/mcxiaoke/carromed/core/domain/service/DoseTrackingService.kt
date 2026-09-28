@@ -384,16 +384,26 @@ class DoseTrackingService(private val db: AppDatabase) {
         toDate: LocalDate = LocalDate.now().plusDays(14),
         zoneId: ZoneId = ZoneId.systemDefault()
     ) = db.withTransaction {
-        val policy = policyDao.getActivePolicyForMedication(medicationId) ?: return@withTransaction
-        val times = policyDao.getTimesForPolicy(policy.id)
-
-        val projectedSlots = SlotProjectionEngine.projectSlots(
-            policy = policy,
-            times = times,
-            fromDate = fromDate,
-            toDate = toDate,
-            zoneId = zoneId
-        )
+        // ⚠️ 无有效计划 ≠ 什么都不做。
+        //
+        // 此前这里直接 `?: return@withTransaction` 提前返回，于是"用户删掉了这个药的
+        // 服用计划"这种情况，窗口内已有的 PENDING 槽位**永远删不掉**：
+        // 它们不是既成事实（没服药），却仍留在库里，被统计当成"该吃没吃"，
+        // 也会出现在今日清单里 —— 而闹钟早已被对账器撤掉，**永远不会响**。
+        //
+        // 所以无计划时把投影当成"空集"，让下面的删除逻辑照常执行。
+        val policy = policyDao.getActivePolicyForMedication(medicationId)
+        val projectedSlots = if (policy == null) {
+            emptyList()
+        } else {
+            SlotProjectionEngine.projectSlots(
+                policy = policy,
+                times = policyDao.getTimesForPolicy(policy.id),
+                fromDate = fromDate,
+                toDate = toDate,
+                zoneId = zoneId
+            )
+        }
 
         val fromStr = fromDate.format(SlotProjectionEngine.DATE_FORMATTER)
         val toStr = toDate.format(SlotProjectionEngine.DATE_FORMATTER)

@@ -47,11 +47,11 @@ python temp\dbdump.py
 | `core/data/dao/*` | 补 DAO 层聚合测试（`StatsDaoAggregationTest` 那种真库查询） |
 | `core/domain/engine/*` | 补边界测试（跨月、闰年 2/29、0/0、负库存） |
 | `core/domain/service/*` | 补事务守恒测试（`SUM(change_amount) == currentStock`） |
-| `core/alarm/*` | 模拟器实测闹钟是否真响；`requestCode` 分段别撞车 |
+| `core/alarm/*` | 模拟器实测闹钟是否真响；**闹钟身份必须走 `AlarmScheduler.alarmUri` 的内容寻址**，别退回 `requestCode` 算术编码 |
 | `ui/screen/*` | **必须跑一次 UI 走查截图并看图**（第 4 节） |
 | `ui/navigation/*` | 新路由要同步登记到 `tools/app_screenshots.py` 的 `PROGRAM` |
 
-### 三个最容易踩的架构坑
+### 四个最容易踩的架构坑
 
 1. **整行覆盖毁数据**。更新药品档案必须走局部 `UPDATE`
    （`MedicationDao.updateProfile` / `updateReminderBehavior` / `updateStockTracking`）。
@@ -67,6 +67,17 @@ python temp\dbdump.py
    `startDate` / `endDate` 并递增 `version`，不要无脑把起始日设成今天
    （会导致隔日用药相位漂移）。
 
+4. **闹钟身份是内容，不是算术**。`PendingIntent` 判重看
+   `requestCode` + `Intent.filterEquals`，而 **`filterEquals` 不看 extras**。
+   所以「用不同 `requestCode` 区分准点与提前」是错的：`10N+1` 与 `M` 在
+   `M ≡ 1 (mod 10)` 时必然相等，而两个分支的 component + action 完全相同
+   ⇒ 同一把 `PendingIntent`。`cancel(槽位1)` 会连带杀掉槽位 11 的主闹钟，
+   用户以为有提醒、实际静默不响。
+   正确做法是 `AlarmScheduler.alarmUri()` + `setData()`，让
+   `(medId, date, time, kind)` 参与判重，`requestCode` 恒为 0。
+   `AlarmIdentityTest` 守这条，别为了让测试好写就在测试里重写一遍 Uri 构造
+   —— 那样守的是测试里的影子。
+
 ---
 
 ## 3. 单元测试流程
@@ -76,7 +87,7 @@ python temp\dbdump.py
 ```
 
 - **全绿是提交前的硬门槛，但门禁不是"项数"而是"不变量"。**
-  当前 118 项，覆盖 12 条不变量（见 `docs/REMINDER-DOMAIN-REDESIGN.md` §4）。
+  当前 184 项，覆盖 12 条不变量（见 `docs/REMINDER-DOMAIN-REDESIGN.md` §4）。
   新增测试会推高项数，删掉无用测试会降低项数 —— 两者都不该改变门禁强度。
   改动不变量时，**先确认守它的那条测试还在**。
 - 测试跑在 **Robolectric + 真实内存 SQLite** 上，不是 mock 数据源。
@@ -104,11 +115,14 @@ python temp\dbdump.py
 | 现象 | 多半是 |
 | :--- | :--- |
 | `MigrationTest` 挂 | 该文件已随"不需要迁移代码"的决策删除，见 `docs/CHANGES-20260928.md` |
+| **改了 `@Entity` 但 `AppDatabase.version` 没升** | **必崩** `IllegalStateException: Room cannot verify the data integrity`。`fallbackToDestructiveMigration()` **不覆盖**这个检查（它只在 `onUpgrade` 路径生效，而版本不变时 `onUpgrade` 根本不被调用）。已核实：反编译 `RoomOpenHelper` 确认 `onOpen` 与 `checkIdentity` **都没有 Exception table**。走查每次 `--clear` 清库，所以**永远发现不了**。版本史见 `AppDatabase` 的 KDoc |
 | 库存守恒测试挂 | 某条路径绕过了 `DoseTrackingService.appendLedger` 直接写表 |
 | 断言差 1000 倍 | 毫单位（`Int`）与展示值（`Float`）量纲混用，见 `DoseAsserts.kt` |
 | jqwik 属性测试报 `should have no parameters` | JUnit 4 不允许带参，别写进 `@Test` 里 |
+| **Robolectric 里 `AppDatabase.getInstance()` 读到失效句柄** | `companion object` 的静态单例**跨测试方法不重置**，而每个方法都重建 `Application` 与沙箱文件系统。**测试里显式传内存库**，别用单例。若必须走单例（如 `Worker.doWork`），记住单例里的异常会被 `catch (Throwable) → Result.retry()` 吞掉，**失败信息与真实原因无关，比不测更糟** |
 | 统计聚合测试挂 | DAO 聚合 SQL 与 `StatsEngine` 口径不一致 |
 | Robolectric 报找不到资源 | `testOptions.unitTests.isIncludeAndroidResources` 被删了 |
+| 照着新版文档写 work-runtime 编译不过 | **2.9.1** 的 `WorkSpec.intervalDuration` / `flexDuration` / `backoffDelayDuration` 是**毫秒 `long`**；`WorkRequest.intervalDuration: Duration` 那个扩展要到 **2.10** 才有 |
 
 ---
 

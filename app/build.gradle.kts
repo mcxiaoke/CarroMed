@@ -108,6 +108,12 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
+    // WorkManager：周期对账兜底（A6，兑现 FINAL-PRODUCT D-14 的第三档承诺）
+    //
+    // 选它而不是 AlarmManager 周期闹钟：WorkManager 自带进程唤醒与 Doze/厂商策略适配，
+    // 且**不需要**前台常驻服务（§6.5 明确不引入）。详见 REMINDER-DOMAIN-REDESIGN A6。
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
     // Room 2.6.1 (SQLite ORM & In-Memory Database)
     val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")
@@ -122,6 +128,11 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("com.google.truth:truth:1.4.4")
+
+    // WorkManager 测试支持：ReconcileWorker 的排期参数（间隔下限 / 约束 / 退避）必须被断言，
+    // 其中「约束必须为空」最关键 —— App 物理断网（无 INTERNET 权限），
+    // 一旦有人误加 NetworkType.CONNECTED，Worker 会永远不执行且**没有任何报错**。
+    testImplementation("androidx.work:work-testing:2.9.1")
 
     // 属性化测试：覆盖 docs/REMINDER-DOMAIN-REDESIGN.md §4 的不变量 I3/I5/I6/I7/I8。
     // 选用 jqwik（JVM 原生、成熟、报告可读）而非自造随机生成器。
