@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -39,6 +40,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -62,11 +64,93 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // 选择 JSON 备份文件 → 覆盖式恢复
+    // 选择 JSON 备份文件 → **只解析不恢复**，产出预览后弹二次确认（P1-14）
     val backupPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let { viewModel.importBackup(it) }
+        uri?.let { viewModel.inspectBackup(it) }
+    }
+
+    // 覆盖式恢复二次确认。内容必须带**真实数字**：
+    // 「确定要覆盖吗？」用户只能盲点确定；
+    // 「含 4 种药品、2 条服药记录，当前数据将被完全替换」才是决策依据。
+    val pending = uiState.pendingRestore
+    if (pending != null) {
+        val preview = pending.first
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelRestore() },
+            title = { Text("确认覆盖当前数据？") },
+            text = {
+                Column {
+                    Text("所选文件：${preview.fileName}")
+                    Text("生成时间：${preview.exportedAtText}")
+                    Text("包含 ${preview.medicationCount} 种药品、${preview.recordCount} 条服药记录")
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "当前数据将被完全替换，此操作不可撤销。",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        "覆盖前会自动保存一份当前数据的快照。",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (preview.warnings.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "注意：${preview.warnings.joinToString("；")}",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.confirmRestore() },
+                    enabled = !uiState.isRestoring
+                ) {
+                    Text("确认覆盖", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelRestore() }) { Text("取消") }
+            }
+        )
+    }
+
+    // 本机导出记录列表。**必须有这个入口** —— 备份写在
+    // /sdcard/Android/data/<pkg>/...，SAF 明确不允许浏览该目录，
+    // 所以「选择备份」永远选不到 App 自己刚生成的那份。
+    if (uiState.showLocalBackupPicker) {
+        AlertDialog(
+            onDismissRequest = { viewModel.closeLocalBackupPicker() },
+            title = { Text("选择本机备份") },
+            text = {
+                if (uiState.localBackups.isEmpty()) {
+                    Text("还没有本机备份。请先用上面的「生成备份」。")
+                } else {
+                    Column {
+                        uiState.localBackups.forEach { b ->
+                            TextButton(
+                                onClick = { viewModel.inspectLocalBackup(b.file) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(Modifier.fillMaxWidth()) {
+                                    Text(b.displayName, fontSize = 13.sp)
+                                    Text(
+                                        "${b.sizeKb} KB",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.closeLocalBackupPicker() }) { Text("关闭") }
+            }
+        )
     }
 
     Scaffold(
@@ -327,7 +411,30 @@ fun SettingsScreen(
                                 onClick = { backupPickerLauncher.launch(arrayOf("application/json")) },
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("选择备份", fontSize = 12.sp)
+                                Text("选择文件", fontSize = 12.sp)
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("从本机备份恢复", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "直接选用 App 刚生成的备份（系统文件选择器看不到这个目录）",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.openLocalBackupPicker() },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("本机备份", fontSize = 12.sp)
                             }
                         }
                     }

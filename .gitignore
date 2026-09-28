@@ -55,6 +55,10 @@ ehthumbs.db
 # 它是**测试产物**而非源码，不应进版本库。
 .jqwik-database
 
+# 7.2 Python 字节码缓存（走查脚本 import 后产生）
+__pycache__/
+*.pyc
+
 # 8. 必须保留的版本控制文件
 !gradle/wrapper/gradle-wrapper.jar
 

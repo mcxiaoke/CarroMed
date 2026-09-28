@@ -5,6 +5,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
 }
 
@@ -113,6 +114,15 @@ dependencies {
     // 选它而不是 AlarmManager 周期闹钟：WorkManager 自带进程唤醒与 Doze/厂商策略适配，
     // 且**不需要**前台常驻服务（§6.5 明确不引入）。详见 REMINDER-DOMAIN-REDESIGN A6。
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+
+    // kotlinx.serialization：备份格式（A4）
+    //
+    // 替换掉原来约 300 行手写 `JSONObject.put` / `optString`。
+    // 关键收益不是"少写样板"，而是让**字段遗漏变成可测的**：
+    // 旧实现的 `appSettings` 只导出了 key/value，`updatedAt` 恢复即永久丢失，
+    // 而没有任何测试会发现 —— 手写映射没有 schema，两个方向都要人肉同步。
+    // 详见 REMINDER-DOMAIN-REDESIGN §6.4。
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
     // Room 2.6.1 (SQLite ORM & In-Memory Database)
     val roomVersion = "2.6.1"

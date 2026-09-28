@@ -120,6 +120,7 @@ python temp\dbdump.py
 | 断言差 1000 倍 | 毫单位（`Int`）与展示值（`Float`）量纲混用，见 `DoseAsserts.kt` |
 | jqwik 属性测试报 `should have no parameters` | JUnit 4 不允许带参，别写进 `@Test` 里 |
 | **Robolectric 里 `AppDatabase.getInstance()` 读到失效句柄** | `companion object` 的静态单例**跨测试方法不重置**，而每个方法都重建 `Application` 与沙箱文件系统。**测试里显式传内存库**，别用单例。若必须走单例（如 `Worker.doWork`），记住单例里的异常会被 `catch (Throwable) → Result.retry()` 吞掉，**失败信息与真实原因无关，比不测更糟** |
+| **测试在下午全绿、早上全红（或反过来）** | fixture 的时点落在「计划时间 + 2 小时」逾期线的**两侧**。`AlarmReconciler` 把过期的 PENDING 结算成 `EXPIRED`，而 `reconcileSchedule` **只删 PENDING / SNOOZED**（EXPIRED 是既成事实）⇒ 任何**按槽位条数**写的断言都会随时钟变色。**修法是断言不变量本身**：只数「开放槽位」（PENDING/SNOOZED），且按**日期集合**而不是条数。换 fixture 时点只是挪窗口，不是修法 |
 | 统计聚合测试挂 | DAO 聚合 SQL 与 `StatsEngine` 口径不一致 |
 | Robolectric 报找不到资源 | `testOptions.unitTests.isIncludeAndroidResources` 被删了 |
 | 照着新版文档写 work-runtime 编译不过 | **2.9.1** 的 `WorkSpec.intervalDuration` / `flexDuration` / `backoffDelayDuration` 是**毫秒 `long`**；`WorkRequest.intervalDuration: Duration` 那个扩展要到 **2.10** 才有 |

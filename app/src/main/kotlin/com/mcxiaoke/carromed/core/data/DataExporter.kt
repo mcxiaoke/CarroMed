@@ -15,8 +15,7 @@ import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -24,15 +23,44 @@ import java.util.Locale
 
 /**
  * 数据导出与备份服务
+ *
  * 1. CSV 服药明细导出 (UTF-8 带 BOM，Excel/WPS 直接打开无乱码)
- * 2. JSON 全量数据库备份 (org.json 序列化，零额外依赖)
- * 3. 覆盖式恢复导入 (整库快照替换，原样还原自增 ID)
+ * 2. JSON 全量数据库备份（`kotlinx.serialization`，格式见 [BackupFile]）
+ * 3. 覆盖式恢复导入（先校验 → 先留快照 → 再整库替换）
+ *
+ * ## 本类的分层：纯函数在内，Android 在外
+ *
+ * | 层 | 函数 | 依赖 | 谁能测 |
+ * | --- | --- | --- | :---: |
+ * | 纯 | [buildBackup] / [restoreBackup] / [validateBackup] | 只有 [AppDatabase] | ✅ 直接单测 |
+ * | IO | [exportFullBackupJson] / [inspectBackup] / [importBackup] | `Context` / `Uri` | 需 Robolectric |
+ *
+ * A4 之前整份编解码都埋在 `importBackup` 里，想测一次往返必须先造一个
+ * `Uri` —— 于是**往返链路从来没有被测过**，字段漏写也从来没人发现。
  */
 object DataExporter {
 
-    private const val BOM = "\uFEFF"
+    private const val BOM = "﻿"
     private const val BACKUP_APP_TAG = "CarroMed"
-    private const val BACKUP_FORMAT_VERSION = 1
+
+    /**
+     * 备份编解码配置。
+     *
+     * | 选项 | 为什么 |
+     * | :--- | :--- |
+     * | `ignoreUnknownKeys = true` | 向前兼容。V1 备份比 [BackupFile] 少一个 `schemaVersion` 字段；多出来的键必须被忽略而不是让整份文件读不进来 |
+     * | `encodeDefaults = true` | 等于默认值的字段也写出来，让文件**自描述**。关掉它的话，一个只改了一个字段的备份会退化成"其余全默认"，人工核对时看不出差别 |
+     * | `explicitNulls = true` | `pausedUntil = null`（未暂停）与 `""`（无限期）语义完全相反，必须都显式出现 |
+     * | `coerceInputValues = true` | 读到未知枚举值时降级为默认值，而不是让整份文件失败。**宁可少一个字段，也不能恢复不成功** —— 用户已经准备清库了 |
+     */
+    private val json = Json {
+        prettyPrint = true
+        prettyPrintIndent = "  "
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        explicitNulls = true
+        coerceInputValues = true
+    }
 
     private fun exportDir(context: Context): File {
         val base = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS)
@@ -116,344 +144,557 @@ object DataExporter {
         return file
     }
 
-    private fun trimFloat(v: Float): String =
-        if (v % 1f == 0f) v.toInt().toString() else v.toString()
-
     private fun escapeCsv(value: String): String =
         if (value.contains(',') || value.contains('"') || value.contains('\n')) {
             "\"" + value.replace("\"", "\"\"") + "\""
         } else value
 
-    // ---------------- JSON 全量备份 ----------------
+    // ---------------- JSON 全量备份：纯函数层 ----------------
 
     /**
-     * 导出全量数据库为 JSON 备份文件，返回生成的文件
+     * 把整库读成 [BackupFile]。**纯函数**：不碰 `Context`，因此可以直接单测。
      */
+    suspend fun buildBackup(db: AppDatabase, now: Long = System.currentTimeMillis()): BackupFile {
+        // 库存余额不再是 medications 的一列；此处附上台账聚合值**仅供人工核对**，
+        // 恢复流水即恢复余额，不从它写回任何列。
+        val balanceByMed = db.inventoryTransactionDao().getAllBalances()
+            .associate { it.medicationId to it.balance }
+
+        return BackupFile(
+            app = BACKUP_APP_TAG,
+            formatVersion = BackupFormatVersion.CURRENT.code,
+            exportedAt = now,
+            exportedAtText = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                .format(Date(now)),
+            medications = db.medicationDao().getAllMedications().map { m ->
+                MedicationBackup(
+                    id = m.id,
+                    name = m.name,
+                    alias = m.alias,
+                    category = m.category,
+                    form = m.form,
+                    unit = m.unit,
+                    colorHex = m.colorHex,
+                    iconName = m.iconName,
+                    defaultDose = m.defaultDose,
+                    description = m.description,
+                    precautions = m.precautions,
+                    noticeShort = m.noticeShort,
+                    stockMilli = balanceByMed[m.id] ?: 0,
+                    minStockAlert = m.minStockAlert,
+                    isStockTracked = m.isStockTracked,
+                    expiryDate = m.expiryDate,
+                    isArchived = m.isArchived,
+                    createdAt = m.createdAt,
+                    updatedAt = m.updatedAt
+                )
+            },
+            reminderSettings = db.reminderSettingsDao().getAll().map { s ->
+                ReminderSettingsBackup(
+                    medicationId = s.medicationId,
+                    isCriticalReminder = s.isCriticalReminder,
+                    snoozeMinutes = s.snoozeMinutes,
+                    advanceMinutes = s.advanceMinutes,
+                    pausedUntil = s.pausedUntil
+                )
+            },
+            schedulePolicies = db.schedulePolicyDao().getAllPolicies().map { p ->
+                SchedulePolicyBackup(
+                    id = p.id,
+                    medicationId = p.medicationId,
+                    policyType = p.policyType,
+                    intervalDays = p.intervalDays,
+                    daysOfWeek = p.daysOfWeek,
+                    cycleOnDays = p.cycleOnDays,
+                    cycleOffDays = p.cycleOffDays,
+                    startDate = p.startDate,
+                    endDate = p.endDate,
+                    isActive = p.isActive,
+                    version = p.version,
+                    createdAt = p.createdAt
+                )
+            },
+            policyTimes = db.schedulePolicyDao().getAllTimes().map { t ->
+                PolicyTimeBackup(
+                    id = t.id,
+                    policyId = t.policyId,
+                    timeOfDay = t.timeOfDay,
+                    doseAmount = t.doseAmount,
+                    label = t.label,
+                    sortOrder = t.sortOrder
+                )
+            },
+            doseSlots = db.doseSlotDao().getAllSlots().map { s ->
+                DoseSlotBackup(
+                    id = s.id,
+                    medicationId = s.medicationId,
+                    policyId = s.policyId,
+                    scheduledDate = s.scheduledDate,
+                    scheduledTime = s.scheduledTime,
+                    scheduledTs = s.scheduledTs,
+                    doseAmount = s.doseAmount,
+                    status = s.status,
+                    actualTakenTs = s.actualTakenTs,
+                    snoozeUntilTs = s.snoozeUntilTs,
+                    createdAt = s.createdAt
+                )
+            },
+            doseRecords = db.doseRecordDao().getAllRecords().map { r ->
+                DoseRecordBackup(
+                    id = r.id,
+                    slotId = r.slotId,
+                    medicationId = r.medicationId,
+                    actualTs = r.actualTs,
+                    doseTaken = r.doseTaken,
+                    status = r.status,
+                    isRetrospective = r.isRetrospective,
+                    note = r.note,
+                    createdAt = r.createdAt
+                )
+            },
+            inventoryTransactions = db.inventoryTransactionDao().getAllTransactions().map { t ->
+                InventoryTransactionBackup(
+                    id = t.id,
+                    medicationId = t.medicationId,
+                    recordId = t.recordId,
+                    changeAmount = t.changeAmount,
+                    balanceAfter = t.balanceAfter,
+                    txType = t.txType,
+                    note = t.note,
+                    batchNumber = t.batchNumber,
+                    expiryDate = t.expiryDate,
+                    createdAt = t.createdAt
+                )
+            },
+            appSettings = db.appSettingDao().getAllSettings().map { s ->
+                AppSettingBackup(key = s.key, value = s.value, updatedAt = s.updatedAt)
+            }
+        )
+    }
+
+    fun encodeBackup(backup: BackupFile): String = json.encodeToString(BackupFile.serializer(), backup)
+
+    fun decodeBackup(text: String): BackupFile = json.decodeFromString(BackupFile.serializer(), text)
+
+    /**
+     * 恢复前的完整性校验。
+     *
+     * ## 为什么要"先校验、后清库"
+     *
+     * 旧实现是 `deleteAll*()` 之后才开始逐段解析。一旦解析到一半失败，
+     * 整库已经被清空、备份又读不进去 —— **用户的数据两头都没了**。
+     * 校验必须在任何写操作之前完成。
+     *
+     * 检查项都是"外键指向不存在的行"这类结构性错误。它们不会让解析失败，
+     * 但会让 Room 的外键约束在事务中途抛异常，结果同样是"清空了但没恢复成"。
+     */
+    fun validateBackup(backup: BackupFile): List<String> {
+        val problems = mutableListOf<String>()
+
+        val version = BackupFormatVersion.from(backup.formatVersion)
+        if (version == null) {
+            problems += "备份格式版本 ${backup.formatVersion} 不受支持（当前支持 1~${BackupFormatVersion.CURRENT.code}）"
+        }
+
+        val medIds = backup.medications.map { it.id }.toSet()
+        val policyIds = backup.schedulePolicies.map { it.id }.toSet()
+        val slotIds = backup.doseSlots.map { it.id }.toSet()
+
+        backup.reminderSettings.forEach {
+            if (it.medicationId !in medIds) {
+                problems += "提醒设置引用了不存在的药品 #${it.medicationId}"
+            }
+        }
+        backup.schedulePolicies.forEach {
+            if (it.medicationId !in medIds) {
+                problems += "服用计划 #${it.id} 引用了不存在的药品 #${it.medicationId}"
+            }
+        }
+        backup.policyTimes.forEach {
+            if (it.policyId !in policyIds) {
+                problems += "服药时点 #${it.id} 引用了不存在的计划 #${it.policyId}"
+            }
+        }
+        backup.doseSlots.forEach {
+            if (it.medicationId !in medIds) {
+                problems += "槽位 #${it.id} 引用了不存在的药品 #${it.medicationId}"
+            }
+        }
+        backup.doseRecords.forEach {
+            if (it.medicationId !in medIds) {
+                problems += "服药记录 #${it.id} 引用了不存在的药品 #${it.medicationId}"
+            }
+            // slotId 可空（手动补录），非空时必须指向存在的槽位
+            if (it.slotId != null && it.slotId !in slotIds) {
+                problems += "服药记录 #${it.id} 引用了不存在的槽位 #${it.slotId}"
+            }
+        }
+        backup.inventoryTransactions.forEach {
+            if (it.medicationId !in medIds) {
+                problems += "库存流水 #${it.id} 引用了不存在的药品 #${it.medicationId}"
+            }
+        }
+
+        // 药品 id 重复 ⇒ 回填时会撞主键
+        backup.medications.groupBy { it.id }
+            .filterValues { it.size > 1 }
+            .forEach { (id, dup) -> problems += "药品 #$id 在备份中出现了 ${dup.size} 次" }
+
+        // ⚠️ 槽位唯一键重复：必须**报错**而不是静默跳过。
+        // A3 给 `dose_slots` 加了 `(medication_id, scheduled_date, scheduled_time)` UNIQUE 约束，
+        // 而 `insertAll` 用的是 `OnConflictStrategy.IGNORE` —— 重复键会被静默丢弃，
+        // 恢复"成功"了但少了若干槽位，用户毫无察觉。
+        backup.doseSlots
+            .groupBy { Triple(it.medicationId, it.scheduledDate, it.scheduledTime) }
+            .filterValues { it.size > 1 }
+            .forEach { (key, dup) ->
+                problems += "药品 #${key.first} 在 ${key.second} ${key.third} 有 ${dup.size} 条重复槽位"
+            }
+
+        // 每个药品都应有一行提醒运行态（A2 建立的不变量）。缺失的会在恢复时补默认值。
+        val medsWithSettings = backup.reminderSettings.map { it.medicationId }.toSet()
+        medIds.subtract(medsWithSettings).forEach {
+            problems += "药品 #$it 缺少提醒设置（恢复时会补默认值，建议重新导出备份）"
+        }
+
+        return problems
+    }
+
+    /**
+     * 用备份覆盖整库。**必须在事务内**，且调用前必须已通过 [validateBackup]。
+     *
+     * @return 恢复的药品数与服药记录数
+     */
+    suspend fun restoreBackup(db: AppDatabase, backup: BackupFile): Pair<Int, Int> =
+        db.withTransaction {
+            // 清空旧数据 (子表在前，父表在后)
+            db.appSettingDao().deleteAllSettings()
+            db.inventoryTransactionDao().deleteAllTransactions()
+            db.doseRecordDao().deleteAllRecords()
+            db.doseSlotDao().deleteAllSlots()
+            db.reminderSettingsDao().deleteAll()
+            db.schedulePolicyDao().deleteAllTimes()
+            db.schedulePolicyDao().deleteAllPolicies()
+            db.medicationDao().deleteAllMedications()
+
+            // 按外键依赖顺序回填 (父表在前，原样保留自增 ID)
+            db.medicationDao().insertAll(backup.medications.map { m ->
+                MedicationEntity(
+                    id = m.id,
+                    name = m.name,
+                    alias = m.alias,
+                    category = m.category,
+                    form = m.form,
+                    unit = m.unit,
+                    colorHex = m.colorHex,
+                    iconName = m.iconName,
+                    defaultDose = m.defaultDose,
+                    description = m.description,
+                    precautions = m.precautions,
+                    noticeShort = m.noticeShort,
+                    minStockAlert = m.minStockAlert,
+                    isStockTracked = m.isStockTracked,
+                    expiryDate = m.expiryDate,
+                    isArchived = m.isArchived,
+                    createdAt = m.createdAt,
+                    updatedAt = m.updatedAt
+                )
+            })
+
+            // 提醒运行态必须**晚于**药品恢复（外键约束）。
+            // 备份来自缺少该数组的旧版本时，为每个药品补一行默认值，
+            // 否则"恢复后提醒设置页一保存就静默失败"。
+            val settingsByMed = backup.reminderSettings.associateBy { it.medicationId }
+            backup.medications.forEach { m ->
+                val s = settingsByMed[m.id]
+                db.reminderSettingsDao().insert(
+                    ReminderSettingsEntity(
+                        medicationId = m.id,
+                        isCriticalReminder = s?.isCriticalReminder ?: false,
+                        snoozeMinutes = s?.snoozeMinutes ?: 0,
+                        advanceMinutes = s?.advanceMinutes ?: 0,
+                        pausedUntil = s?.pausedUntil
+                    )
+                )
+            }
+
+            db.schedulePolicyDao().insertAllPolicies(backup.schedulePolicies.map { p ->
+                SchedulePolicyEntity(
+                    id = p.id,
+                    medicationId = p.medicationId,
+                    policyType = p.policyType,
+                    intervalDays = p.intervalDays,
+                    daysOfWeek = p.daysOfWeek,
+                    cycleOnDays = p.cycleOnDays,
+                    cycleOffDays = p.cycleOffDays,
+                    startDate = p.startDate,
+                    endDate = p.endDate,
+                    isActive = p.isActive,
+                    version = p.version,
+                    createdAt = p.createdAt
+                )
+            })
+
+            db.schedulePolicyDao().insertTimes(backup.policyTimes.map { t ->
+                PolicyTimeEntity(
+                    id = t.id,
+                    policyId = t.policyId,
+                    timeOfDay = t.timeOfDay,
+                    doseAmount = t.doseAmount,
+                    label = t.label,
+                    sortOrder = t.sortOrder
+                )
+            })
+
+            // ⚠️ `insertAll` 是 `OnConflictStrategy.IGNORE`（A3 为保住 slot.id 而改的），
+            // 所以**唯一键重复会被静默丢弃**。这正是 [validateBackup] 要提前拦下的原因。
+            db.doseSlotDao().insertAll(backup.doseSlots.map { s ->
+                DoseSlotEntity(
+                    id = s.id,
+                    medicationId = s.medicationId,
+                    policyId = s.policyId,
+                    scheduledDate = s.scheduledDate,
+                    scheduledTime = s.scheduledTime,
+                    scheduledTs = s.scheduledTs,
+                    doseAmount = s.doseAmount,
+                    status = s.status,
+                    actualTakenTs = s.actualTakenTs,
+                    snoozeUntilTs = s.snoozeUntilTs,
+                    createdAt = s.createdAt
+                )
+            })
+
+            db.doseRecordDao().insertAll(backup.doseRecords.map { r ->
+                DoseRecordEntity(
+                    id = r.id,
+                    slotId = r.slotId,
+                    medicationId = r.medicationId,
+                    actualTs = r.actualTs,
+                    doseTaken = r.doseTaken,
+                    status = r.status,
+                    isRetrospective = r.isRetrospective,
+                    note = r.note,
+                    createdAt = r.createdAt
+                )
+            })
+
+            db.inventoryTransactionDao().insertAll(backup.inventoryTransactions.map { t ->
+                InventoryTransactionEntity(
+                    id = t.id,
+                    medicationId = t.medicationId,
+                    recordId = t.recordId,
+                    changeAmount = t.changeAmount,
+                    balanceAfter = t.balanceAfter,
+                    txType = t.txType,
+                    note = t.note,
+                    batchNumber = t.batchNumber,
+                    expiryDate = t.expiryDate,
+                    createdAt = t.createdAt
+                )
+            })
+
+            db.appSettingDao().insertAll(backup.appSettings.map { s ->
+                AppSettingEntity(key = s.key, value = s.value, updatedAt = s.updatedAt)
+            })
+
+            backup.medications.size to backup.doseRecords.size
+        }
+
+    // ---------------- JSON 全量备份：IO 层 ----------------
+
+    /** 导出全量数据库为 JSON 备份文件，返回生成的文件 */
     suspend fun exportFullBackupJson(context: Context, db: AppDatabase): File {
-        val root = JSONObject()
-        root.put("app", BACKUP_APP_TAG)
-        root.put("formatVersion", BACKUP_FORMAT_VERSION)
-        root.put("exportedAt", System.currentTimeMillis())
-        root.put("exportedAtText", SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date()))
-
-        // 库存余额不再是 medications 的一列；导出时附上台账聚合值，仅供人工核对
-
-        val stockByMed = db.inventoryTransactionDao().getAllBalances().associate { it.medicationId to it.balance }
-
-
-        root.put("medications", JSONArray().apply {
-            db.medicationDao().getAllMedications().forEach { m ->
-                put(JSONObject()
-                    .put("id", m.id).put("name", m.name).put("alias", m.alias ?: JSONObject.NULL)
-                    .put("category", m.category).put("form", m.form).put("unit", m.unit)
-                    .put("colorHex", m.colorHex).put("iconName", m.iconName)
-                    .put("defaultDoseMilli", m.defaultDose)
-                    .put("description", m.description)
-                    .put("precautions", JSONArray(m.precautions))
-                    .put("noticeShort", m.noticeShort)
-                    // 库存余额不再是 medications 的一列；此处附上台账聚合值仅供人工核对
-                    .put("stockMilli", stockByMed[m.id] ?: 0)
-                    .put("minStockAlertMilli", m.minStockAlert)
-                    .put("isStockTracked", m.isStockTracked)
-                    .put("expiryDate", m.expiryDate)
-                    .put("isArchived", m.isArchived)
-                    .put("createdAt", m.createdAt).put("updatedAt", m.updatedAt))
-            }
-        })
-
-        // 提醒运行态单列一张数组（A2 拆表后它不再属于药品档案）。
-        // 拆成独立数组而不是塞回 medications 对象：恢复时两张表按 id 关联，
-        // 混在一个对象里会让"哪些字段是档案、哪些是运行态"在备份文件里重新糊在一起。
-        root.put("reminderSettings", JSONArray().apply {
-            db.reminderSettingsDao().getAll().forEach { s ->
-                put(JSONObject()
-                    .put("medicationId", s.medicationId)
-                    .put("isCriticalReminder", s.isCriticalReminder)
-                    .put("snoozeMinutes", s.snoozeMinutes)
-                    .put("advanceMinutes", s.advanceMinutes)
-                    // null 必须原样保留：null=未暂停、""=无限期，两者语义完全不同
-                    .put("pausedUntil", s.pausedUntil ?: JSONObject.NULL))
-            }
-        })
-
-        root.put("schedulePolicies", JSONArray().apply {
-            db.schedulePolicyDao().getAllPolicies().forEach { p ->
-                put(JSONObject()
-                    .put("id", p.id).put("medicationId", p.medicationId)
-                    .put("policyType", p.policyType.name)
-                    .put("intervalDays", p.intervalDays)
-                    .put("daysOfWeek", JSONArray(p.daysOfWeek))
-                    .put("cycleOnDays", p.cycleOnDays).put("cycleOffDays", p.cycleOffDays)
-                    .put("startDate", p.startDate)
-                    .put("endDate", p.endDate ?: JSONObject.NULL)
-                    .put("isActive", p.isActive).put("version", p.version)
-                    .put("createdAt", p.createdAt))
-            }
-        })
-
-        root.put("policyTimes", JSONArray().apply {
-            db.schedulePolicyDao().getAllTimes().forEach { t ->
-                put(JSONObject()
-                    .put("id", t.id).put("policyId", t.policyId)
-                    .put("timeOfDay", t.timeOfDay)
-                    .put("doseAmountMilli", t.doseAmount)
-                    .put("label", t.label).put("sortOrder", t.sortOrder))
-            }
-        })
-
-        root.put("doseSlots", JSONArray().apply {
-            db.doseSlotDao().getAllSlots().forEach { s ->
-                put(JSONObject()
-                    .put("id", s.id).put("medicationId", s.medicationId).put("policyId", s.policyId)
-                    .put("scheduledDate", s.scheduledDate).put("scheduledTime", s.scheduledTime)
-                    .put("scheduledTs", s.scheduledTs).put("doseAmountMilli", s.doseAmount)
-                    .put("status", s.status.name)
-                    .put("actualTakenTs", s.actualTakenTs ?: JSONObject.NULL)
-                    .put("snoozeUntilTs", s.snoozeUntilTs ?: JSONObject.NULL)
-                    .put("createdAt", s.createdAt))
-            }
-        })
-
-        root.put("doseRecords", JSONArray().apply {
-            db.doseRecordDao().getAllRecords().forEach { r ->
-                put(JSONObject()
-                    .put("id", r.id).put("slotId", r.slotId ?: JSONObject.NULL)
-                    .put("medicationId", r.medicationId).put("actualTs", r.actualTs)
-                    .put("doseTakenMilli", r.doseTaken)
-                    .put("status", r.status.name).put("isRetrospective", r.isRetrospective)
-                    .put("note", r.note ?: JSONObject.NULL).put("createdAt", r.createdAt))
-            }
-        })
-
-        root.put("inventoryTransactions", JSONArray().apply {
-            db.inventoryTransactionDao().getAllTransactions().forEach { t ->
-                put(JSONObject()
-                    .put("id", t.id).put("medicationId", t.medicationId)
-                    .put("recordId", t.recordId ?: JSONObject.NULL)
-                    .put("changeAmountMilli", t.changeAmount)
-                    .put("balanceAfterMilli", t.balanceAfter)
-                    .put("txType", t.txType.name)
-                    .put("note", t.note ?: JSONObject.NULL)
-                    .put("batchNumber", t.batchNumber ?: JSONObject.NULL)
-                    .put("expiryDate", t.expiryDate ?: JSONObject.NULL)
-                    .put("createdAt", t.createdAt))
-            }
-        })
-
-        root.put("appSettings", JSONArray().apply {
-            db.appSettingDao().getAllSettings().forEach { s ->
-                put(JSONObject().put("key", s.key).put("value", s.value))
-            }
-        })
-
         val file = File(exportDir(context), "CarroMed_全量备份_${timestamp()}.json")
-        file.writeText(root.toString(2), Charsets.UTF_8)
+        file.writeText(encodeBackup(buildBackup(db)), Charsets.UTF_8)
         return file
     }
 
-    // ---------------- 覆盖式恢复导入 ----------------
+    /**
+     * 恢复前把**当前数据**另存一份。
+     *
+     * 覆盖式恢复是不可逆的，而"选错文件"是必然会发生的用户错误。
+     * 这份快照让误操作可逆，成本是一次文件写入。
+     * 写失败**不阻断恢复** —— 快照是保险，不是前置条件。
+     */
+    private suspend fun writeSafetySnapshot(context: Context, db: AppDatabase): File? = try {
+        val file = File(exportDir(context), "CarroMed_恢复前快照_${timestamp()}.json")
+        file.writeText(encodeBackup(buildBackup(db)), Charsets.UTF_8)
+        file
+    } catch (e: Exception) {
+        android.util.Log.w("DataExporter", "safety snapshot failed", e)
+        null
+    }
 
     sealed class RestoreResult {
-        data class Success(val medications: Int, val records: Int) : RestoreResult()
+        /** @param snapshotFile 恢复前自动留的快照文件路径；写失败时为 null */
+        data class Success(
+            val medications: Int,
+            val records: Int,
+            val snapshotFile: String?
+        ) : RestoreResult()
+
+        /** 备份文件本身不合法 —— **数据库未被触碰** */
         data class Invalid(val reason: String) : RestoreResult()
+
+        /** 恢复过程中出错。数据库处于事务中，会整体回滚 */
         data class Failure(val message: String) : RestoreResult()
     }
 
     /**
-     * 从 JSON 备份 Uri 覆盖式恢复整库 (快照替换，原样还原自增 ID)
+     * 备份文件预览，供二次确认对话框使用（P1-14 / `FINAL-PRODUCT:158`）。
+     *
+     * 二次确认必须**带真实信息**才有用：
+     * "确定要覆盖吗？"用户只能盲点确定；"该备份含 4 种药品、2 条服药记录、
+     * 生成于 2026-09-28 13:45，当前数据将被完全替换"才是决策依据。
+     */
+    data class BackupPreview(
+        val fileName: String,
+        val version: BackupFormatVersion,
+        val exportedAtText: String,
+        val medicationCount: Int,
+        val recordCount: Int,
+        val slotCount: Int,
+        val ledgerCount: Int,
+        val warnings: List<String>
+    )
+
+    private fun readText(context: Context, uri: Uri): String? =
+        runCatching {
+            context.contentResolver.openInputStream(uri)
+                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+        }.getOrNull()
+
+    private fun readText(file: File): String? =
+        runCatching { file.readText(Charsets.UTF_8) }.getOrNull()
+
+    /**
+     * App 自己导出的备份文件列表（`exportDir` 下）。
+     *
+     * ## 为什么需要这个入口（这是实测发现的真实限制）
+     *
+     * 备份写在 `context.getExternalFilesDir(DOCUMENTS)/exports`，也就是
+     * `/sdcard/Android/data/<pkg>/files/...`。**SAF 明确不允许浏览这个目录** ——
+     * 这是 Android 的设计，不是 bug。于是：
+     *
+     * > 用户点了「生成备份」，关掉分享面板，那份文件**再也选不回来**。
+     * > 只有先分享到「文件」/云盘，才可能再导入。
+     *
+     * 对一个**物理断网**（`AndroidManifest` 里严禁 `INTERNET` 权限）的 App，
+     * "必须先分享出去才能导回来" 是不可接受的。所以除了系统文件选择器，
+     * 再给一个直接列本机导出记录的入口。
+     */
+    fun listLocalBackups(context: Context): List<LocalBackupInfo> {
+        val dir = exportDir(context)
+        if (!dir.isDirectory) return emptyList()
+        return dir.listFiles { f -> f.isFile && f.name.endsWith(".json") }
+            ?.sortedByDescending { it.lastModified() }
+            ?.map { LocalBackupInfo(file = it, displayName = it.name, sizeKb = it.length() / 1024) }
+            ?: emptyList()
+    }
+
+    data class LocalBackupInfo(
+        val file: File,
+        val displayName: String,
+        val sizeKb: Long
+    )
+
+    /**
+     * 只读解析与校验，**不碰数据库**。
+     * UI 用它来显示二次确认信息；解析失败时用户的数据分毫未动。
+     */
+    suspend fun inspectBackup(context: Context, uri: Uri): Result<BackupPreview> {
+        val text = readText(context, uri)
+            ?: return Result.failure(IllegalArgumentException("无法读取所选文件"))
+        return inspectText(text, displayName(context, uri))
+    }
+
+    /** 同上，但读本机导出目录里的文件（绕开 SAF 的目录限制） */
+    fun inspectLocalBackup(file: File): Result<BackupPreview> {
+        val text = readText(file)
+            ?: return Result.failure(IllegalArgumentException("无法读取 ${file.name}"))
+        return inspectText(text, file.name)
+    }
+
+    private fun inspectText(text: String, display: String): Result<BackupPreview> {
+        val backup = runCatching { decodeBackup(text) }.getOrElse {
+            return Result.failure(IllegalArgumentException("不是有效的 CarroMed 备份文件"))
+        }
+        if (backup.app != BACKUP_APP_TAG) {
+            return Result.failure(IllegalArgumentException("该文件不是 CarroMed 备份文件"))
+        }
+        val problems = validateBackup(backup)
+        val fatal = problems.filter { it.contains("不受支持") || it.contains("不存在的") }
+        if (fatal.isNotEmpty()) {
+            return Result.failure(IllegalArgumentException(fatal.joinToString("；")))
+        }
+        val version = BackupFormatVersion.from(backup.formatVersion) ?: BackupFormatVersion.V1
+        return Result.success(
+            BackupPreview(
+                fileName = display,
+                version = version,
+                exportedAtText = backup.exportedAtText,
+                medicationCount = backup.medications.size,
+                recordCount = backup.doseRecords.size,
+                slotCount = backup.doseSlots.size,
+                ledgerCount = backup.inventoryTransactions.size,
+                warnings = problems
+            )
+        )
+    }
+
+    private fun displayName(context: Context, uri: Uri): String =
+        runCatching {
+            context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
+            }
+        }.getOrNull() ?: uri.lastPathSegment ?: "所选文件"
+
+    /**
+     * 从 JSON 备份覆盖式恢复整库。
+     *
+     * 执行顺序是本函数最重要的部分：
+     * **读 → 校验 → 留快照 → 才开事务清库**。任何一步失败都不会丢数据。
      */
     suspend fun importBackup(context: Context, db: AppDatabase, uri: Uri): RestoreResult {
-        val text = try {
-            context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                ?: return RestoreResult.Invalid("无法读取所选文件")
-        } catch (e: Exception) {
-            return RestoreResult.Failure("读取文件失败: ${e.message}")
-        }
+        val text = readText(context, uri) ?: return RestoreResult.Invalid("无法读取所选文件")
+        return restoreFromText(context, db, text)
+    }
 
-        val root = try {
-            JSONObject(text)
-        } catch (e: Exception) {
-            return RestoreResult.Invalid("不是有效的 JSON 备份文件")
-        }
+    /** 同上，但源是本机导出目录里的文件 */
+    suspend fun importLocalBackup(context: Context, db: AppDatabase, file: File): RestoreResult {
+        val text = readText(file) ?: return RestoreResult.Invalid("无法读取 ${file.name}")
+        return restoreFromText(context, db, text)
+    }
 
-        if (root.optString("app") != BACKUP_APP_TAG) {
+    private suspend fun restoreFromText(
+        context: Context,
+        db: AppDatabase,
+        text: String
+    ): RestoreResult {
+        val backup = try {
+            decodeBackup(text)
+        } catch (e: Exception) {
+            return RestoreResult.Invalid("不是有效的 CarroMed 备份文件")
+        }
+        if (backup.app != BACKUP_APP_TAG) {
             return RestoreResult.Invalid("该文件不是 CarroMed 备份文件")
         }
-        if (root.optInt("formatVersion", -1) != BACKUP_FORMAT_VERSION) {
-            return RestoreResult.Invalid("备份格式版本不兼容，请使用相同版本的应用生成备份")
+
+        val problems = validateBackup(backup)
+        if (problems.isNotEmpty()) {
+            // ⚠️ 在此返回，数据库**尚未被触碰**
+            return RestoreResult.Invalid(problems.joinToString("；"))
         }
 
+        val snapshot = writeSafetySnapshot(context, db)
+
         return try {
-            var medCount = 0
-            var recordCount = 0
-            db.withTransaction {
-                // 清空旧数据 (子表在前，父表在后)
-                db.appSettingDao().deleteAllSettings()
-                db.inventoryTransactionDao().deleteAllTransactions()
-                db.doseRecordDao().deleteAllRecords()
-                db.doseSlotDao().deleteAllSlots()
-                db.schedulePolicyDao().deleteAllTimes()
-                db.schedulePolicyDao().deleteAllPolicies()
-                db.medicationDao().deleteAllMedications()
-
-                // 按外键依赖顺序回填 (父表在前，原样保留自增 ID)
-                val medications = root.optJSONArray("medications") ?: JSONArray()
-                medCount = medications.length()
-                db.medicationDao().insertAll((0 until medications.length()).map { i ->
-                    val m = medications.getJSONObject(i)
-                    MedicationEntity(
-                        id = m.getLong("id"),
-                        name = m.getString("name"),
-                        alias = if (m.isNull("alias")) null else m.getString("alias"),
-                        category = m.optString("category", "常备药"),
-                        form = m.optString("form", "片剂"),
-                        unit = m.optString("unit", "片"),
-                        colorHex = m.optString("colorHex", "#2563EB"),
-                        iconName = m.optString("iconName", "pill"),
-                        defaultDose = m.optInt("defaultDoseMilli", 1000),
-                        description = m.optString("description", ""),
-                        precautions = m.optJSONArray("precautions")?.let { arr ->
-                            (0 until arr.length()).map { arr.getString(it) }
-                        } ?: emptyList(),
-                        noticeShort = m.optString("noticeShort", ""),
-                        minStockAlert = m.optInt("minStockAlertMilli", 0),
-                        isStockTracked = m.optBoolean("isStockTracked", false),
-                        expiryDate = m.optString("expiryDate", ""),
-                        isArchived = m.optBoolean("isArchived", false),
-                        createdAt = m.optLong("createdAt", System.currentTimeMillis()),
-                        updatedAt = m.optLong("updatedAt", System.currentTimeMillis())
-                    )
-                })
-
-                // 恢复提醒运行态。必须**晚于**药品恢复（外键约束），
-                // 且对每个药品都补一行默认值 —— 备份来自旧版本（无该数组）时
-                // 走这条兜底，避免"恢复后提醒设置页一保存就静默失败"。
-                val reminderSettingsJson = root.optJSONArray("reminderSettings") ?: JSONArray()
-                db.reminderSettingsDao().deleteAll()
-                (0 until reminderSettingsJson.length()).forEach { i ->
-                    val s = reminderSettingsJson.getJSONObject(i)
-                    db.reminderSettingsDao().insert(
-                        ReminderSettingsEntity(
-                            medicationId = s.getLong("medicationId"),
-                            isCriticalReminder = s.optBoolean("isCriticalReminder", false),
-                            snoozeMinutes = s.optInt("snoozeMinutes", 0),
-                            advanceMinutes = s.optInt("advanceMinutes", 0),
-                            pausedUntil = if (s.isNull("pausedUntil")) null
-                            else s.optString("pausedUntil", "")
-                        )
-                    )
-                }
-                (0 until medications.length()).forEach { i ->
-                    val medId = medications.getJSONObject(i).getLong("id")
-                    if (db.reminderSettingsDao().getByMedicationId(medId) == null) {
-                        db.reminderSettingsDao().insert(ReminderSettingsEntity(medicationId = medId))
-                    }
-                }
-
-                val policies = root.optJSONArray("schedulePolicies") ?: JSONArray()
-                db.schedulePolicyDao().insertAllPolicies((0 until policies.length()).map { i ->
-                    val p = policies.getJSONObject(i)
-                    SchedulePolicyEntity(
-                        id = p.getLong("id"),
-                        medicationId = p.getLong("medicationId"),
-                        policyType = com.mcxiaoke.carromed.core.data.model.PolicyType.valueOf(
-                            p.optString("policyType", "DAILY")
-                        ),
-                        intervalDays = p.optInt("intervalDays", 1),
-                        daysOfWeek = p.optJSONArray("daysOfWeek")?.let { arr ->
-                            (0 until arr.length()).mapNotNull { arr.optInt(it) }
-                        } ?: emptyList(),
-                        cycleOnDays = p.optInt("cycleOnDays", 0),
-                        cycleOffDays = p.optInt("cycleOffDays", 0),
-                        startDate = p.getString("startDate"),
-                        endDate = if (p.isNull("endDate")) null else p.getString("endDate"),
-                        isActive = p.optBoolean("isActive", true),
-                        version = p.optInt("version", 1),
-                        createdAt = p.optLong("createdAt", System.currentTimeMillis())
-                    )
-                })
-
-                val times = root.optJSONArray("policyTimes") ?: JSONArray()
-                db.schedulePolicyDao().insertTimes((0 until times.length()).map { i ->
-                    val t = times.getJSONObject(i)
-                    PolicyTimeEntity(
-                        id = t.getLong("id"),
-                        policyId = t.getLong("policyId"),
-                        timeOfDay = t.getString("timeOfDay"),
-                        doseAmount = t.optInt("doseAmountMilli", 1000),
-                        label = t.optString("label", "服药时段"),
-                        sortOrder = t.optInt("sortOrder", 0)
-                    )
-                })
-
-                val slots = root.optJSONArray("doseSlots") ?: JSONArray()
-                db.doseSlotDao().insertAll((0 until slots.length()).map { i ->
-                    val s = slots.getJSONObject(i)
-                    DoseSlotEntity(
-                        id = s.getLong("id"),
-                        medicationId = s.getLong("medicationId"),
-                        policyId = s.getLong("policyId"),
-                        scheduledDate = s.getString("scheduledDate"),
-                        scheduledTime = s.getString("scheduledTime"),
-                        scheduledTs = s.getLong("scheduledTs"),
-                        doseAmount = s.optInt("doseAmountMilli", 1000),
-                        status = com.mcxiaoke.carromed.core.data.model.SlotStatus.valueOf(
-                            s.optString("status", "PENDING")
-                        ),
-                        actualTakenTs = if (s.isNull("actualTakenTs")) null else s.getLong("actualTakenTs"),
-                        snoozeUntilTs = if (s.isNull("snoozeUntilTs")) null else s.getLong("snoozeUntilTs"),
-                        createdAt = s.optLong("createdAt", System.currentTimeMillis())
-                    )
-                })
-
-                val records = root.optJSONArray("doseRecords") ?: JSONArray()
-                recordCount = records.length()
-                db.doseRecordDao().insertAll((0 until records.length()).map { i ->
-                    val r = records.getJSONObject(i)
-                    DoseRecordEntity(
-                        id = r.getLong("id"),
-                        slotId = if (r.isNull("slotId")) null else r.getLong("slotId"),
-                        medicationId = r.getLong("medicationId"),
-                        actualTs = r.getLong("actualTs"),
-                        doseTaken = r.optInt("doseTakenMilli", 1000),
-                        status = RecordStatus.valueOf(r.optString("status", "COMPLETED")),
-                        isRetrospective = r.optBoolean("isRetrospective", false),
-                        note = if (r.isNull("note")) null else r.getString("note"),
-                        createdAt = r.optLong("createdAt", System.currentTimeMillis())
-                    )
-                })
-
-                val txs = root.optJSONArray("inventoryTransactions") ?: JSONArray()
-                db.inventoryTransactionDao().insertAll((0 until txs.length()).map { i ->
-                    val t = txs.getJSONObject(i)
-                    InventoryTransactionEntity(
-                        id = t.getLong("id"),
-                        medicationId = t.getLong("medicationId"),
-                        recordId = if (t.isNull("recordId")) null else t.getLong("recordId"),
-                        changeAmount = t.optInt("changeAmountMilli", 0),
-                        balanceAfter = t.optInt("balanceAfterMilli", 0),
-                        txType = com.mcxiaoke.carromed.core.data.model.TransactionType.valueOf(
-                            t.optString("txType", "CALIBRATION_ADJUST")
-                        ),
-                        note = if (t.isNull("note")) null else t.getString("note"),
-                        batchNumber = if (t.isNull("batchNumber")) null else t.getString("batchNumber"),
-                        expiryDate = if (t.isNull("expiryDate")) null else t.getString("expiryDate"),
-                        createdAt = t.optLong("createdAt", System.currentTimeMillis())
-                    )
-                })
-
-                val settings = root.optJSONArray("appSettings") ?: JSONArray()
-                db.appSettingDao().insertAll((0 until settings.length()).map { i ->
-                    val s = settings.getJSONObject(i)
-                    AppSettingEntity(
-                        key = s.getString("key"),
-                        value = s.getString("value")
-                    )
-                })
-            }
-            RestoreResult.Success(medCount, recordCount)
+            val (medCount, recordCount) = restoreBackup(db, backup)
+            RestoreResult.Success(medCount, recordCount, snapshot?.absolutePath)
         } catch (e: Exception) {
-            RestoreResult.Failure("恢复失败: ${e.message}")
+            // 事务整体回滚，数据库回到恢复前的样子
+            RestoreResult.Failure("恢复失败，已自动回滚: ${e.message}")
         }
     }
 
