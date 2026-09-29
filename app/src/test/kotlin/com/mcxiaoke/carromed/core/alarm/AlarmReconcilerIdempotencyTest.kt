@@ -325,4 +325,30 @@ class AlarmReconcilerIdempotencyTest {
         // 另一味药照常排班 ⇒ 过滤是按药品粒度的，没有误伤
         assertThat(openSlotsOf(otherId)).isNotEmpty()
     }
+
+    /**
+     * 归档后不得残留开放槽位（治代码审查 zcg 报告 P2#4）。
+     *
+     * 上一条测试的 `isAtMost(before)` 恰好把缺陷行为放进了容差：归档只撤闹钟，
+     * `reconcileSchedule` 只遍历在服药品 ⇒ 归档药的 PENDING/SNOOZED 槽位**没有任何
+     * 代码路径会删**（对比：删除药品有 FK 级联清空）。它们继续出现在今日清单上
+     * ——而且因为 `medMap` 只含在服药品，渲染时兜底成"未知药品"，
+     * 确认按钮照常工作、照常扣库存（`takeDose` 不校验 isArchived）。
+     *
+     * 本条把不变量钉死：**rescheduleAll 是"全量对账"，归档药的开放槽位不允许活过它**。
+     * 归档不是既成事实，"停药"的药不该再欠任何待办。
+     */
+    @Test
+    fun `归档后 该药名下不得残留任何开放槽位`() = runBlocking {
+        val medId = db.medicationDao().getActiveOverviews().first { it.name == "维生素D" }.id
+        AlarmReconciler.rescheduleAll(context, db)
+        // 前提：归档前确实有开放槽位，否则断言恒真
+        assertThat(openSlotsOf(medId)).isNotEmpty()
+
+        db.medicationDao().updateArchiveStatus(medId, isArchived = true)
+        AlarmReconciler.rescheduleAll(context, db)
+
+        // ★ 当前实现这里留着整窗 PENDING ⇒ 红
+        assertThat(openSlotsOf(medId)).isEmpty()
+    }
 }

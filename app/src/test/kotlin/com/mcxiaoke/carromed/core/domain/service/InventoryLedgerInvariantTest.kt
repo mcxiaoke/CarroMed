@@ -416,6 +416,43 @@ class InventoryLedgerInvariantTest {
         assertDoseValue(lastTx.changeAmount, 15f)
     }
 
+    /**
+     * 开启追踪时账面为负、给了初值 ⇒ 必须补足**差额**，而不是追加全额
+     * （治代码审查 zcg 报告 P2#6，潜伏缺陷）。
+     *
+     * ## 缺陷
+     *
+     * `setStockTracking` 的"从零建档"分支条件是 `current <= 0` 而非 `current == 0`：
+     * 账面 -2、initialStock = 30 时走第一分支追加 **+30**，终账 = 28 ≠ 用户声明的 30。
+     * 当前两条 UI 调用路径恰好都踩不中（一个传当前余额、一个只在空账时调用），
+     * 属潜伏缺陷——但台账可以为负是 D-9 明文支持的，任何未来调用方传入真实
+     * "用户输入的初值"都会踩中。
+     *
+     * 正确行为：落到"校准"分支，追加 `target - current` = **+32** 的差额流水，
+     * 终账精确等于 30。
+     */
+    @Test
+    fun `开启追踪时账面为负 给出初值必须补差额而不是追加全额`() = runTest {
+        val (medId, _) = newMed(stock = 0f, tracked = false)
+        // 账面 -2：追踪关闭期间遗留的负账（D-9 允许；补药/盘点也不校验追踪开关）
+        db.inventoryTransactionDao().insert(
+            InventoryTransactionEntity(
+                medicationId = medId, changeAmount = -2000, balanceAfter = -2000,
+                txType = TransactionType.CALIBRATION_ADJUST, note = "历史遗留负账"
+            )
+        )
+        assertThat(balanceOf(medId)).isEqualTo(-2f)
+
+        service.setStockTracking(medId, true, initialStock = 30f)
+
+        // ★ 用户声明实物 30，终账必须精确等于 30（当前实现得 28 ⇒ 红）
+        assertThat(balanceOf(medId)).isEqualTo(30f)
+        // 且走的是"校准差额"语义：-2 → 30 需要一条 +32 的流水，而不是 +30 的"建档"
+        val lastTx = db.inventoryTransactionDao().getLatestTransaction(medId)!!
+        assertThat(lastTx.txType).isEqualTo(TransactionType.CALIBRATION_ADJUST)
+        assertDoseValue(lastTx.changeAmount, 32f)
+    }
+
     // ==================== 改计划不冲历史 ====================
 
     @Test

@@ -91,6 +91,11 @@ class DoseActionReceiver : BroadcastReceiver() {
                         notifyUser(appContext, if (ok) "已跳过本次，不扣减库存" else "该提醒已处理过")
                     }
                 }
+            } catch (t: Throwable) {
+                // 异常围栏（P2#2）：协程体内任何异常都不允许逃逸——
+                // 逃逸即走默认未捕获处理器，**整个进程被点通知栏按钮这一下打崩**，
+                // 且 goAsync 的保护形同虚设。与 AlarmReceiver / BootReceiver 同一口径。
+                android.util.Log.e("DoseActionReceiver", "dose action failed, action=$action slotId=$slotId", t)
             } finally {
                 result.finish()
             }

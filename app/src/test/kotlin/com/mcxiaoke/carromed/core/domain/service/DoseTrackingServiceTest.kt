@@ -292,4 +292,64 @@ class DoseTrackingServiceTest {
         assertThat(todaySlots.map { it.scheduledTime }).contains("18:00")
         assertThat(todaySlots.first { it.scheduledTime == "08:00" }.status).isEqualTo(SlotStatus.COMPLETED)
     }
+
+    /**
+     * 逾期(EXPIRED)槽位允许补记已服（治代码审查 zcg 报告 P2#5）。
+     *
+     * ## 缺陷
+     *
+     * `markCompletedIfOpen` 的 SQL 守卫是 `status IN ('PENDING','SNOOZED')`，
+     * EXPIRED 不在其中——但今日页的 `PendingDoseCard` **把确认按钮渲染给了 EXPIRED**
+     * （徽标还写着"已逾期…尚未确认"），点击永远失败，且 toast 文案撒谎
+     * （"该服药记录已处理过"——事实是从未有机会处理）。
+     * 对称的证据是 `markSkippedIfOpen` **允许** EXPIRED ⇒ SKIPPED（"补记跳过"）：
+     * 补记已服没有理由被单独禁止。
+     *
+     * 本测试钉的是"放开补记"方案（与 UI 现状一致）；若产品拍板改为
+     * "EXPIRED 隐藏确认按钮、只留补记跳过"，请删除本测试并改 UI——
+     * 但"按钮存在却永远失败 + 文案撒谎"的组合无论如何都不能保留。
+     */
+    @Test
+    fun `逾期槽位允许补记已服`() = runTest {
+        val medDao = db.medicationDao()
+        val slotDao = db.doseSlotDao()
+        val recordDao = db.doseRecordDao()
+        val inventoryDao = db.inventoryTransactionDao()
+
+        val medId = medDao.insert(
+            MedicationEntity(name = "逾期补记药", unit = "片", isStockTracked = true)
+        )
+        inventoryDao.insert(
+            com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity(
+                medicationId = medId, changeAmount = 10000, balanceAfter = 10000,
+                txType = TransactionType.CALIBRATION_ADJUST, note = "建档 10 片"
+            )
+        )
+        // 直接落一条已结算为逾期的槽位（scheduledTs 在过去，由对账器结算后的形状）
+        val expiredSlotId = slotDao.insert(
+            DoseSlotEntity(
+                medicationId = medId,
+                policyId = 1L,
+                scheduledDate = "2026-09-27",
+                scheduledTime = "08:00",
+                scheduledTs = 1790467200000L,
+                doseAmount = 1000,
+                status = SlotStatus.EXPIRED
+            )
+        )
+
+        // ★ 用户回来确认"那剂其实吃了"——当前实现返回 false，什么也不发生 ⇒ 红
+        val takeSuccess = service.takeDose(expiredSlotId, actualTs = 1790470000000L)
+        assertThat(takeSuccess).isTrue()
+
+        val slot = slotDao.getSlotById(expiredSlotId)
+        assertThat(slot?.status).isEqualTo(SlotStatus.COMPLETED)
+        assertThat(slot?.actualTakenTs).isEqualTo(1790470000000L)
+
+        val record = recordDao.getRecordBySlotId(expiredSlotId)
+        assertThat(record).isNotNull()
+        assertThat(record?.status).isEqualTo(RecordStatus.COMPLETED)
+        // 10 - 1 = 9：补记的事实照常入账
+        db.assertLedgerBalance(medId, 9.0f)
+    }
 }

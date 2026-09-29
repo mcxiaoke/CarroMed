@@ -7,11 +7,13 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.AppSettingEntity
+import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
+import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Before
@@ -206,6 +208,9 @@ class FieldPreservationInvariantTest {
      *
      * （这个坑本轮已经踩过一次：早先用 `INTERVAL/3` + 起始日 −5 天，
      *   `5 % 3 ≠ 0` ⇒ 槽位列表为空 ⇒ 测试报 "List is empty"，完全指不到病根。）
+     *
+     * ⚠️ 仅适用于**未归档**药品：P2#4 后归档药按"无计划"投影，
+     * reconcileSchedule 不会为它物化任何槽位（需要槽位的 C5 因此改为直插）。
      */
     private suspend fun seedAnySlot(medId: Long): Long {
         tracking.reconcileSchedule(medId, today, today.plusDays(90))
@@ -224,8 +229,11 @@ class FieldPreservationInvariantTest {
      * 断言药品档案的**每一列**都还是哨兵值。
      *
      * ⚠️ 加列时这里也要加一行 —— 与 [fullSentinelMedication] 配对。
+     *
+     * @param archived 哨兵药的归档位期望值。哨兵默认 `true`（可辨识非默认值）；
+     *   C8 因 P2#4（归档药不再物化排班）而必须先取消归档，按 `false` 断言。
      */
-    private suspend fun assertMedicationUnchanged(medId: Long) {
+    private suspend fun assertMedicationUnchanged(medId: Long, archived: Boolean = true) {
         val m = db.medicationDao().getMedicationById(medId)!!
         assertThat(m.name).isEqualTo(Sentinel.NAME)
         assertThat(m.alias).isEqualTo(Sentinel.ALIAS)
@@ -241,7 +249,7 @@ class FieldPreservationInvariantTest {
         assertThat(m.minStockAlert).isEqualTo(Sentinel.MIN_STOCK_ALERT)
         assertThat(m.isStockTracked).isTrue()
         assertThat(m.expiryDate).isEqualTo(Sentinel.EXPIRY)
-        assertThat(m.isArchived).isTrue()
+        assertThat(m.isArchived).isEqualTo(archived)
         assertThat(m.createdAt).isEqualTo(Sentinel.CREATED_AT)
         assertThat(m.updatedAt).isEqualTo(Sentinel.UPDATED_AT)
     }
@@ -436,7 +444,21 @@ class FieldPreservationInvariantTest {
     @Test
     fun `C5 打卡不触碰档案 提醒设置与计划`() = runTest {
         val medId = seedFullSentinelWorld()
-        val slotId = seedAnySlot(medId)
+        // P2#4 后归档药按"无计划"投影，reconcile 不再为它物化槽位，
+        // 因此直接落一条槽位供打卡（顺带覆盖：归档药的槽位打卡同样不碰档案）。
+        // 直插不会触碰 updated_at / is_archived 等任何档案列。
+        val policyId = db.schedulePolicyDao().getActivePolicyForMedication(medId)!!.id
+        val slotId = db.doseSlotDao().insert(
+            DoseSlotEntity(
+                medicationId = medId,
+                policyId = policyId,
+                scheduledDate = Sentinel.POLICY_START,
+                scheduledTime = Sentinel.POLICY_TIME,
+                scheduledTs = 1_770_000_000_000L,
+                doseAmount = Sentinel.POLICY_DOSE,
+                status = SlotStatus.PENDING
+            )
+        )
         val planBefore = db.schedulePolicyDao().getActivePolicyForMedication(medId)!!.version
 
         assertThat(tracking.takeDose(slotId = slotId, note = "哨兵打卡")).isTrue()
@@ -503,13 +525,18 @@ class FieldPreservationInvariantTest {
     @Test
     fun `C8 对账只动槽位表 档案提醒计划设置全部原封不动`() = runTest {
         val medId = seedFullSentinelWorld()
+        // P2#4 后归档药按"无计划"投影，对账会清掉它的开放槽位——C8 守的是
+        // "对账不外溢"，需要一个有排班的药，故先取消归档再验证。
+        // isArchived 列自身的保全由 C1/C6/C7 覆盖；这里按未归档口径断言，
+        // 并显式传哨兵 updated_at，保证 updated_at 列仍是逐列可比的。
+        db.medicationDao().updateArchiveStatus(medId, isArchived = false, updatedAt = Sentinel.UPDATED_AT)
         val slotId = seedAnySlot(medId)
         // 再跑三次，验证"多次对账"同样不外溢
         repeat(3) { tracking.reconcileSchedule(medId, today, today.plusDays(90)) }
         // 幂等：首条槽位仍在
         assertThat(db.doseSlotDao().getSlotById(slotId)).isNotNull()
 
-        assertMedicationUnchanged(medId)
+        assertMedicationUnchanged(medId, archived = false)
         assertReminderSettingsUnchanged(medId)
         assertPolicyUnchanged(medId)
         assertAppSettingUnchanged()

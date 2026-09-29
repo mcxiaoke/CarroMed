@@ -88,7 +88,10 @@ class BackupFieldPreservationTest {
                 minStockAlert = 30000,          // 非默认 0
                 isStockTracked = true,          // 非默认 false
                 expiryDate = "2027-01-31",      // 非默认 ""
-                isArchived = true,              // 非默认 false
+                // ⚠️ 不能为 true：P2#4 修复后归档药按"无计划"投影，reconcileSchedule
+                // 不再为它物化槽位，下面的槽位/事实/流水种子全都建不起来。
+                // isArchived=true 的导出保全由本文件的 `归档位原样导出` 测试单独覆盖。
+                isArchived = false,
                 createdAt = 1_700_000_000_000L,
                 updatedAt = 1_700_000_111_111L
             )
@@ -199,7 +202,7 @@ class BackupFieldPreservationTest {
                     minStockAlert = 30000,
                     isStockTracked = true,
                     expiryDate = "2027-01-31",
-                    isArchived = true,
+                    isArchived = false,
                     createdAt = 1_700_000_000_000L,
                     updatedAt = 1_700_000_111_111L
                 )
@@ -330,5 +333,21 @@ class BackupFieldPreservationTest {
         assertThat(round.medications.single().name).isEqualTo("含\"引号\"与,逗号")
         assertThat(round.medications.single().alias).isEqualTo("换行\n制表\t")
         assertThat(round.medications.single().precautions).containsExactly("a\"b", "c,d").inOrder()
+    }
+
+    /**
+     * `isArchived` 的非默认值覆盖（原 fixture 曾用 `isArchived = true` 兼任，
+     * P2#4 修复后归档药不再物化排班，fixture 改回 false——这一列的
+     * "漏导出 ≡ 等于默认值" 盲区由本测试单独钉住）。
+     */
+    @Test
+    fun `归档位原样导出`() = runTest {
+        val medId = db.medicationDao().insert(
+            MedicationEntity(name = "已停药的药", isArchived = true)
+        )
+        db.reminderSettingsDao().ensureDefaults(medId)
+
+        val backup = DataExporter.buildBackup(db, now = now)
+        assertThat(backup.medications.single().isArchived).isTrue()
     }
 }

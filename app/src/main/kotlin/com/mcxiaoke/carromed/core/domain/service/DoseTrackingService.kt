@@ -314,8 +314,12 @@ class DoseTrackingService(private val db: AppDatabase) {
         if (enabled) {
             val current = balanceOf(medicationId)
             val target = initialStock?.let { Dose.of(it) } ?: Dose(current)
-            if (target.milli > 0 && current <= 0) {
-                // 从零建档：一条流水即可，账面随之成立
+            if (target.milli > 0 && current == 0) {
+                // 从零建档：一条流水即可，账面随之成立。
+                // ⚠️ 条件必须是 `== 0` 而不是 `<= 0`：账面为负是 D-9 明文允许的状态
+                //（补药/盘点不校验追踪开关，追踪关闭期间账面照样可能变负），
+                // 此时追加**全额**会得到 `current + target ≠ target`——
+                // 用户声明实物 30，账面却是 28。负账必须落到下方"校准差额"分支。
                 appendLedger(
                     medicationId = medicationId,
                     recordId = null,
@@ -410,7 +414,18 @@ class DoseTrackingService(private val db: AppDatabase) {
         // 也会出现在今日清单里 —— 而闹钟早已被对账器撤掉，**永远不会响**。
         //
         // 所以无计划时把投影当成"空集"，让下面的删除逻辑照常执行。
-        val policy = policyDao.getActivePolicyForMedication(medicationId)
+        //
+        // 归档药品同理（P2#4）：归档 ≠ 无计划，`schedule_policies` 里那条计划仍是
+        // active 的，若只按政策投影，归档药的槽位会被继续物化。但"停药"的药不该再欠
+        // 任何待办 —— 它的开放槽位不是既成事实，必须按空集投影，由下方删除逻辑清掉。
+        val activePolicy = policyDao.getActivePolicyForMedication(medicationId)
+        val policy = if (activePolicy != null &&
+            medDao.getMedicationById(medicationId)?.isArchived == true
+        ) {
+            null
+        } else {
+            activePolicy
+        }
         val projectedSlots = if (policy == null) {
             emptyList()
         } else {

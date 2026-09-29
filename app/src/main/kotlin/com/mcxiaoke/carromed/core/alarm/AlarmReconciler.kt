@@ -98,7 +98,8 @@ object AlarmReconciler {
             Log.i(TAG, "expired $expiredCount overdue slots (pending+snoozed)")
         }
 
-        // 2. 在服药品（**含暂停中的**）未来 HORIZON_DAYS 天排班幂等补齐
+        // 2. 在服药品（**含暂停中的**）未来 HORIZON_DAYS 天排班幂等补齐；
+        //    归档药品的开放槽位整段清扫（见 2b——停药的药不该再欠任何待办）
         //
         // ⚠️ 这里**不能**按"截至今天未暂停"来过滤。早先那么写，导致暂停中的药
         // 它的 `reconcileSchedule` 根本不被调用 ⇒ 暂停前已存在的槽位永远留在库里，
@@ -140,6 +141,28 @@ object AlarmReconciler {
                     toDate = today.plusDays(HORIZON_DAYS)
                 )
             }.onFailure { Log.e(TAG, "reconcileSchedule failed med=${med.id}", it) }
+        }
+
+        // 2b. 归档药品的开放槽位清扫（P2#4）。
+        //
+        // 上面的循环只遍历在服药品，而归档只撤了闹钟（第 3 步的 activeIds 过滤），
+        // 归档药名下残留的 PENDING/SNOOZED 槽位此前**没有任何代码路径会删**
+        // （对比：删除药品有 FK 级联清空）。它们以"未知药品"的形态挂在今日清单上，
+        // 且确认按钮照常工作、照常扣库存（takeDose 不校验 isArchived）。
+        //
+        // `reconcileSchedule` 现已把归档药按"无计划"投影（见 DoseTrackingService），
+        // 这里把归档药也喂进去即可。窗口向前多留 7 天：覆盖"刚错过还没到逾期线"的
+        // 宽限期槽位——它们同样不是既成事实。更早的开放槽位必然已被第 1 步结算成
+        // EXPIRED，不会出现在这里。
+        val archivedMeds = db.medicationDao().getAllMedications().filter { it.isArchived }
+        for (med in archivedMeds) {
+            runCatching {
+                tracking.reconcileSchedule(
+                    medicationId = med.id,
+                    fromDate = today.minusDays(7),
+                    toDate = today.plusDays(HORIZON_DAYS)
+                )
+            }.onFailure { Log.e(TAG, "archived sweep failed med=${med.id}", it) }
         }
 
         // 3. 清理孤儿：快照里已不在库中（被重排删掉）或已不该排的槽位

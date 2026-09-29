@@ -102,18 +102,26 @@ interface DoseSlotDao {
     suspend fun updateStatus(slotId: Long, status: SlotStatus, actualTs: Long? = null)
 
     /**
-     * 幂等打卡：只有仍在等待的槽位才被置为 COMPLETED。
+     * 幂等打卡：`PENDING` / `SNOOZED` / `EXPIRED` 的槽位都可被置为 COMPLETED。
      *
      * 返回受影响的行数 —— 0 表示该槽位已被处理过，调用方应放弃后续记账。
      * 把幂等锚点放在 SQL 的 WHERE 里（而不是"先查后写"）有两个好处：
      * 1. 读与写合成一个原子操作，不存在"查完还没写"的竞态窗口；
      * 2. 所有调用方（App 内打卡 / 通知栏 Action / 手表 / 未来任何入口）自动受益。
+     *
+     * ## 为什么 EXPIRED 也在守卫里（P2#5）
+     *
+     * 今日页对逾期槽位渲染着确认按钮（徽标"已逾期…尚未确认"），按钮必须有效；
+     * 且 [markSkippedIfOpen] 一直允许 EXPIRED ⇒ SKIPPED（"补记跳过"）——
+     * 补记已服没有理由被单独禁止，否则按钮存在却永远失败、toast 只能撒谎
+     * （"该提醒已处理过"，事实是从未有机会处理）。补记后逾期转入已服，
+     * 事实照常入库、库存照常扣减；撤销路径（[revertToPending]）随之可用。
      */
     @Query(
         """
         UPDATE dose_slots
         SET status = 'COMPLETED', actual_taken_ts = :actualTs
-        WHERE id = :slotId AND status IN ('PENDING', 'SNOOZED')
+        WHERE id = :slotId AND status IN ('PENDING', 'SNOOZED', 'EXPIRED')
         """
     )
     suspend fun markCompletedIfOpen(slotId: Long, actualTs: Long): Int

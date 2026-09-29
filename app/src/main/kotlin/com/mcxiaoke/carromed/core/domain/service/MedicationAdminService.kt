@@ -216,6 +216,15 @@ class MedicationAdminService(private val db: AppDatabase) {
      */
     suspend fun saveReminderPolicy(medicationId: Long, draft: PolicyDraft): Long =
         db.withTransaction {
+            // P1（zcg 审查）：同一计划内两个相同时点，投影后会产出两条同键槽位，
+            // 被 `DoseSlotDao.insertAll(IGNORE)` 撞 UNIQUE 索引后**静默吞掉一条**——
+            // 那条时点的剂量从此不存在于任何提醒、打卡与台账，且无任何报错。
+            // 在入口拒绝并让事务整体回滚；两个表单 VM 各有前置校验负责给出台词。
+            val timeKeys = draft.times.map { it.time.trim() }
+            require(timeKeys.size == timeKeys.distinct().size) {
+                "同一计划内存在重复的服药时点：${timeKeys.distinct()}"
+            }
+
             val previous = policyDao.getActivePolicyForMedication(medicationId)
 
             val policy = SchedulePolicyEntity(

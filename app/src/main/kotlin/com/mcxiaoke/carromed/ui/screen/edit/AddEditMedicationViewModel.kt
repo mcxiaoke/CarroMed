@@ -296,6 +296,15 @@ class AddEditMedicationViewModel(
             _uiState.value = s.copy(error = TIME_ERROR)
             return
         }
+        // 重复时点在领域层会被 require 拒绝（事务回滚）；这里前置拦下，
+        // 把它变成表单台词而不是一个没接住的异常（P1）
+        if (policyRequired) {
+            val timeKeys = s.timeSlots.map { it.time.trim() }
+            if (timeKeys.size != timeKeys.distinct().size) {
+                _uiState.value = s.copy(error = DUPLICATE_TIME_ERROR)
+                return
+            }
+        }
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
@@ -423,5 +432,6 @@ class AddEditMedicationViewModel(
         const val NAME_ERROR = "请输入药品名称"
         const val DOW_ERROR = "请至少选择一个每周服药日"
         const val TIME_ERROR = "请至少设置一个提醒时点"
+        const val DUPLICATE_TIME_ERROR = "存在重复的服药时点，请合并或修改"
     }
 }
