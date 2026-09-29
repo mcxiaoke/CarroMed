@@ -6,9 +6,13 @@ import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequest
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequest
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import java.util.concurrent.TimeUnit
@@ -24,7 +28,7 @@ import java.util.concurrent.TimeUnit
  * | 层 | 位置 | 覆盖 |
  * | :--- | :--- | :--- |
  * | 1. 视野窗口 | `AlarmReconciler.HORIZON_DAYS = 14` | 用户不打开 App 也能覆盖半个月 |
- * | 2. 触发后续期 | `AlarmReceiver` 每次响铃后就地续期 | 即时，唤醒链自维持 |
+ * | 2. 触发后续期 | 响铃弹通知 + [enqueueOneShot] 立即补一轮 | 即时，唤醒链自维持 |
  * | 3. **本 Worker** | 15 分钟一轮 | 前两层都失效时的最终兜底 |
  *
  * 缺了第 3 层，P0-2 的修复就只是"把窗口从 7 天拉到 14 天"，
@@ -63,13 +67,15 @@ class ReconcileWorker(
         return try {
             val db = AppDatabase.getInstance(context)
             AlarmReconciler.rescheduleAll(context, db)
-            Log.i(TAG, "periodic reconcile done")
+            // 周期与一次性任务共用 doWork，日志别写死 "periodic"——
+            // 否则排查闹钟链路时会把 oneshot 的成功误读成周期任务（真实踩过）
+            Log.i(TAG, "reconcile run done (tags=$tags)")
             Result.success()
         } catch (t: Throwable) {
             // ⚠️ 关键：抛异常时**必须**返回 retry 而不是直接 failure。
             // 返回 failure 等于"永久放弃这一轮"，而对账恰恰是最该重试的事情
             // （多半是数据库被另一个事务短暂占住）。
-            Log.e(TAG, "periodic reconcile failed, will retry", t)
+            Log.e(TAG, "reconcile run failed, will retry", t)
             Result.retry()
         }
     }
@@ -79,6 +85,13 @@ class ReconcileWorker(
 
         /** 周期任务的唯一名。WorkManager 用它做去重，`KEEP` 策略下重复 enqueue 无副作用。 */
         const val UNIQUE_NAME = "carromed-periodic-reconcile"
+
+        /**
+         * 一次性对账的唯一名。响铃 / 开机后由 Receiver 交给本 Worker 补一轮全量对账，
+         * **与周期任务不同名** —— `BootReceiver` 的 `REPLACE` 只该重排周期任务，
+         * 不能连带把挂着的一次性对账一起换掉。
+         */
+        const val ONESHOT_NAME = "carromed-oneshot-reconcile"
 
         /**
          * 15 分钟是 `PeriodicWorkRequest` 的**名义下限**。
@@ -114,12 +127,52 @@ class ReconcileWorker(
                 .build()
 
         /**
+         * 构造一次性对账请求。**提成独立函数是为了可测**（理由同 [buildRequest]）。
+         */
+        fun buildOneShotRequest(): OneTimeWorkRequest =
+            OneTimeWorkRequestBuilder<ReconcileWorker>()
+                .setConstraints(Constraints.Builder().build())  // 无任何约束：断网也要跑
+                .setBackoffCriteria(
+                    BackoffPolicy.EXPONENTIAL,
+                    WorkRequest.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS
+                )
+                .addTag(ONESHOT_NAME)
+                .build()
+
+        /**
+         * 入队**立即跑一轮**的全量对账。触发点：`AlarmReceiver` 响铃后、`BootReceiver` 开机后。
+         *
+         * ## 为什么对账本体不再在 Receiver 里跑（N3）
+         *
+         * `BroadcastReceiver` 的 `goAsync` 窗口就是广播超时（前台 10 秒），
+         * 而 [AlarmReconciler.rescheduleAll] 的耗时随 药品数 × 时点数 × 14 天视野
+         * **线性放大**（模拟器实测 4 药 64 槽位约 0.4–1.5s），内联迟早撞线。
+         * Receiver 只保留"查槽位 + 弹通知"这种毫秒级工作，对账交给本 Worker：
+         * 进程存活由系统托管，失败走 `Result.retry()` + 退避，比 `runCatching` 吞掉可靠。
+         *
+         * ## 为什么用 `REPLACE` 而不是 `KEEP`
+         *
+         * 提前 + 准点、或多个药品的闹钟可能同分钟连发。`REPLACE` 保证**最后一次**
+         * 触发之后总有一轮新鲜的对账在跑（运行中的旧实例被取消 —— 对账幂等，
+         * 中断无副作用，Room 事务原子）；`KEEP` 则可能让后发的触发被已经跑过半的
+         * 旧实例"代表"，最新入库的槽位要等 15 分钟后的周期任务才能排上闹钟。
+         */
+        fun enqueueOneShot(context: Context) {
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                ONESHOT_NAME,
+                ExistingWorkPolicy.REPLACE,
+                buildOneShotRequest()
+            )
+            Log.i(TAG, "oneshot reconcile enqueued")
+        }
+
+        /**
          * 入队周期对账。**幂等** —— 重复调用只会保留一个已排的周期任务。
          *
-         * 必须在**进程启动后**至少调用一次。三个调用点：
+         * 必须在**进程启动后**至少调用一次。两个调用点：
          * 1. `CarroMedApp.onCreate` —— 任何组件拉起进程时都会走到（含 WorkManager 自己）
          * 2. `BootReceiver` —— 开机后系统不会自动恢复 WorkManager 的周期任务
-         * 3. `MainActivity` 启动 —— 兜底
+         * （`MainActivity` 不入队，只在 RESUMED 时于 IO 线程直接跑一轮对账）
          *
          * @param replace 用 `REPLACE` 强制重排。WorkManager 的周期任务本身会跨重启存活，
          *   但**系统升级 App** 后既有任务会被丢弃，此时必须重排。

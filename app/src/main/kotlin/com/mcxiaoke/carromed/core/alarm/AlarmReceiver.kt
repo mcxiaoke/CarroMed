@@ -25,8 +25,9 @@ import java.time.LocalDate
  *    （例如进程被杀后重放），所以这道守卫必须留。
  * 2. **按 `kind` 区分文案**（P1-20）：提前提醒说的是「快到时间了」，
  *    准点提醒说的是「该吃药了」，原先两者文案完全一样，用户分不清。
- * 3. **触发后续期**（P0-2）：响铃后就地续期 + 重排，让闹钟视野自维持。
- *    这是"装好 App 后不碰它也不会漏提醒"的第一道即时保险；
+ * 3. **触发后续期**（P0-2）：响铃弹通知后，把续期交给 [ReconcileWorker.enqueueOneShot]
+ *    立即补一轮 —— **不在广播窗口内联跑全量对账**（N3）：goAsync 的窗口就是广播超时，
+ *    而对账耗时随数据线性放大。这是"装好 App 后不碰它也不会漏提醒"的第一道即时保险；
  *    第二道是 14 天窗口，第三道是 A6 的周期对账。
  */
 class AlarmReceiver : BroadcastReceiver() {
@@ -91,10 +92,13 @@ class AlarmReceiver : BroadcastReceiver() {
                 )
                 Log.i("AlarmReceiver", "notification shown for slot=$slotId")
 
-                // 后续期：本次响铃就是"用户最可能还在用手机"的时刻，此刻续期最划算，
+                // 后续期（P0-2）：本次响铃就是"用户最可能还在用手机"的时刻，此刻续期最划算，
                 // 也让唤醒链在用户完全不打开 App 的情况下自维持。
-                runCatching { AlarmReconciler.rescheduleAll(appContext, db) }
-                    .onFailure { Log.e("AlarmReceiver", "reschedule after fire failed", it) }
+                // 但续期本体**不在这里跑**（N3）：goAsync 的窗口是广播超时（前台 10s），
+                // 全量对账随 药品数 × 时点数 × 14 天视野线性放大，内联迟早撞线。
+                // 交给 Worker 的一次性任务：进程存活由系统托管，失败还能走退避重试。
+                runCatching { ReconcileWorker.enqueueOneShot(appContext) }
+                    .onFailure { Log.e("AlarmReceiver", "enqueue oneshot reconcile failed", it) }
             } catch (t: Throwable) {
                 Log.e("AlarmReceiver", "failed to show notification", t)
             } finally {

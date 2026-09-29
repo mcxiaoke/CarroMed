@@ -99,17 +99,13 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        viewModelScope.launch {
-            // 冷启动按当前策略补齐未来排班 + 重排闹钟。
-            // 刻意**不播种任何演示数据**：首次启动必须是干净空库，
-            // 否则用户会看到凭空出现的"环孢素 / 羟氯喹"等不属于自己的服药记录，
-            // 进而污染依从率与库存统计。演示数据由 debug 源集的
-            // `DevSampleDataSeeder` 手动触发，不在冷启动路径上。
-            runCatching {
-                com.mcxiaoke.carromed.core.alarm.AlarmReconciler
-                    .rescheduleAll(getApplication<Application>(), db)
-            }
-        }
+        // ⚠️ 冷启动对账**不在这里做**：`viewModelScope` 落在主线程，而全量对账实测
+        // 要 0.4–1.5s（会阻塞首屏、掉帧近百）。这件事归 `MainActivity`（RESUMED 时
+        // 在 IO 线程跑一次）与 `ReconcileWorker`（周期兜底 + 闹钟触发的 `enqueueOneShot`）。
+        // 同时刻意**不播种任何演示数据**：首次启动必须是干净空库，
+        // 否则用户会看到凭空出现的"环孢素 / 羟氯喹"等不属于自己的服药记录，
+        // 进而污染依从率与库存统计。演示数据由 debug 源集的
+        // `DevSampleDataSeeder` 手动触发。
     }
 
     val uiState: StateFlow<TodayUiState> = combine(

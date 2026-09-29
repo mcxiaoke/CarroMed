@@ -124,4 +124,47 @@ class ReconcileWorkerTest {
         assertThat(spec.backoffDelayDuration)
             .isLessThan(androidx.work.WorkRequest.MAX_BACKOFF_MILLIS)
     }
+
+    // ==================== 一次性对账（N3）====================
+
+    private fun oneshotInfos(): List<WorkInfo> =
+        WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWork(ReconcileWorker.ONESHOT_NAME)
+            .get()
+
+    @Test
+    fun `enqueueOneShot 后存在一次性对账任务`() {
+        ReconcileWorker.enqueueOneShot(context)
+        assertThat(oneshotInfos()).hasSize(1)
+    }
+
+    @Test
+    fun `连续触发一次性对账不会堆出多个实例`() {
+        // 提前 + 准点、多药同分钟连发时，REPLACE 保证"最后一次触发之后
+        // 总有一轮新鲜对账在跑"，而不是堆一串并发全量对账互相争锁
+        repeat(3) { ReconcileWorker.enqueueOneShot(context) }
+        assertThat(oneshotInfos()).hasSize(1)
+    }
+
+    @Test
+    fun `一次性任务不与周期任务同名且无任何约束`() {
+        val spec = ReconcileWorker.buildOneShotRequest().workSpec
+        // unique name 不同：BootReceiver 的 REPLACE 只能重排周期任务，碰不到一次性对账
+        assertThat(ReconcileWorker.ONESHOT_NAME).isNotEqualTo(ReconcileWorker.UNIQUE_NAME)
+        assertThat(spec.intervalDuration).isEqualTo(0L)   // 必须是一次性，不是变相周期
+        // 物理断网：一次性对账也要在断网下照跑（同周期任务的约束纪律）
+        assertThat(spec.constraints.requiredNetworkType)
+            .isEqualTo(androidx.work.NetworkType.NOT_REQUIRED)
+        // 重试要追上"响铃后尽快补齐"的节奏，用下限 10s，别继承周期任务的 10 分钟
+        assertThat(spec.backoffDelayDuration)
+            .isEqualTo(androidx.work.WorkRequest.MIN_BACKOFF_MILLIS)
+    }
+
+    @Test
+    fun `周期任务与一次性任务互不干扰`() {
+        ReconcileWorker.enqueue(context)
+        ReconcileWorker.enqueueOneShot(context)
+        assertThat(periodicInfos()).hasSize(1)
+        assertThat(oneshotInfos()).hasSize(1)
+    }
 }
