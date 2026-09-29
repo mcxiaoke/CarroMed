@@ -212,4 +212,24 @@ object Notifications {
     fun cancelDoseNotification(context: Context, slotId: Long) {
         NotificationManagerCompat.from(context).cancel(slotId.toInt())
     }
+
+    /**
+     * 该槽位的提醒通知当前是否还挂在托盘上。
+     *
+     * ## 为什么补响判据要用它（PLAN-EXPIRE-WINDOW-20260929 §3.3）
+     *
+     * 托盘通知是「已经发生过的陈述」（撤它的理由见 [AlarmReconciler.cancelNotificationOf]）：
+     * 通知还在 = 用户已经被提醒过，对账就不该再补响 —— 否则 AlarmReceiver 响铃后
+     * 就地重跑对账，刚响过的槽位 30 秒后再次满足补响条件，每条未确认的服药
+     * 都会以 30 秒为周期反复响到补响窗口结束。
+     * 通知不在（关机 / 重启 / 被用户清掉）才补响；用户主动滑掉后下一轮对账
+     * 会再补一次 —— 漏服提醒需要这份执着，且仍受补响窗口封顶。
+     *
+     * 查询失败按「不在」处理：漏提醒比多提醒严重（提醒不漏是第一承诺），
+     * 不能因为查询失败就把补响整个吞掉。
+     */
+    fun isDoseNotificationShown(context: Context, slotId: Long): Boolean =
+        runCatching {
+            NotificationManagerCompat.from(context).activeNotifications.any { it.id == slotId.toInt() }
+        }.getOrDefault(false)
 }

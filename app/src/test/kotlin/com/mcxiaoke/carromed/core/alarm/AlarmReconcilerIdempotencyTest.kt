@@ -59,13 +59,12 @@ class AlarmReconcilerIdempotencyTest {
             .build()
         // ⚠️ fixture 的时点**都选在 23:00 之后**。
         //
-        // 早期版本用 08:00 / 20:00 / 13:30，于是测试**随时钟翻转**：
-        // 「计划时间 + 2 小时」一过，`rescheduleAll` 的过期结算就把当天那条改成 EXPIRED，
+        // 早期版本用 08:00 / 20:00 / 13:30，于是测试**随时钟翻转**：fixture 时点
+        // 一旦落进过期结算线，`rescheduleAll` 就把那条改成 EXPIRED，
         // 而 `reconcileSchedule` **只删 PENDING / SNOOZED**（EXPIRED 是既成事实），
-        // 于是任何按**槽位条数**写的断言都会在下午变色红。
-        //
-        // 换时点只是把窗口从"每天下午"挪到"每天午夜前"，**并没有解决问题**。
-        // 真正的修法是断言不变量本身：下面所有断言都只针对 `openSlotsOf`
+        // 于是任何按**槽位条数**写的断言都会变色。
+        // 结算线现为「当地当日 0 点」（PLAN-EXPIRE-WINDOW-20260929），
+        // 今天的槽位在当天内不再翻转 —— 但纪律不变：断言只针对 `openSlotsOf`
         // （PENDING / SNOOZED），且尽量按**日期集合**而非条数。
         seedMedication(name = "环孢素", times = listOf("23:10", "23:20"))
         seedMedication(name = "维生素D", times = listOf("23:50"))
@@ -148,14 +147,10 @@ class AlarmReconcilerIdempotencyTest {
     // ⚠️ 下面每条断言都**只针对 PENDING / SNOOZED**，且尽量**按日期而非总数**断言。
     //
     // 这不是洁癖，是被现实教训逼的：早先版本按"总数"断言、fixture 时点取 13:30，
-    // 于是测试**随时钟翻转**——
-    //   15:30 之前：13:30 还没到「计划时间 + 2 小时」的逾期线，测试通过；
-    //   15:30 之后：它被 rescheduleAll 的过期结算改成 EXPIRED，
-    //              而 EXPIRED 是**既成事实**、reconcileSchedule 不会删它，
-    //              于是"一条都不剩"多出 1 条而变红。
-    // 换 fixture 时点（13:30 → 23:50）只是把窗口从"每天下午"挪到"每天午夜前"，
-    // **并没有解决问题**。真正的修法是断言不变量本身：
-    // 「暂停期内不存在**待办**」，而不是「暂停期内一行都没有」。
+    // 于是测试**随时钟翻转**——fixture 时点落进过期结算线的那天下午起，
+    // 槽位被结算成 EXPIRED（既成事实、reconcileSchedule 不删），"一条都不剩"
+    // 就多出 1 条而变红。结算线现为「当地当日 0 点」，但当天的纪律不变：
+    // 断言「暂停期内不存在**待办**」，而不是「暂停期内一行都没有」。
 
     /** 某药在给定日期范围内仍处于"待办"（会被提醒）的槽位 */
     private suspend fun openSlotsOf(
@@ -224,9 +219,9 @@ class AlarmReconcilerIdempotencyTest {
 
         db.reminderSettingsDao().setPausedUntil(medId, pauseEnd.toString())
         AlarmReconciler.rescheduleAll(context, db)
-        // 暂停期内没有待办。**故意不按总数断言**：今天的槽位可能已被过期结算改成
-        // EXPIRED，而 EXPIRED 是既成事实、reconcileSchedule 不会删它 ——
-        // 那正是我们要的行为，按总数断言会把它当成失败。
+        // 暂停期内没有待办。**故意不按总数断言**：恢复日当天的槽位被暂停删掉、
+        // 恢复后又重建，id 必然变，总数与 id 都不是稳定基准 ——
+        // 稳定的只有"暂停期内不存在 PENDING / SNOOZED"这条不变量。
         assertThat(openSlotsOf(medId, onOrBefore = pauseEnd.toString())).isEmpty()
 
         db.reminderSettingsDao().resume(medId)
@@ -295,8 +290,8 @@ class AlarmReconcilerIdempotencyTest {
         val otherId = db.medicationDao().getAllMedications().first { it.name == "环孢素" }.id
         AlarmReconciler.rescheduleAll(context, db)
         // ⚠️ 断言**日期覆盖集合**而不是条数。
-        // 环孢素的 fixture 含 08:00，过了当天 10:00 就会被过期结算改成 EXPIRED，
-        // 于是"条数"本身随时钟变化 —— 拿它当基准等于把断言绑在运行时刻上。
+        // 槽位条数会随时钟与结算状态漂移（EXPIRED 是既成事实、不会被删，
+        // PENDING/SNOOZED 却会被投影重建）—— 拿它当基准等于把断言绑在运行时刻上。
         val datesBefore = openSlotsOf(otherId).map { it.scheduledDate }.toSortedSet()
         assertThat(datesBefore).isNotEmpty()
 

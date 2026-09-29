@@ -8,6 +8,7 @@ import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * 闹钟全量对账器 (Reconciler)
@@ -16,18 +17,37 @@ import java.time.LocalDate
  * 1. 未来 [HORIZON_DAYS] 天槽位已按当前策略幂等补齐
  * 2. 所有活跃药品的待服/推迟槽位均注册了精确闹钟
  * 3. 已停药/暂停/过期槽位的闹钟全部取消，杜绝幽灵唤醒
- * 4. 超过计划时间 2 小时仍 PENDING 的槽位标记 EXPIRED（不冤枉判漏服）
- * 5. 仍在 2 小时宽限期内、但闹钟已丢失（关机/重启）的槽位**补响一次**
+ * 4. 跨过当地当日 0 点仍未处理的槽位结算 EXPIRED（「当日结束」规则，
+ *    见 `docs/PLAN-EXPIRE-WINDOW-20260929.md`；一天没过完，当天的欠账不当场认定）
+ * 5. 仍在补响窗口（2 小时）内、但闹钟已丢失（关机/重启）的槽位**补响一次**；
+ *    托盘里还挂着该槽位的通知就不补（通知在 = 已经提醒过）
  *
- * ## 宽限期为什么必须补响（决策 C / M1-7）
+ * ## 结算与补响是两条独立的线（PLAN-EXPIRE-WINDOW-20260929）
  *
- * 第 1 步的结算 cutoff 是 `now - 2h`，第 4 步的注册条件是 `> now`。
- * 于是 `(now-2h, now]` 这个区间**两边都不管**——旧实现里它是一个黑洞：
- * 关机 30 分钟的闹钟在开机后既不结算、也不补排，用户什么都不知道。
- * 现在第 4 步显式覆盖这个区间（见 `GRACE_CATCHUP_DELAY_MS`）。
+ * 结算线是**当地当日 0 点**：跨天仍未处理的才定案为漏服。
+ * 补响线是 `now - CATCHUP_WINDOW_MS`：只对"闹钟刚丢"（关机/重启/进程死亡
+ * 的高发区间）补响一次。两者曾共用一个 2 小时常量 —— 那个数字的出处是
+ * "必须远大于 15 分钟的对账粒度"这条工程约束，不是"多久算漏服"的推导，
+ * 让它顺带决定"几点算逾期"冤枉了所有上午没吃药的人（11:00 就挂「已逾期」，
+ * 而下午吃完全正常）。
  *
- * 注意这**不**与第 1 步冲突：cutoff 用的是严格小于，所以宽限期内的槽位
- * 在同一次对账里既不会被结算，也会被补响。
+ * 两条线之间 —— (今日 0 点, now-2h] —— 是**静默待办**：槽位开放、无徽标、
+ * 无闹钟，用户随时可从今日清单补记。它形似旧实现里"两边都不管"的黑洞，
+ * 但性质相反：黑洞里的槽位（结算窗口 = 2 小时的年代）是被迫留下的空档，
+ * 静默待办是「当日结束」规则下刻意不响、但仍摆在清单上等用户回来的状态。
+ *
+ * ## 补响为什么只响一次
+ *
+ * [AlarmReceiver] 响铃后就地重跑 [rescheduleAll]（触发后续期）。
+ * 补响判据若只看时刻，刚响过的槽位 30 秒后再次满足条件 ⇒ 每条未确认的
+ * 服药以 30 秒为周期反复响到补响窗口结束（最坏 2 小时约 240 次）。
+ * 所以补响前必须查托盘：通知还在 = 已经提醒过，不再补；通知不在
+ * （关机 / 重启 / 被清）才补。用户主动滑掉通知后，下一轮对账会再补一次
+ * —— 漏服提醒需要这份执着，且仍受补响窗口封顶。
+ *
+ * 注意与第 1 步的执行顺序：结算先跑，补响只看**结算后仍开放**的槽位 ——
+ * 昨晚 23:00 未处理的槽位虽落在补响窗口内，但已跨过结算线，
+ * 会在同一次对账里定案为 EXPIRED 而不是补响（「当日结束」规则的必然结果）。
  *
  * ## 窗口为什么是 14 天而不是 7 天（P0-2）
  *
@@ -41,7 +61,8 @@ import java.time.LocalDate
  *
  * 现在有三层保险，任何一层单独失效都不会漏提醒：
  * 1. **14 天窗口**（本类的 `HORIZON_DAYS`）
- * 2. **触发后续期**：[AlarmReceiver] 每次响铃后就地续期，唤醒链因此自维持
+ * 2. **触发后续期**：[AlarmReceiver] 每次响铃后触发一轮续期（经一次性 Worker，N3），
+ *    唤醒链因此自维持
  * 3. **周期对账兜底**：`ReconcileWorker`（A6）周期性地重跑一次本方法
  *
  * ## 对账的顺序：先快照、后重排、再按快照清理孤儿
@@ -58,8 +79,15 @@ object AlarmReconciler {
 
     private const val TAG = "AlarmReconciler"
 
-    /** 槽位过期判定窗口：计划时间过后 2 小时 */
-    private const val EXPIRE_WINDOW_MS = 2 * 60 * 60 * 1000L
+    /**
+     * 补响窗口：计划 / 推迟时刻过后多久之内，还值得为"闹钟丢了"补响一次。
+     *
+     * ⚠️ 与**结算窗口**（当地当日 0 点，见第 1 步）是两条独立的线。
+     * 两者曾共用一个 2 小时常量 `EXPIRE_WINDOW_MS`，导致补响判据跟着
+     * 结算语义一起漂移 —— 拆开后结算看自然日（用户的心智模型），
+     * 补响看这条工程下限（远大于 15 分钟对账粒度即可）。
+     */
+    private const val CATCHUP_WINDOW_MS = 2 * 60 * 60 * 1000L
 
     /**
      * 宽限期内错过时的补响延迟。
@@ -89,17 +117,6 @@ object AlarmReconciler {
     }
 
     private fun DoseSlotEntity.identity() = AlarmIdentity(id, medicationId, scheduledDate, scheduledTime)
-
-    /**
-     * 落在逾期宽限期内、但触发时刻已经过去的开放槽位。
-     *
-     * 与 `getStaleOpenSlots` 的 cutoff 是**同一条线**：结算用严格小于，
-     * 这里用大于等于，两边互补不重叠。
-     */
-    private fun DoseSlotEntity.isWithinGrace(now: Long, graceFloor: Long): Boolean {
-        val base = if (status == SlotStatus.SNOOZED) snoozeUntilTs else scheduledTs
-        return base != null && base <= now && base >= graceFloor
-    }
 
     /**
      * 撤掉该槽位**已经弹出**的托盘通知。
@@ -133,14 +150,23 @@ object AlarmReconciler {
         val snapshot = db.doseSlotDao().getOpenSlots().map { it.identity() }.toSet()
 
         // 1. 过期槽位结算 → EXPIRED。
-        //    PENDING 按 `scheduled_ts` 判定；SNOOZED 按 `snooze_until_ts` 判定 ——
-        //    用户主动推迟过，就不该再按原计划时间算他逾期（见 DoseSlotDao.getStaleOpenSlots）。
-        //    严格限定为「已排期」的历史槽位：用户此刻新建的药品若时点设为 08:30 而当前已 10:36，
-        //    那是一条排在过去的槽位，同样应结算为逾期；反之未来槽位永不误判。
+        //    结算窗口是「当地当日 0 点」：上午没吃的药下午吃完全正常，
+        //    不该 11:00 就被挂上「已逾期」、立刻进依从率分母。跨天后仍未处理的，
+        //    0 点后的第一轮对账结算为漏服（最迟 15 分钟是名义值，Doze 下可能更晚）。
         //
-        //    两个 cutoff 是同一个 `now - EXPIRE_WINDOW_MS`：逾期宽限全 App 只有一个定义。
-        val cutoff = now - EXPIRE_WINDOW_MS
-        val staleSlots = db.doseSlotDao().getStaleOpenSlots(cutoff, cutoff)
+        //    PENDING 按 `scheduled_ts`、SNOOZED 按 `snooze_until_ts` 判定，
+        //    都是严格小于 ⇒ 恰好把"今天"完整豁免：今天 09:00 的槽位今天不结算；
+        //    23:30 推迟到次日 00:30 的槽位次日也不结算（推迟本身把这条挪进了
+        //    下一天，要等下下个 0 点才定案 —— 与「当日结束」规则自洽，
+        //    但比直觉晚一天，改动时别当 bug 修）。
+        //    推迟过的按 `snooze_until_ts` 判定，不按原计划时间：
+        //    用户主动给的期限就是期限（见 DoseSlotDao.getStaleOpenSlots）。
+        //
+        //    严格限定为「已排期」的历史槽位：用户此刻新建的药品若时点设为 08:30
+        //    而当前已 10:36，那是一条排在今天的过去槽位，按「当日结束」规则
+        //    **不结算**，留在清单上等用户补记；跨天前的未来槽位永不误判。
+        val startOfToday = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val staleSlots = db.doseSlotDao().getStaleOpenSlots(startOfToday, startOfToday)
         val expiredCount = staleSlots.count { stale ->
             // 幂等锚点：受影响行数为 0 说明已被别的路径结算过，不重复撤闹钟
             if (db.doseSlotDao().markExpired(stale.id) == 0) return@count false
@@ -172,8 +198,10 @@ object AlarmReconciler {
         val schedulableMeds = db.medicationDao().getActiveOverviews()
         val overviewByMed = schedulableMeds.associateBy { it.id }
 
-        // 宽限期内错过的槽位仍然算"待办"，因此它们既不能被结算，也不能被当成孤儿撤掉
-        val graceFloor = now - EXPIRE_WINDOW_MS
+        // 补响窗口下界：只对"闹钟刚丢"（关机/重启/进程死亡的高发区间）补响。
+        // 更早的开放槽位是静默待办 —— 无徽标、无闹钟、留在清单上等用户回来，
+        // 跨过结算线（次日 0 点）才定案。见类 KDoc「结算与补响是两条独立的线」。
+        val catchupFloor = now - CATCHUP_WINDOW_MS
 
         /**
          * 某个槽位所在日期，该药是否处于暂停中。
@@ -230,14 +258,18 @@ object AlarmReconciler {
         var cancelled = 0
         for (id in snapshot) {
             val slot = stillOpen[id.slotId]
-            // 宽限期内错过的槽位仍算"待办"：第 1 步没结算它，第 4 步会补响它。
-            // 这里若判它不该留，就会先撤掉已弹出的托盘通知、再在 30 秒后重弹一条，
-            // 用户看到的是"通知自己闪了一下又冒出来"。判据与第 4 步必须一致。
-            val withinGrace = slot != null && slot.isWithinGrace(now, graceFloor)
+            // 判据只剩「归属与状态」：槽位还开着、药在服、没暂停 ⇒ 留。
+            //
+            // ⚠️ **过去**的开放槽位（结算线之后、补响窗口之外的静默待办）也必须留。
+            // 旧判据 `scheduledTs > now || ... || withinGrace` 在"结算窗口 = 2 小时"
+            // 的年代与第 1 步互补（过去的开放槽位必在宽限内，判它不留就等于判它已结算）；
+            // 结算线改成自然日后，过去的开放槽位合法存在 —— 它们本就不该有闹钟
+            // （第 4 步不排），但托盘通知若还在，它说的「该吃药了」仍是真话：
+            // 槽位确实还开着。若沿用旧判据，每轮对账都会把静默待办的通知撤掉，
+            // 用户 15:00 就看不到 09:00 那条还没吃的提醒。
             val shouldKeep = slot != null &&
                 slot.medicationId in activeIds &&
-                !isPausedOn(slot) &&
-                (slot.scheduledTs > now || slot.snoozeUntilTs?.let { it > now } == true || withinGrace)
+                !isPausedOn(slot)
             if (!shouldKeep) {
                 runCatching { id.cancelAll(context) }
                     .onFailure { Log.e(TAG, "cancel failed slot=${id.slotId}", it) }
@@ -262,14 +294,27 @@ object AlarmReconciler {
 
             // 推迟中的槽位：主闹钟已无意义（用户主动改期），只排推迟唤醒
             if (slot.status == SlotStatus.SNOOZED) {
-                if (snoozeAt != null && (snoozeAt > now || snoozeAt >= graceFloor)) {
-                    // 推迟目标时刻已过但仍在宽限期内 ⇒ 同样补响一次。
-                    // 判据用 `snoozeAt` 而不是 `mainAt`：SNOOZED 槽位的
-                    // `scheduled_ts` 是**原计划时间**，早就过去了，拿它判会误补响。
-                    val triggerAt = if (snoozeAt > now) snoozeAt else now + GRACE_CATCHUP_DELAY_MS
-                    runCatching { AlarmScheduler.schedule(context, slot, triggerAt, AlarmScheduler.Kind.SNOOZE) }
-                        .onFailure { Log.e(TAG, "snooze schedule failed slot=${slot.id}", it) }
-                    scheduled++
+                if (snoozeAt != null) {
+                    if (snoozeAt > now) {
+                        runCatching { AlarmScheduler.schedule(context, slot, snoozeAt, AlarmScheduler.Kind.SNOOZE) }
+                            .onFailure { Log.e(TAG, "snooze schedule failed slot=${slot.id}", it) }
+                        scheduled++
+                    } else if (snoozeAt >= catchupFloor &&
+                        !Notifications.isDoseNotificationShown(context, slot.id)
+                    ) {
+                        // 推迟目标时刻已过但仍在补响窗口内 ⇒ 补响一次。
+                        // 判据用 `snoozeAt` 而不是 `mainAt`：SNOOZED 槽位的
+                        // `scheduled_ts` 是**原计划时间**，早就过去了，拿它判会误补响。
+                        // 托盘里还挂着这条槽位的通知就不补 —— 与主闹钟同一条纪律
+                        //（通知在 = 已经提醒过，见类 KDoc「补响为什么只响一次」）。
+                        runCatching {
+                            AlarmScheduler.schedule(
+                                context, slot, now + GRACE_CATCHUP_DELAY_MS, AlarmScheduler.Kind.SNOOZE
+                            )
+                        }
+                            .onFailure { Log.e(TAG, "snooze catch-up schedule failed slot=${slot.id}", it) }
+                        scheduled++
+                    }
                 }
                 continue
             }
@@ -288,17 +333,16 @@ object AlarmReconciler {
                 runCatching { AlarmScheduler.schedule(context, slot, mainAt, AlarmScheduler.Kind.MAIN) }
                     .onFailure { Log.e(TAG, "schedule failed slot=${slot.id}", it) }
                 scheduled++
-            } else if (mainAt >= graceFloor) {
-                // 宽限期内错过的补响（决策 C / M1-7）。
+            } else if (mainAt >= catchupFloor && !Notifications.isDoseNotificationShown(context, slot.id)) {
+                // 补响一次（决策 C / M1-7），判据见类 KDoc「补响为什么只响一次」。
                 //
-                // 落在 `(now - EXPIRE_WINDOW_MS, now]` 的 PENDING 槽位**既不结算也不注册**：
-                // 过期结算只管 cutoff 之前，而"给未来槽位排闹钟"只管 `> now`。
-                // 于是这 2 小时是一个**黑洞**——关机 / 重启 / 长时间后台导致闹钟丢失时，
-                // 用户在这段时间内的服药既不会被提醒，也看不到任何解释。
+                // 补响窗口 `(now - CATCHUP_WINDOW_MS, now]` 是"闹钟刚丢"的高发区间。
+                // 更早的槽位是静默待办：留在今日清单上（无徽标、可补记），不再打扰。
                 //
-                // 补响一次是这里唯一说得通的处理：提醒不漏是产品的第一承诺，
-                // 而"已经过了 2 小时"这条规则本来就是为"别冤枉人判漏服"设的，
-                // 它**不该**被用来顺带吞掉一次提醒。补响后仍由用户决定打卡与否。
+                // ⚠️ 托盘判据是这条链路不变成 30 秒循环的关键：AlarmReceiver 响铃后
+                // 就地重跑本方法（触发后续期），若不查托盘，刚响过的槽位会立刻再次
+                // 满足本条件，每条未确认的服药都会以 30 秒为周期反复响到
+                // 补响窗口结束（PLAN-EXPIRE-WINDOW-20260929 §3.3）。
                 runCatching {
                     AlarmScheduler.schedule(context, slot, now + GRACE_CATCHUP_DELAY_MS, AlarmScheduler.Kind.MAIN)
                 }

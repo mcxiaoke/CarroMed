@@ -37,10 +37,11 @@ import java.time.LocalDate
  *
  * ## 为什么选「对账时结算」而不是「推迟时另排 EXPIRED 闹钟」
  *
- * 后者要引入第三种闹钟身份，而它的触发时刻同时依赖 `snoozeMinutes` 与逾期窗口
+ * 后者要引入第三种闹钟身份，而它的触发时刻同时依赖 `snoozeMinutes` 与结算窗口
  * 两个参数 —— 判重逻辑变复杂，且多一条会静默失效的依赖链路
  * （P0-2 的教训正是"提醒依赖单一链路，断了就静默漏提醒"）。
- * 逾期窗口长达 2 小时，15 分钟的对账粒度对它毫无影响。
+ * 结算线是「当地当日 0 点」（PLAN-EXPIRE-WINDOW-20260929），
+ * 15 分钟的对账粒度对它毫无影响。
  */
 @RunWith(AndroidJUnit4::class)
 @Config(manifest = Config.NONE)
@@ -53,6 +54,10 @@ class SnoozedSlotSettlementTest {
 
     /** 相对"现在"造槽位，所以断言不受运行时刻影响 */
     private val today: LocalDate = LocalDate.now()
+
+    /** 当地当日 0 点的纪元毫秒 —— 结算线（见 AlarmReconciler 第 1 步） */
+    private fun startOfTodayMs(): Long =
+        today.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
 
     @Before
     fun setup() {
@@ -97,8 +102,10 @@ class SnoozedSlotSettlementTest {
         val medId = dailyMedication()
         val slot = slotOn(medId, today)
 
-        // 推迟 1 分钟，且把 snooze_until_ts 直接改到 3 小时前 —— 模拟"用户那天没再回来"
-        db.doseSlotDao().snoozeSlot(slot.id, System.currentTimeMillis() - 3 * 3600_000L)
+        // 推迟点落在昨日深夜（今日 0 点之前）—— 模拟"用户推迟后那天再没回来"。
+        // 结算线是「当地当日 0 点」（PLAN-EXPIRE-WINDOW-20260929）：推迟点跨过
+        // 0 点才定案；推迟点若还在今天（哪怕早已过去），今天全天不结算。
+        db.doseSlotDao().snoozeSlot(slot.id, startOfTodayMs() - 3600_000L)
         assertThat(db.doseSlotDao().getSlotById(slot.id)!!.status).isEqualTo(SlotStatus.SNOOZED)
 
         reconcil()
@@ -230,10 +237,8 @@ class SnoozedSlotSettlementTest {
     @Test
     fun `连续多次对账 结算结果稳定不反复横跳`() = runTest {
         val medId = dailyMedication()
-        db.doseSlotDao().snoozeSlot(
-            slotOn(medId, today).id,
-            System.currentTimeMillis() - 3600_000L
-        )
+        // 推迟点落在昨日深夜：跨过结算线 ⇒ 第一轮对账定案，其后必须稳定
+        db.doseSlotDao().snoozeSlot(slotOn(medId, today).id, startOfTodayMs() - 3600_000L)
         reconcil()
         val first = db.doseSlotDao().getAllSlots()
             .filter { it.medicationId == medId }

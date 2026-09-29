@@ -97,6 +97,11 @@ class AlarmReceiver : BroadcastReceiver() {
                 // 但续期本体**不在这里跑**（N3）：goAsync 的窗口是广播超时（前台 10s），
                 // 全量对账随 药品数 × 时点数 × 14 天视野线性放大，内联迟早撞线。
                 // 交给 Worker 的一次性任务：进程存活由系统托管，失败还能走退避重试。
+                //
+                // ⚠️ 必须先弹通知、后入队对账，顺序不能反：对账的补响判据是
+                // 「托盘里没有这条槽位的通知」（Notifications.isDoseNotificationShown）。
+                // 若先对账，刚到点的槽位会被当成"从没提醒过"，30 秒后再补响一次，
+                // 并以 30 秒为周期循环到补响窗口结束。
                 runCatching { ReconcileWorker.enqueueOneShot(appContext) }
                     .onFailure { Log.e("AlarmReceiver", "enqueue oneshot reconcile failed", it) }
             } catch (t: Throwable) {

@@ -3,6 +3,8 @@ package com.mcxiaoke.carromed.core.alarm
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -16,6 +18,7 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assume
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,6 +27,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowAlarmManager
 import java.io.IOException
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
  * 对账器对「闹钟档位」与「宽限期黑洞」的处理（M1-1 / M1-7）。
@@ -125,54 +131,61 @@ class AlarmPrecisionAndGraceTest {
             .isEqualTo(AlarmScheduler.Precision.ALARM_CLOCK)
     }
 
-    // ==================== M1-7 宽限期内补响 ====================
+    // ==================== M1-7 补响与「当日结束」结算 ====================
+
+    /** 当地当日 0 点的纪元毫秒 —— 结算线（见 AlarmReconciler 第 1 步） */
+    private fun startOfTodayMs(): Long =
+        today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
     /**
-     * 关机错过的闹钟必须补响。
+     * 必落在补响窗口内、且必不跨结算线的时点。
      *
-     * 旧实现里 `(now-2h, now]` 这个区间是**黑洞**：过期结算只管 cutoff 之前，
-     * 注册只管 `> now`，中间那段既不结算也不排 —— 用户什么都不知道。
-     *
-     * 这里用**过去的时点**造一个 PENDING 槽位，模拟"开机后发现错过了"。
-     * 断言它仍在库里（没被结算成 EXPIRED）且被判为宽限期内。
+     * 直接取 `now - minutesAgo` 会在 0 点后 [minutesAgo] 分钟内运行时落到**昨天**
+     * （跨过结算线 ⇒ 被结算而不是补响），测试就随时钟变色 —— 正是 AGENTS §3
+     * "测试在下午全绿、早上全红"的 fixture 陷阱。
+     * 取 `max(now - minutesAgo, 今日 0 点)`：深夜运行时退到 0 点整 ——
+     * 0 点整属于今天（严格小于才结算），且此时必然仍在补响窗口内
+     * （该分支只在 `now < 今日0点 + minutesAgo` 时走到，此时 `now - 2h < 今日0点`）。
      */
+    private fun catchupWindowTs(minutesAgo: Long): Long =
+        maxOf(System.currentTimeMillis() - minutesAgo * 60_000L, startOfTodayMs())
+
     /**
-     * 造一条"闹钟丢了但仍在宽限期内"的开放槽位。
+     * 造一条"闹钟丢了"的开放槽位。
      *
      * ## 为什么日期取**昨天**
      *
      * `rescheduleAll` 的重排窗口是 `[今天, 今天+HORIZON_DAYS]`。若把造出来的槽位
      * 挂在**今天**，它不在投影里（时刻是编的），`reconcileSchedule` 的"删"分支
      * 会在过期结算**之后**把它当"已不存在的时刻"删掉 ——
-     * 于是无论宽限期逻辑对不对，`getSlotById` 都返回 null，测试报 NPE，
+     * 于是无论结算逻辑对不对，`getSlotById` 都返回 null，测试报 NPE，
      * 报错信息与真实原因完全无关。
      *
      * 挂昨天就落在重排窗口之外，不会被碰。而"昨晚的闹钟因为关机没响、
      * 用户早上开机"恰恰就是 M1-7 要处理的**真实场景**。
      *
-     * `scheduledTs` 是过期判定与闹钟注册的唯一时间依据，所以直接给绝对时间戳：
-     * 距今 [agoMinutes] 分钟。
+     * `scheduledTs` 是结算判定与闹钟注册的唯一时间依据，所以直接给绝对时间戳。
      */
     private suspend fun seedMissedSlot(
         template: DoseSlotEntity,
         timeOfDay: String,
-        agoMinutes: Long
+        scheduledTs: Long
     ): Long = db.doseSlotDao().insert(
         template.copy(
             id = 0,
             status = SlotStatus.PENDING,
             scheduledDate = today.minusDays(1).toString(),
             scheduledTime = timeOfDay,
-            scheduledTs = System.currentTimeMillis() - agoMinutes * 60_000L
+            scheduledTs = scheduledTs
         )
     )
 
     @Test
-    fun `宽限期内的错过槽位既不被结算 也确实被补响`() = runBlocking {
+    fun `补响窗口内的错过槽位既不被结算 也确实被补响`() = runBlocking {
         AlarmReconciler.rescheduleAll(context, db)
         val template = db.doseSlotDao().getOpenSlots().first()
-        // 30 分钟前 —— 落在 2 小时宽限期内
-        val id = seedMissedSlot(template, "03:17", agoMinutes = 30)
+        // 半小时前（深夜运行则退到今日 0 点）—— 必落在补响窗口内
+        val id = seedMissedSlot(template, "03:17", catchupWindowTs(minutesAgo = 30))
         assertThat(id).isGreaterThan(0L)
 
         val before = shadowAlarms()
@@ -190,6 +203,96 @@ class AlarmPrecisionAndGraceTest {
         // "恒真断言"。必须按**这一条的闹钟身份**（Uri = medId/date/time/kind）去认。
         assertThat(before).doesNotContain(pendingMainOf(after))
         assertThat(shadowAlarms()).contains(pendingMainOf(after))
+    }
+
+    @Test
+    fun `托盘里还挂着通知就不补响 通知撤掉才补一次`() = runBlocking {
+        // 这条守的是"补响只响一次"的核心：AlarmReceiver 响铃后就地触发对账，
+        // 补响判据若只看时刻，刚响过的槽位 30 秒后再次满足条件，
+        // 每条未确认的服药都会以 30 秒为周期反复响到补响窗口结束。
+        // 变异验证：去掉 rescheduleAll 里的托盘查询，第一条断言立刻变红。
+        AlarmReconciler.rescheduleAll(context, db)
+        val template = db.doseSlotDao().getOpenSlots().first()
+        val id = seedMissedSlot(template, "03:17", catchupWindowTs(minutesAgo = 30))
+        val slot = db.doseSlotDao().getSlotById(id)!!
+
+        // 按生产约定（Notifications 的通知 id 就是 slotId）发一条，
+        // 替身"AlarmReceiver 刚弹过通知"的世界状态。
+        Notifications.ensureChannel(context)
+        NotificationManagerCompat.from(context).notify(
+            id.toInt(),
+            NotificationCompat.Builder(context, Notifications.CHANNEL_DOSE_REMINDER)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .build()
+        )
+
+        AlarmReconciler.rescheduleAll(context, db)
+        // 通知在 = 已经提醒过 ⇒ 不补响
+        assertThat(shadowAlarms()).doesNotContain(pendingMainOf(slot))
+
+        // 用户划掉通知 / 重启清空托盘 ⇒ 下一轮对账补响一次
+        NotificationManagerCompat.from(context).cancel(id.toInt())
+        AlarmReconciler.rescheduleAll(context, db)
+        assertThat(shadowAlarms()).contains(pendingMainOf(slot))
+    }
+
+    @Test
+    fun `跨过当日0点仍未处理的槽位被结算为漏服`() = runBlocking {
+        // 「当日结束」规则的定案侧：昨晚 23:00（今日 0 点前 1 小时）没处理的槽位，
+        // 0 点后的第一轮对账就结算 —— 当天的欠账跨天不再豁免。
+        AlarmReconciler.rescheduleAll(context, db)
+        val template = db.doseSlotDao().getOpenSlots().first()
+        val id = seedMissedSlot(template, "23:00", startOfTodayMs() - 3600_000L)
+        assertThat(id).isGreaterThan(0L)
+
+        AlarmReconciler.rescheduleAll(context, db)
+
+        val after = db.doseSlotDao().getSlotById(id)
+        assertThat(after).isNotNull()
+        assertThat(after!!.status).isEqualTo(SlotStatus.EXPIRED)
+    }
+
+    @Test
+    fun `今天的槽位过久未处理也不结算 静默待办留在清单上且不再响`() = runBlocking {
+        // 「当日结束」规则的豁免侧（本次改造的主场景）：
+        // 时点已过去 2.5 小时的今日槽位 —— 旧规则（计划时间 + 2 小时）会把它
+        // 结算成 EXPIRED、挂上「已逾期」徽标并进依从率分母；新规则下它原样
+        // 留在清单上（PENDING），且因落在补响窗口（2 小时）之外而不再响。
+        //
+        // 静默待办区间 [今日 0 点, now-2h) 在 0 点后 2 小时内物理上不存在，
+        // 深夜运行时跳过（见 AGENTS §3：换时点不是修法，诚实的 Assume 才是）。
+        Assume.assumeTrue(
+            "静默待办区间在 0 点后 2 小时内不存在",
+            System.currentTimeMillis() - startOfTodayMs() > 121 * 60_000L
+        )
+
+        // 走**真实投影**而不是编造行：今日槽位必须仍被投影命中，
+        // 否则 reconcileSchedule 的"删"分支会把它当"已不存在的时刻"删掉。
+        // 与"用户此刻新建药品、时点设在过去"是同一条生产路径。
+        val pastTime = LocalTime.now().minusMinutes(150)
+            .format(DateTimeFormatter.ofPattern("HH:mm"))
+        val medId = db.medicationDao().insert(MedicationEntity(name = "晨间药"))
+        db.schedulePolicyDao().savePolicyWithTimes(
+            SchedulePolicyEntity(
+                medicationId = medId,
+                policyType = PolicyType.DAILY,
+                startDate = today.toString()
+            ),
+            listOf(PolicyTimeEntity(policyId = 0, timeOfDay = pastTime, doseAmount = 1000))
+        )
+        db.reminderSettingsDao().ensureDefaults(medId)
+
+        // ⚠️ 必须跑**两轮**：同一轮 rescheduleAll 里结算（第 1 步）先于投影（第 2 步），
+        // 刚由投影造出来的槽位轮不到结算 —— 只跑一轮的话，把结算线改回旧值也照样绿。
+        // 生产里这条槽位是在**更早**的对账中物化的，下一轮（≤15 分钟后）就会被结算。
+        AlarmReconciler.rescheduleAll(context, db)
+        AlarmReconciler.rescheduleAll(context, db)
+
+        val slot = db.doseSlotDao().getSlotsForDate(today.toString())
+            .first { it.medicationId == medId }
+        assertThat(slot.status).isEqualTo(SlotStatus.PENDING)
+        // 静默待办：本条不再有任何闹钟
+        assertThat(shadowAlarms()).doesNotContain(pendingMainOf(slot))
     }
 
     /**
@@ -220,34 +323,4 @@ class AlarmPrecisionAndGraceTest {
         ),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
-
-    @Test
-    fun `超出宽限期的槽位被结算 不补响`() = runBlocking {
-        AlarmReconciler.rescheduleAll(context, db)
-        val template = db.doseSlotDao().getOpenSlots().first()
-        val id = seedMissedSlot(template, "04:18", agoMinutes = 180)
-        assertThat(id).isGreaterThan(0L)
-
-        AlarmReconciler.rescheduleAll(context, db)
-
-        val after = db.doseSlotDao().getSlotById(id)
-        assertThat(after).isNotNull()
-        assertThat(after!!.status).isEqualTo(SlotStatus.EXPIRED)
-    }
-
-    @Test
-    fun `宽限期边界上 过期结算与补响互补不重叠`() = runBlocking {
-        // EXPIRE_WINDOW 是 2 小时；紧贴 cutoff 两侧的两条槽位必须有确定归属：
-        // 1 小时前 → 补响；3 小时前 → 结算。**不允许两条都落空**——
-        // 那就是旧实现的黑洞区间。
-        AlarmReconciler.rescheduleAll(context, db)
-        val template = db.doseSlotDao().getOpenSlots().first()
-        val inGrace = seedMissedSlot(template, "01:00", agoMinutes = 60)
-        val outGrace = seedMissedSlot(template, "02:00", agoMinutes = 180)
-
-        AlarmReconciler.rescheduleAll(context, db)
-
-        assertThat(db.doseSlotDao().getSlotById(inGrace)!!.status).isEqualTo(SlotStatus.PENDING)
-        assertThat(db.doseSlotDao().getSlotById(outGrace)!!.status).isEqualTo(SlotStatus.EXPIRED)
-    }
 }
