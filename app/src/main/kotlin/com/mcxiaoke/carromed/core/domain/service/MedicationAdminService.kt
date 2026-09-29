@@ -225,6 +225,21 @@ class MedicationAdminService(private val db: AppDatabase) {
                 "同一计划内存在重复的服药时点：${timeKeys.distinct()}"
             }
 
+            // ⭐ 剂量必须严格为正（M2-1，第三层防线）。
+            //
+            // 0 剂量是一条完整的数据损坏路径，且**全程静默**：
+            // 闹钟照响、通知照弹、打卡照记一条 COMPLETED 事实，
+            // 而 `takeDose` 的扣减量是 `finalDose` = 0 ⇒ **库存永远不扣**。
+            // 用户看到的是"每天都在打卡、库存却一直不变"，只能靠人工比对才发现。
+            //
+            // 前两层（UI 字符过滤 + 提交前解析）都只保护"本 App 的这两个表单"。
+            // 这一层保护的是**所有**调用方：备份导入、未来 Widget / 手表 / 快捷指令入口。
+            // 负数同样拒绝 —— 负剂量打卡 = 给库存**加**药，比 0 更危险。
+            val badDose = draft.times.firstOrNull { it.dose <= 0f }
+            require(badDose == null) {
+                "服药时点 ${badDose?.time} 的剂量必须大于 0（当前 ${badDose?.dose}）"
+            }
+
             val previous = policyDao.getActivePolicyForMedication(medicationId)
 
             val policy = SchedulePolicyEntity(

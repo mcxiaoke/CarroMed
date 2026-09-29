@@ -10,6 +10,7 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService
+import com.mcxiaoke.carromed.ui.component.DecimalInput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,11 +28,31 @@ import java.time.LocalDate
  */
 enum class AddEditMode { FULL, INFO_ONLY }
 
+/**
+ * 一个提醒时点的草稿。
+ *
+ * ## [dose] 为什么是 `String` 而不是 `Float`（M2-1）
+ *
+ * 剂量是全 App 后果最重的一个输入框，而 `Float` 在这里同时做不到三件事：
+ *
+ * 1. **表达不了中间态**。用户输入 `0.` 时 `toFloatOrNull()` 返回 0，
+ *    `?: 0f` 兜底后 TextField 立刻显示 `0` —— **小数点打不出来，0.5 片不可录入**。
+ * 2. **区分不了"清空"和"填 0"**。两者都归一成 0，于是清空一次就写 0 剂量，
+ *    0 剂量**可以保存** ⇒ 闹钟照响、打卡照记、**库存永不扣**。
+ * 3. **拦不住负号**。粘贴 `-2` 得到 -2 片，打卡时 `-finalDose` 变成 **+2** ——
+ *    一次打卡给库存**加** 2 片。
+ *
+ * 改成 `String` 后由 [DecimalInput] 统一做字符过滤与"必须 > 0"的解析，
+ * 与同文件里的 `defaultDose` / `minStockAlert` 口径一致。
+ */
 data class TimeSlotDraft(
     val time: String = "08:30",
-    val dose: Float = 1.0f,
+    val dose: String = "1",
     val label: String = "服药时段"
-)
+) {
+    /** 合法剂量；null 表示"空 / 0 / 无法解析"，保存前必须拦下 */
+    fun parsedDose(): Float? = DecimalInput.parsePositive(dose)
+}
 
 data class AddEditUiState(
     val medId: Long? = null,
@@ -59,7 +80,7 @@ data class AddEditUiState(
     val cycleOffDays: Int = 7,
     val startDate: String = LocalDate.now().format(SlotProjectionEngine.DATE_FORMATTER),
     val endDate: String? = null,
-    val timeSlots: List<TimeSlotDraft> = listOf(TimeSlotDraft("08:30", 1.0f, "服药时段")),
+    val timeSlots: List<TimeSlotDraft> = listOf(TimeSlotDraft("08:30", "1", "服药时段")),
 
     // ---- 库存维度 (仅 FULL 模式) ----
     val currentStock: String = "",
@@ -164,8 +185,8 @@ class AddEditMedicationViewModel(
                 endDate = policy?.endDate,
                 timeSlots = times
                     .sortedBy { it.sortOrder }
-                    .map { TimeSlotDraft(it.timeOfDay, Dose(it.doseAmount).asFloat, it.label) }
-                    .ifEmpty { listOf(TimeSlotDraft("08:30", 1.0f, "服药时段")) },
+                    .map { TimeSlotDraft(it.timeOfDay, trimFloat(Dose(it.doseAmount).asFloat), it.label) }
+                    .ifEmpty { listOf(TimeSlotDraft()) },
                 // ⚠️ 编辑模式不预填库存余额：账面是台账聚合值，在本页编辑它
                 // 语义上等于"直接改账面"，必须走盘点校准（库存页）或补药入库。
                 // 这里保持空字符串，保存时不会产生任何库存写入。
@@ -223,7 +244,7 @@ class AddEditMedicationViewModel(
 
     fun addTimeSlot() = mutate { s ->
         val last = s.timeSlots.maxByOrNull { it.time }?.time ?: "08:30"
-        s.copy(timeSlots = s.timeSlots + TimeSlotDraft(nextSlotTime(last), 1.0f, "服药时段"))
+        s.copy(timeSlots = s.timeSlots + TimeSlotDraft(nextSlotTime(last), s.defaultDose, "服药时段"))
     }
 
     /**
@@ -232,13 +253,18 @@ class AddEditMedicationViewModel(
      * 主流 App 的标准做法 (吃药啦 / 药准时 / Medisafe 都有)：用户只需说"每天三次"，
      * 系统在 07:00–21:00 之间均分出 3 个时点，再按需微调。避免用户自己算时间。
      * 保留已有的时段标签习惯：均分点按落在早/午/晚自动打标签。
+     *
+     * 剂量统一取 `defaultDose`（M4-5）。旧实现写死 1.0f 而本函数之外的
+     * 另一处铺排取 `defaultDose` —— 两处取值来源不同 ⇒ 用户设了"每次 2 片"，
+     * 两个页面的"一键铺排"产出**不同剂量**，且都显示成功。
+     * `defaultDose` 非法/为空时回落到 1，并保持可编辑（保存时仍会被校验）。
      */
     fun spreadTimes(count: Int) = mutate { s ->
         val n = count.coerceIn(1, 8)
         val startMinutes = 7 * 60
         val endMinutes = 21 * 60
         val step = if (n == 1) 0 else (endMinutes - startMinutes) / (n - 1)
-        val dose = s.defaultDose.toFloatOrNull() ?: 1.0f
+        val dose = s.defaultDose.takeIf { DecimalInput.parsePositive(it) != null } ?: "1"
         val slots = (0 until n).map { i ->
             val total = if (n == 1) 8 * 60 else startMinutes + step * i
             TimeSlotDraft(
@@ -250,7 +276,14 @@ class AddEditMedicationViewModel(
         s.copy(timeSlots = slots)
     }
 
-    fun updateTimeSlot(index: Int, time: String? = null, dose: Float? = null, label: String? = null) =
+    /**
+     * 剂量输入。
+     *
+     * 收 `String` 而不是 `Float`（M2-1）：`Float` 无法表达"正在输入 `0.`"这个中间态，
+     * 于是小数点打不出来；也无法区分"清空"与"填 0"，清空一次就写 0 剂量。
+     * 字符过滤在 [DecimalInput.filter]，`> 0` 的判定在保存时（[save]）。
+     */
+    fun updateTimeSlot(index: Int, time: String? = null, doseText: String? = null, label: String? = null) =
         mutate { s ->
             if (index !in s.timeSlots.indices) return@mutate s
             val cur = s.timeSlots[index]
@@ -258,7 +291,7 @@ class AddEditMedicationViewModel(
                 timeSlots = s.timeSlots.toMutableList().also { list ->
                     list[index] = cur.copy(
                         time = time ?: cur.time,
-                        dose = dose ?: cur.dose,
+                        dose = doseText?.let { DecimalInput.filter(it) } ?: cur.dose,
                         label = label ?: cur.label
                     )
                 }
@@ -279,6 +312,17 @@ class AddEditMedicationViewModel(
 
     fun save(onSuccess: (Long) -> Unit) {
         val s = _uiState.value
+
+        // ⭐ 同步前置的"正在保存"闸门（M2-4）。
+        //
+        // 旧实现把 `isSaving = true` 写在 `viewModelScope.launch { ... }` 的**协程体内**。
+        // 协程体要等到获得调度机会才执行，而 `launch` 默认 `Dispatchers.Main.immediate`
+        // 在事件回调里**未必立刻跑** —— 于是同一帧内连点两次「保存」，
+        // 两次都读到 `isSaving == false`、都以 `medId = null` 走 insert ⇒ **插了两行药**。
+        //
+        // 双击保护必须在**读取状态之前**同步置位，不能寄望于协程体内的赋值。
+        if (s.isSaving) return
+
         if (s.name.isBlank()) {
             _uiState.value = s.copy(error = NAME_ERROR)
             return
@@ -304,11 +348,46 @@ class AddEditMedicationViewModel(
                 _uiState.value = s.copy(error = DUPLICATE_TIME_ERROR)
                 return
             }
+            // ⭐ 剂量必须**逐条**为正（M2-1）。
+            //
+            // 0 剂量是一条完整的数据损坏路径：闹钟照响、打卡照记、**库存永不扣**。
+            // 报错必须指出**哪一条**时点 —— 六个时点的表单只说"剂量非法"，
+            // 用户根本不知道要改哪个框。
+            val badDose = s.timeSlots.firstOrNull { it.parsedDose() == null }
+            if (badDose != null) {
+                _uiState.value = s.copy(
+                    error = "${badDose.time} 的剂量无效：请输入大于 0 的数值（例如 1 或 0.5）"
+                )
+                return
+            }
         }
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
 
+            // ⚠️ 整个保存链包在 runCatching 里（M2-3）。
+            //
+            // 领域层会在多种情况下抛 `IllegalArgumentException`
+            // （"Medication not found" / 重复时点 / 剂量非法…），而 ViewModel 里
+            // 未捕获的异常会一路打到主线程 → **App 崩溃**，同时 `isSaving`
+            // 永远停在 true ⇒ 保存按钮**永久禁用**，用户除了杀进程没有出路。
+            //
+            // 「补录」页的药品列表是 init 时的快照，表单开着删药完全可达，
+            // 所以这不是理论风险。
+            runCatching {
+                saveInternal(s, onSuccess)
+            }.onFailure { t ->
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = "保存失败：${t.message ?: t::class.java.simpleName}"
+                )
+            }
+        }
+    }
+
+    private suspend fun saveInternal(s: AddEditUiState, onSuccess: (Long) -> Unit) {
+        val policyRequired = s.mode == AddEditMode.FULL
+        run {
             val stockFloat = s.currentStock.toFloatOrNull() ?: 0f
             val alertFloat = s.minStockAlert.toFloatOrNull() ?: 0f
 
@@ -331,7 +410,7 @@ class AddEditMedicationViewModel(
                     form = s.form,
                     unit = s.unit,
                     colorHex = s.colorHex,
-                    defaultDose = s.defaultDose.toFloatOrNull() ?: 1.0f,
+                    defaultDose = DecimalInput.parsePositive(s.defaultDose) ?: 1.0f,
                     description = s.description,
                     precautions = s.precautions,
                     noticeShort = s.noticeShort,
@@ -353,7 +432,14 @@ class AddEditMedicationViewModel(
                         startDate = effectiveStartDate,
                         endDate = s.endDate,
                         times = s.timeSlots.map {
-                            MedicationAdminService.TimeDraft(it.time, it.dose, it.label)
+                            // `!!` 安全：save() 已在进入协程之前逐条校验过 parsedDose() != null。
+                            // 用 require 而不是 ?: 1f 兜底 —— 兜底会让"剂量丢了"变成
+                            // "剂量变成 1"，那是一次静默的数据错误。
+                            MedicationAdminService.TimeDraft(
+                                it.time,
+                                requireNotNull(it.parsedDose()) { "剂量无效：${it.time}" },
+                                it.label
+                            )
                         }
                     )
                 )

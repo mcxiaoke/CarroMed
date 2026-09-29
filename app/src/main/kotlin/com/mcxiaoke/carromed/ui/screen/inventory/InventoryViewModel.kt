@@ -13,6 +13,7 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.TransactionType
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
+import com.mcxiaoke.carromed.ui.component.DecimalInput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -125,17 +126,30 @@ class InventoryViewModel(
                 daysToExpiry = expiryDays,
                 minStockAlertInput = fmt(Dose(med.minStockAlert).asFloat),
                 transactions = txs,
-                calibrateInput = if (stock > 0f) fmt(stock) else ""
+                // ⚠️ **不要**在这里重建 `calibrateInput`（M7-3）。
+                //
+                // `load()` 在保存成功、开关切换、盘点完成之后都会被调用，而用户可能
+                // 正在盘点框里敲到一半。旧实现无条件 `calibrateInput = fmt(stock)`，
+                // 于是用户敲的 "2" 被静默改写成当前账面 —— 他以为在填 20，
+                // 点保存时校准到的是账面原值，于是提示"账面与实物一致，无需调整"。
+                //
+                // 判据用"用户还没动过"而不是无条件回填：首次进入时给一个合理初值，
+                // 一旦用户输入过就**归他所有**，任何后台刷新都不许覆盖。
+                calibrateInput = if (_uiState.value.calibrateInput.isBlank()) {
+                    if (stock > 0f) fmt(stock) else ""
+                } else {
+                    _uiState.value.calibrateInput
+                }
             )
         }
     }
 
     fun onMinStockAlertChange(v: String) {
-        _uiState.value = _uiState.value.copy(minStockAlertInput = v)
+        _uiState.value = _uiState.value.copy(minStockAlertInput = DecimalInput.filter(v))
     }
 
     fun onCalibrateInputChange(v: String) {
-        _uiState.value = _uiState.value.copy(calibrateInput = v.filter { it.isDigit() || it == '.' })
+        _uiState.value = _uiState.value.copy(calibrateInput = DecimalInput.filter(v))
     }
 
     fun onExpiryDateChange(v: String) {
@@ -157,12 +171,38 @@ class InventoryViewModel(
         }
     }
 
-    /** 开关库存追踪（关闭时保留账面；开启时以当前账面建档） */
+    /**
+     * 开关库存追踪。
+     *
+     * ## 为什么 `initialStock` 传 `null`（M2-5）
+     *
+     * 旧实现传 `_uiState.value.currentStock`，而那是**打开页面那一刻的快照余额**。
+     * 用户在库存页停留期间若在别处（今日页打卡、通知栏「确认已吃」）扣了库存，
+     * 此刻重开追踪就会把那个**陈旧快照**当作"用户声明的初始库存"写回账面：
+     *
+     * | 时刻 | 真实账面 | 页面快照 | 传入的 initialStock | 结果 |
+     * | :--- | ---: | ---: | ---: | :--- |
+     * | 进页面 | 30 | 30 | — | — |
+     * | 打卡扣 1 片 | 29 | 30 | — | — |
+     * | 点「开启追踪」 | 29 | 30 | 30 | 账面被拉回 **30** |
+     *
+     * 凭空多出 1 片，且账面与实物一致 —— 用户没有任何线索能发现。
+     * 传 `null` 走 [DoseTrackingService.setStockTracking] 的"沿用当前账面"分支：
+     * 追踪开关只影响**今后**是否自动扣减，绝不回头改已经算清楚的账。
+     */
     fun setTracking(enabled: Boolean) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSaving = true)
-            trackingService.setStockTracking(medId, enabled, _uiState.value.currentStock)
-            runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db) }
+            _uiState.value = _uiState.value.copy(isSaving = true, error = null)
+            runCatching {
+                trackingService.setStockTracking(medId, enabled, initialStock = null)
+                runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db) }
+            }.onFailure { t ->
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = "操作失败：${t.message ?: t::class.java.simpleName}"
+                )
+                return@launch
+            }
             _uiState.value = _uiState.value.copy(
                 isSaving = false,
                 message = if (enabled) "已开启库存追踪" else "已关闭库存追踪（不再自动扣减）"
@@ -173,14 +213,27 @@ class InventoryViewModel(
 
     /** 盘点校准：把账面拉回实物真实值，走流水而非直接改账面 */
     fun calibrate(note: String?) {
-        val target = _uiState.value.calibrateInput.toFloatOrNull()
-        if (target == null || target < 0f) {
-            _uiState.value = _uiState.value.copy(error = "请输入有效的实际库存数量")
+        val target = DecimalInput.parsePositive(_uiState.value.calibrateInput)
+        if (target == null) {
+            // ⚠️ 0 必须**报错**而不是当"清空了输入框"（M7-3）。
+            // 旧写法 `toFloatOrNull() ?: 回退旧值` 静默接受非法输入并提示"已保存" ——
+            // 用户以为自己改了预警线，实际什么都没发生。
+            _uiState.value = _uiState.value.copy(
+                error = "请输入有效的实际库存数量（大于 0）"
+            )
             return
         }
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
-            val changed = trackingService.calibrateStock(medId, target, note)
+            val changed = runCatching {
+                trackingService.calibrateStock(medId, target, note)
+            }.getOrElse { t ->
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = "盘点失败：${t.message ?: t::class.java.simpleName}"
+                )
+                return@launch
+            }
             _uiState.value = _uiState.value.copy(
                 isSaving = false,
                 message = if (changed) "盘点已记录：账面调整为 $target" else "账面与实物一致，无需调整"
@@ -202,14 +255,38 @@ class InventoryViewModel(
      */
     fun saveSettings() {
         val s = _uiState.value
-        val alert = s.minStockAlertInput.toFloatOrNull() ?: s.minStockAlert
+        // ⚠️ 非法输入必须**报错**，不能静默回退旧值（M7-3）。
+        //
+        // 旧写法 `?: s.minStockAlert` 配上"已保存"的提示，等于对用户说谎：
+        // 他把预警线改成 "abc"、点保存、看到"已保存"，于是**相信**预警线已经生效，
+        // 实际库里仍是旧值。药品用完时没有告警，而用户明确设置过。
+        //
+        // ⭐ 这里用 `parseNonNegative` 而不是 `parsePositive`：
+        // `minStockAlert = 0` 在本项目里的约定是**关闭低库存告警**，
+        // 判成非法会让用户**无法关闭告警** —— 那比误报更糟。
+        val alert = DecimalInput.parseNonNegative(s.minStockAlertInput)
+        if (alert == null) {
+            _uiState.value = s.copy(
+                error = "预警线无效：请输入 0 或正数（0 表示关闭低库存告警）"
+            )
+            return
+        }
         val expiry = s.expiryDate.takeIf { it != s.medication?.expiryDate }
+        if (s.isSaving) return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
-            if (expiry != null) {
-                medDao.updateExpiryDate(medId, expiry)
+            runCatching {
+                if (expiry != null) {
+                    medDao.updateExpiryDate(medId, expiry)
+                }
+                medDao.updateMinStockAlert(medId, Dose.of(alert).milli)
+            }.onFailure { t ->
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = "保存失败：${t.message ?: t::class.java.simpleName}"
+                )
+                return@launch
             }
-            medDao.updateMinStockAlert(medId, Dose.of(alert).milli)
             _uiState.value = _uiState.value.copy(isSaving = false, message = "已保存")
             load()
         }
@@ -218,6 +295,9 @@ class InventoryViewModel(
     /**
      * 每周实际排班天数（不是"时点数"）。用于把单次日量折算成日历日均消耗，
      * 否则隔日/每周用药会被高估消耗、低估可用天数。
+     *
+     * 实现已上移到 [StatsEngine.scheduledDaysPerWeek]（M4-1）：详情页原先有一份
+     * **不同的**（且是坏的）实现，两页因此给出不同的可用天数。
      */
     private fun scheduledDosesPerWeek(
         type: PolicyType?,
@@ -225,24 +305,7 @@ class InventoryViewModel(
         daysOfWeek: List<Int>?,
         cycleOnDays: Int?,
         cycleOffDays: Int?
-    ): Int = when (type) {
-        PolicyType.DAILY -> 7
-        PolicyType.INTERVAL -> {
-            val n = (intervalDays ?: 2).coerceAtLeast(1)
-            Math.round(7.0 / n).toInt().coerceAtLeast(1)
-        }
-        PolicyType.DAYS_OF_WEEK -> (daysOfWeek?.size ?: 0).coerceAtLeast(0)
-        // 周期用药按真实配置折算：吃 N 天停 M 天 ⇒ 每周 7·N/(N+M) 天。
-        // 原先写死 5，对"吃 2 停 6"这类配置会把日均消耗高估 20 倍，
-        // 从而给出"预计可用天数缩水 20 倍"的假告警。
-        PolicyType.CYCLE -> {
-            val on = (cycleOnDays ?: 21).coerceAtLeast(1)
-            val off = (cycleOffDays ?: 7).coerceAtLeast(0)
-            val total = on + off
-            if (total == 0) 0 else Math.max(1, Math.round(7.0 * on / total).toInt())
-        }
-        PolicyType.PRN, null -> 0
-    }
+    ): Int = StatsEngine.scheduledDaysPerWeek(type, intervalDays, daysOfWeek, cycleOnDays, cycleOffDays)
 
     /**
      * 频次描述文案。

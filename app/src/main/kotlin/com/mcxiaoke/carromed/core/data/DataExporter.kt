@@ -1,4 +1,6 @@
 package com.mcxiaoke.carromed.core.data
+import com.mcxiaoke.carromed.core.data.model.PolicyType
+import com.mcxiaoke.carromed.core.alarm.AlarmScheduler
 
 import android.content.Context
 import android.content.Intent
@@ -80,12 +82,6 @@ enum class BackupProblemKind(val blocksRestore: Boolean) {
     DUPLICATE_SLOT_KEY(true),
 
     /**
-     * 某个药品缺 `reminder_settings` 行（A2 建立的不变量）。
-     *
-     * 放行：[restoreBackup] 会为它补一行默认值。
-     * 拦住反而会让来自 A2 之前版本的备份**永远恢复不了**。
-     */
-    /**
      * `dose_records.slot_id` **没有真实外键**（实体只声明了 `medication_id`），
      * 而 `reconcileSchedule` 会物理删除 `PENDING`/`SNOOZED` 槽位，
      * `undoDose` 留下的 `REVERTED` 事实仍带着那个 `slot_id`。
@@ -113,7 +109,56 @@ enum class BackupProblemKind(val blocksRestore: Boolean) {
     DUPLICATE_POLICY_ID(true),
     DUPLICATE_POLICY_TIME_ID(true),
 
+    /**
+     * 同一药品的 `reminder_settings` 出现**多行**（M5-3）。
+     *
+     * A2 建立的 1:1 不变量。它是回填时的唯一约束，而恢复用的
+     * `insertIfAbsent`（`IGNORE`）会让**第二行被静默丢弃** ——
+     * 用户的"重要提醒 / 推迟时长 / 提前提醒"配置少了一行却显示恢复成功。
+     */
+    DUPLICATE_REMINDER_SETTINGS(true),
+
+    /**
+     * 同一 `app_settings.key` 出现**多行**（M5-3）。
+     *
+     * 后果同上：后一行静默顶掉前一行，而用户看到的只是"已恢复"。
+     * 推迟时长、夜间免打扰这类设置丢起来不会有任何征兆。
+     */
+    DUPLICATE_APP_SETTING_KEY(true),
+
+    /**
+     * 同一药品有**多条** `is_active` 的服用计划（M5-2）。
+     *
+     * "同一药品同时只有一条 active 计划"从来只是一条**调用顺序维持的约定**：
+     * 没有 DB 约束，`validateBackup` 也不查。
+     *
+     * 现在 `getActivePolicyForMedication` 加了 `ORDER BY`，所以"取哪条"是**确定的** ——
+     * 但确定地取错一条仍然是数据损坏（用户的服药计划静默变成另一份）。
+     * 所以必须在导入前拦住，而不是靠 ORDER BY 掩盖。
+     */
+    MULTIPLE_ACTIVE_POLICIES(true),
+
+    /**
+     * 某个药品缺 `reminder_settings` 行（A2 建立的不变量）。
+     *
+     * 放行：[restoreBackup] 会为它补一行默认值。
+     * 拦住反而会让来自 A2 之前版本的备份**永远恢复不了**。
+     */
     MISSING_REMINDER_SETTINGS(false),
+}
+
+/**
+ * 备份里"缺失即异常"的字段的回退值。
+ *
+ * 提成对象而不是散落的字面量：这些数字同时出现在
+ * [SchedulePolicyBackup] 的序列化默认值与 [DataExporter.restoreBackup] 的回退里，
+ * 两处必须一致 —— 改一处忘一处，症状会表现为"某些旧备份恢复后疗程变了"，
+ * 极难定位。
+ */
+object BackupDefaults {
+    /** 「吃 21 停 7」是临床上最常见的疗程参数，用作回退 */
+    const val CYCLE_ON_DAYS = 21
+    const val CYCLE_OFF_DAYS = 7
 }
 
 /** 一条校验问题：[kind] 决定它是否拦住恢复，[message] 只用于展示。 */
@@ -244,10 +289,59 @@ object DataExporter {
         return file
     }
 
-    private fun escapeCsv(value: String): String =
-        if (value.contains(',') || value.contains('"') || value.contains('\n')) {
-            "\"" + value.replace("\"", "\"\"") + "\""
-        } else value
+    /**
+     * CSV 字段转义 + **公式注入**防护。
+     *
+     * ## 为什么需要防注入
+     *
+     * 备注、药品名、注意事项都是**用户自由文本**，而 CSV 会被 Excel / WPS 直接打开。
+     * 以 `=` `+` `-` `@` 开头的单元格会被这些工具**当公式执行**：
+     *
+     * | 用户输入 | 不转义时 Excel 打开 |
+     * | :--- | :--- |
+     * | `=1+1` | 显示 2，**原值 `=1+1` 消失** |
+     * | `=HYPERLINK("http://evil","点我")` | 渲染成一个**可点击的钓鱼链接** |
+     * | `=cmd|'/C calc'!A0`（老版本） | 直接执行命令 |
+     *
+     * 前两种在本项目里是完全可达的：给药品写一句带 `=` 的备注再导出即可。
+     * 数值列（剂量、天数）不走这里，所以不会误伤。
+     *
+     * ## 为什么要包在引号里**再加**单引号
+     *
+     * 只加单引号在某些解析器下会被当字面量显示出来（`'=1+1`）；
+     * 只加引号不能阻止公式求值。标准做法是**两者都做**：
+     * 字段用双引号包住（让逗号/换行/引号安全），值本身前置一个单引号
+     * （让 Excel 把它当纯文本）。
+     *
+     * ## `\r` 也要处理
+     *
+     * 旧实现只查 `\n`。而 `\r` 单独出现时（老 Mac 风格，或某些输入法/脚本写入的文本）
+     * 多数 CSV 解析器**不**把它当行分隔，于是字段值里会带着一个裸回车：
+     * 在 Excel 里显示成方块、在部分工具里造成列错位。
+     */
+    private fun escapeCsv(value: String): String {
+        val needsQuoting = value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
+        // 公式注入防护：仅对**首个非空白字符**判定。
+        // 前面有空格时 Excel 仍可能求值（`' =1+1` 会被 trim 后当公式），
+        // 所以这里用 trimStart 判，并**去掉前导空白**再前置单引号 ——
+        // 保留缩进没有价值，而留着它等于防护失效。
+        val trimmed = value.trimStart(' ', '\t')
+        val needsFormulaGuard = trimmed.isNotEmpty() &&
+            trimmed.first() in FORMULA_PREFIXES
+        val safe = if (needsFormulaGuard) "'$trimmed" else value
+        return if (needsQuoting || needsFormulaGuard) {
+            "\"" + safe.replace("\"", "\"\"") + "\""
+        } else safe
+    }
+
+    /**
+     * 会被电子表格软件当公式开头的字符。
+     *
+     * `-` 在最前也会触发（`-1+1` 是公式），而"负数剂量"这种文本
+     * 在本项目里本来就不该出现（领域层已 `require(dose > 0)`），
+     * 所以为了安全一律加引号。
+     */
+    private val FORMULA_PREFIXES = charArrayOf('=', '+', '-', '@', '\t', '\r')
 
     // ---------------- JSON 全量备份：纯函数层 ----------------
 
@@ -488,6 +582,56 @@ object DataExporter {
         checkDuplicates(backup.schedulePolicies, { it.id }, BackupProblemKind.DUPLICATE_POLICY_ID, "服用计划")
         checkDuplicates(backup.policyTimes, { it.id }, BackupProblemKind.DUPLICATE_POLICY_TIME_ID, "服药时点")
 
+        // ⚠️ 下面三类的**主键不是自增 id**，上面那个通用检查覆盖不到它们（M5-3）。
+        //
+        // | 表 | 键 | 重复后果 |
+        // | :--- | :--- | :--- |
+        // | `dose_slots` | `id`（自增，但备份可被手工编辑） | REPLACE 覆盖前一行，**丢槽位** |
+        // | `reminder_settings` | `medication_id` | A2 建立的 1:1 不变量被破坏，两行互相覆盖 |
+        // | `app_settings` | `key` | 后一行静默顶掉前一行，**设置丢失且无任何提示** |
+        //
+        // 三者都是 `OnConflictStrategy.REPLACE` 或等价的 upsert，
+        // 所以重复 = 静默丢数据，而恢复流程**照常显示成功**。
+        backup.doseSlots.groupBy { it.id }
+            .filterValues { it.size > 1 }
+            .forEach { (rid, dup) ->
+                report(
+                    BackupProblemKind.DUPLICATE_SLOT_KEY,
+                    "槽位 #$rid 在备份中出现了 ${dup.size} 次（主键重复会静默覆盖）"
+                )
+            }
+        backup.reminderSettings.groupBy { it.medicationId }
+            .filterValues { it.size > 1 }
+            .forEach { (medId, dup) ->
+                report(
+                    BackupProblemKind.DUPLICATE_REMINDER_SETTINGS,
+                    "药品 #$medId 的提醒设置在备份中有 ${dup.size} 行（每药应恰好一行）"
+                )
+            }
+        backup.appSettings.groupBy { it.key }
+            .filterValues { it.size > 1 }
+            .forEach { (key, dup) ->
+                report(
+                    BackupProblemKind.DUPLICATE_APP_SETTING_KEY,
+                    "设置项「$key」在备份中出现了 ${dup.size} 次"
+                )
+            }
+
+        // 同一药品多条**活跃**计划 ⇒ "取哪条"是不确定的（M5-2）。
+        //
+        // `SchedulePolicyDao.getActivePolicyForMedication` 现在有 `ORDER BY`，
+        // 所以结果**确定**了；但"确定地取错一条"仍然是数据损坏 ——
+        // 用户的服药计划会静默变成另一份。所以必须在**导入前**拦住。
+        backup.schedulePolicies.filter { it.isActive }
+            .groupBy { it.medicationId }
+            .filterValues { it.size > 1 }
+            .forEach { (medId, dup) ->
+                report(
+                    BackupProblemKind.MULTIPLE_ACTIVE_POLICIES,
+                    "药品 #$medId 有 ${dup.size} 条同时生效的计划（#${dup.joinToString { p -> p.id.toString() }}）"
+                )
+            }
+
         // 每个药品都应有一行提醒运行态（A2 建立的不变量）。缺失的会在恢复时补默认值，
         // 所以这是**提示**而不是错误 —— 拦住会让 A2 之前版本的备份永远恢复不了。
         val medsWithSettings = backup.reminderSettings.map { it.medicationId }.toSet()
@@ -566,8 +710,26 @@ object DataExporter {
                     policyType = p.policyType,
                     intervalDays = p.intervalDays,
                     daysOfWeek = p.daysOfWeek,
-                    cycleOnDays = p.cycleOnDays,
-                    cycleOffDays = p.cycleOffDays,
+                    // ⚠️ CYCLE 的 0 值回退默认 21/7（M5-8）。
+                    //
+                    // 旧版本备份里 `cycleOnDays` 的序列化默认值是 **0**，
+                    // 而投影层把它 `coerceAtLeast(1)` 夹成 1：
+                    // `totalCycle = 1 + off`，`cycleDay % total < 1` 恒真 ⇒
+                    // **「吃 21 停 7」静默变成「每天都吃」**。
+                    //
+                    // 判据只对 CYCLE 生效：DAILY / INTERVAL / DAYS_OF_WEEK 的
+                    // 这两列本来就不参与计算，改它们没有意义。
+                    // 只在"备份里是 0"时回退，正常备份的值原样保留。
+                    cycleOnDays = if (p.policyType == PolicyType.CYCLE && p.cycleOnDays <= 0) {
+                        BackupDefaults.CYCLE_ON_DAYS
+                    } else {
+                        p.cycleOnDays
+                    },
+                    cycleOffDays = if (p.policyType == PolicyType.CYCLE && p.cycleOnDays <= 0) {
+                        BackupDefaults.CYCLE_OFF_DAYS
+                    } else {
+                        p.cycleOffDays
+                    },
                     startDate = p.startDate,
                     endDate = p.endDate,
                     isActive = p.isActive,
@@ -845,12 +1007,50 @@ object DataExporter {
 
         val snapshot = writeSafetySnapshot(context, db)
 
+        // ⚠️ 必须在**清库之前**撤掉旧库的**全部**闹钟（M5-1）。
+        //
+        // `AlarmReconciler` 的孤儿清理靠的是"重排**之前**拍一份开放槽位快照"，
+        // 而恢复路径把库整个换掉了 —— 恢复**之后**再去对账，快照里已经
+        // 是新数据，旧库的闹钟身份**根本不在其中**。
+        //
+        // 后果：恢复一份**更早**的备份后，旧库里那些"已排但永远不会响"的闹钟
+        // 仍留在系统里。它们不是无害的：`dose_slots.id` 在恢复后是备份里的值，
+        // 而备份可能来自更早的库 —— **id 空间会交叠**。
+        // 于是"旧备份的槽位 id = 3"与"新库的槽位 id = 3"指向不同的药，
+        // 而 `AlarmReceiver` 当时正是按 extras 里的 slotId 反查的
+        // ⇒ **可能给错药发提醒**。
+        //
+        // 撤在清库之前，才能拿到完整的旧身份集合。
+        cancelAllAlarmsBeforeRestore(context, db)
+
         return try {
             val (medCount, recordCount) = restoreBackup(db, backup)
             RestoreResult.Success(medCount, recordCount, snapshot?.absolutePath)
         } catch (e: Exception) {
             // 事务整体回滚，数据库回到恢复前的样子
             RestoreResult.Failure("恢复失败，已自动回滚: ${e.message}")
+        }
+    }
+
+    /**
+     * 撤掉当前库里**所有**开放槽位的全部种类闹钟。
+     *
+     * 只在恢复路径调用。失败**不阻断**恢复 —— 撤不掉的闹钟最坏结果是
+     * 空唤醒（`AlarmReceiver` 的 `getSlotById == null` 守卫会静默丢弃），
+     * 而阻断恢复会让用户卡在"明明有备份却导不进来"。
+     */
+    private suspend fun cancelAllAlarmsBeforeRestore(context: Context, db: AppDatabase) {
+        val app = context.applicationContext
+        val open = runCatching { db.doseSlotDao().getOpenSlots() }.getOrElse {
+            android.util.Log.w("DataExporter", "cannot read open slots before restore", it)
+            return
+        }
+        open.forEach { slot ->
+            runCatching {
+                AlarmScheduler.cancelAll(
+                    app, slot.medicationId, slot.scheduledDate, slot.scheduledTime, slot.id
+                )
+            }
         }
     }
 

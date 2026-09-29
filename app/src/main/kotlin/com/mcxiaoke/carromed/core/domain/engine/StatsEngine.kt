@@ -2,6 +2,7 @@ package com.mcxiaoke.carromed.core.domain.engine
 
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
+import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatusCountRow
@@ -75,31 +76,128 @@ object StatsEngine {
     }
 
     /**
-     * 计算库存可用剩余天数与预警状态
+     * 计算库存可用剩余天数与预警状态。
+     *
+     * ## `minStockAlert = 0` 的含义：关闭告警（决策 E）
+     *
+     * 实体上对这一列的 KDoc 一直写的是「0 表示关闭低库存告警」，
+     * 而本函数原先两个分支对它的口径**相反**：
+     *
+     * | 分支 | 旧行为 | 问题 |
+     * | :--- | :--- | :--- |
+     * | 无消耗（按需 / 未排班） | `currentStock <= 0 && 0 > 0` ⇒ 恒 false | ✅ 正确地"不告警" |
+     * | 有消耗 | `currentStock <= 0` ⇒ **恒 true** | 余额恰好为 0 时永远告警 |
+     *
+     * 于是同一个"预警线设为 0（关闭）"的用户，会在**不按需服用的药上被永久告警**、
+     * 在按需服用的药上完全不告警 —— 判据与配置的含义直接矛盾。
+     *
+     * 现在统一为：`minStockAlert <= 0` ⇒ **不告警**，两条分支一致。
+     * 这尊重实体注释里既有的约定，也让五处调用点（今日 / 药箱 / 详情 / 库存 / 补药）
+     * 拿到同一个答案。
+     *
+     * ## 7 天兜底告警
+     *
+     * 旧的 `runwayDays <= 7` 是一条**隐式**规则：用户没设预警线也会在剩不足 7 天时
+     * 被告警。决策 E 把它收成**显式开关** [withShortRunwayAlert]，
+     * 默认**关闭** —— 隐式的、用户看不见的告警同样是"给用户虚假的保证"的镜像：
+     * 他以为自己没设任何阈值，却总看到红色横幅。
      *
      * @param currentStock 当前库存
      * @param dailyEstimatedConsumption 预估每日总消耗量
-     * @param minStockAlert 最低库存预警阈值
+     * @param minStockAlert 最低库存预警阈值。**<= 0 表示关闭低库存告警**。
+     * @param withShortRunwayAlert 是否启用"7 天内必提醒"兜底（默认关闭，见上文）
      * @return Pair<剩余天数, 是否触发预警>
      */
     fun calculateStockRunway(
         currentStock: Float,
         dailyEstimatedConsumption: Float,
-        minStockAlert: Float = 0f
+        minStockAlert: Float = 0f,
+        withShortRunwayAlert: Boolean = false
     ): Pair<Int, Boolean> {
+        val alertEnabled = minStockAlert > 0f
         if (dailyEstimatedConsumption <= 0f) {
-            val isAlert = currentStock <= minStockAlert && minStockAlert > 0f
-            return Pair(Int.MAX_VALUE, isAlert)
+            // 按需服用 / 没有排班 ⇒ 没有"日消耗"这个概念，剩余天数无意义。
+            // ⚠️ 旧实现返回 `Int.MAX_VALUE`（∞）。这个值会一路传到 UI 变成
+            // "可用 2147483647 天"，读起来像个 bug 而不是"不适用"。
+            // 用 [RUNWAY_UNLIMITED] 并在 UI 层显式渲染成"—"。
+            val isAlert = alertEnabled && currentStock <= minStockAlert
+            return Pair(RUNWAY_UNLIMITED, isAlert)
         }
 
-        val runwayDays = (currentStock / dailyEstimatedConsumption).toInt().coerceAtLeast(0)
-        val isAlert = currentStock <= minStockAlert || runwayDays <= 7 // 7 天以内常规定位预警线
+        val runwayDays = (currentStock / dailyEstimatedConsumption).toInt()
+        val isAlert = (alertEnabled && currentStock <= minStockAlert) ||
+            (withShortRunwayAlert && runwayDays <= SHORT_RUNWAY_ALERT_DAYS)
         return Pair(runwayDays, isAlert)
     }
 
     /**
-     * 按日期统计实际总服药剂量
+     * "没有日消耗、可用天数不适用"的哨兵。
+     *
+     * ⚠️ **不是** [Int.MAX_VALUE]。旧实现用 `Int.MAX_VALUE` 表示"无限"，
+     * 而它是个**合法但荒谬**的整数：一旦被算术碰到（`- 1`、格式化、排序）就溢出，
+     * 任何消费者也分不清"无限"与"算错了"。显式哨兵让"不适用"成为一个可判定的状态。
      */
+    const val RUNWAY_UNLIMITED = -1
+
+    /** [withShortRunwayAlert] 启用时，剩余天数不超过该值即告警。 */
+    const val SHORT_RUNWAY_ALERT_DAYS = 7
+
+    /** 剩余天数为 [RUNWAY_UNLIMITED] 时的判定（UI 渲染"—"而不是一个天文数字） */
+    fun isRunwayUnlimited(runwayDays: Int): Boolean = runwayDays == RUNWAY_UNLIMITED
+
+    /**
+     * 低库存告警的**唯一**判据（M4-1）。
+     *
+     * ## 为什么必须收敛成一处
+     *
+     * 修复前有**五处**各写一份判定（今日页 / 药箱页 / 详情页 / 库存页 / 补药页），
+     * 而它们的口径并不一致：
+     *
+     * | 调用点 | 旧判据 | 缺什么 |
+     * | :--- | :--- | :--- |
+     * | 今日页 | `isStockTracked && minStockAlert > 0 && stock <= minStockAlert` | ✅ 完整 |
+     * | 药箱页 | 同上 | ✅ 完整 |
+     * | 补药页 | `stock <= minStockAlert` | 缺 `isStockTracked` 与 `> 0` 两条守卫 |
+     *
+     * 补药页因此会对**未开启库存追踪**的药（账面恒 0）亮红灯，
+     * 也会对**已关闭告警**（`minStockAlert = 0`）的用户在余额为 0 时亮红灯。
+     * 用户在药箱页看不到告警、跳进补药页却看到，会认为数据出了问题。
+     *
+     * 五处各写一份不是"风格问题"：它保证了下一次改口径时**必然**漏改一处。
+     *
+     * @param isStockTracked 药品是否开启库存追踪。未追踪的"0"不是低库存，只是没建账。
+     * @param minStockAlert 预警线。**<= 0 表示关闭告警**（实体 KDoc 的既定约定）。
+     * @param stock 台账账面余额（**展示值**，可为负）
+     */
+    fun isLowStock(isStockTracked: Boolean, stock: Float, minStockAlert: Float): Boolean {
+        if (!isStockTracked) return false
+        if (minStockAlert <= 0f) return false
+        return stock <= minStockAlert
+    }
+
+    /**
+     * 按单位分组的累计用量。
+     *
+     * ## 为什么它必须在领域层（而不是 ViewModel 里）（M6-1）
+     *
+     * 旧实现在 `StatsViewModel` 内联，而 `StatsUnitGroupingTest` 在**测试文件里
+     * 重新实现了一遍** `groupByUnit`。于是那条测试守的是**影子**：
+     * 把生产代码改回 `doseSums.sumOf { it.totalDose }`（跨单位求和，
+     * 显示「35 ml」这种物理上不存在的量），5 条测试**全部仍然全绿**。
+     *
+     * 影子测试比没有测试更危险：它让人以为这条不变量有门禁。
+     * 修法是提取到领域层，**生产与测试共用同一份实现**
+     * —— 与 `AlarmIdentityTest` 强制走生产 `alarmIntent` 是同一条纪律。
+     *
+     * @param rows 单位 → 整数毫单位。**必须是整数**（D-7）：
+     *   旧的 `sumOf { it.totalDose.toDouble() }.toFloat()` 用 Float 累加，
+     *   几十条记录就会漂移出 `9.999998` 这种值，显示成 "9.999998 片"。
+     * @return 单位 → 展示值
+     */
+    fun groupByUnit(rows: List<Pair<String, Int>>): Map<String, Float> =
+        rows.groupBy({ it.first }, { it.second })
+            .mapValues { (_, milliList) -> Dose(milliList.sum()).asFloat }
+
     /**
      * 按记录集合汇总实际服药剂量。
      *
@@ -218,6 +316,51 @@ object StatsEngine {
             byDate[d]?.let { acc = acc + it }
         }
         return acc
+    }
+
+    /**
+     * 每周实际排班**天数**（不是时点数）。
+     *
+     * ## 单一实现的意义（M4-1）
+     *
+     * 此前这个公式在 `InventoryViewModel` 与 `MedicationDetailViewModel` 各写一份，
+     * 而详情页那份是坏的（`CYCLE` 写死 5、`INTERVAL` 无下界）。
+     * 两页显示同一个数却用不同公式，是"同一屏数字互相打架"类缺陷的标准成因。
+     *
+     * 各分支的语义：
+     *
+     * | 类型 | 答案 | 理由 |
+     * | :--- | :--- | :--- |
+     * | `DAILY` | 7 | 每天都排 |
+     * | `INTERVAL` | `round(7/n)`，**下限 1** | `n` 是周期天数；`n ≥ 15` 时每周不到 1 天，但**不能是 0** |
+     * | `DAYS_OF_WEEK` | 选中天数 | — |
+     * | `CYCLE` | `round(7·on/(on+off))`，**下限 1** | 「吃 N 停 M」的真实排班密度 |
+     * | `PRN` / 未知 | 0 | 按需服用没有"排班"，日消耗不适用 |
+     *
+     * 下界 1 尤其关键：`INTERVAL` 周期 ≥ 15 天时 `round(7/15) = 0`，
+     * 而 `calculateStockRunwayBySchedule` 见到 0 会**直接返回"无限"** ——
+     * 于是一个账面为负的药在详情页显示"可用 ∞"，且**永不告警**。
+     */
+    fun scheduledDaysPerWeek(
+        type: PolicyType?,
+        intervalDays: Int?,
+        daysOfWeek: List<Int>?,
+        cycleOnDays: Int?,
+        cycleOffDays: Int?
+    ): Int = when (type) {
+        PolicyType.DAILY -> 7
+        PolicyType.INTERVAL -> {
+            val n = (intervalDays ?: 2).coerceAtLeast(1)
+            Math.round(7.0 / n).toInt().coerceAtLeast(1)
+        }
+        PolicyType.DAYS_OF_WEEK -> (daysOfWeek?.size ?: 0).coerceAtLeast(0)
+        PolicyType.CYCLE -> {
+            val on = (cycleOnDays ?: 21).coerceAtLeast(1)
+            val off = (cycleOffDays ?: 7).coerceAtLeast(0)
+            val total = on + off
+            if (total == 0) 0 else Math.max(1, Math.round(7.0 * on / total).toInt())
+        }
+        PolicyType.PRN, null -> 0
     }
 
     /**

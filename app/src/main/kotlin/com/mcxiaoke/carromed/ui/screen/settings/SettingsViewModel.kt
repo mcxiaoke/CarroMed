@@ -139,7 +139,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun inspectBackup(uri: Uri) {
         val app = getApplication<Application>()
         _uiState.value = _uiState.value.copy(isInspectingBackup = true, pendingRestore = null)
-        viewModelScope.launch {
+        // ⚠️ 切到 IO（M5-4）。这条路径做**全量 JSON 解析**，主线程上会让 UI 冻结
+        // 几百毫秒到数秒（备份越大越久），而用户什么都看不到 —— 因为
+        // `isInspectingBackup` 那个转圈此前根本没有任何 UI 消费它。
+        viewModelScope.launch(Dispatchers.IO) {
             val result = DataExporter.inspectBackup(app, uri)
             _uiState.value = _uiState.value.copy(
                 isInspectingBackup = false,
@@ -172,21 +175,30 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _uiState.value = _uiState.value.copy(showLocalBackupPicker = false)
     }
 
+    /**
+     * 解析本机备份文件。
+     *
+     * ⚠️ 切到 IO（M5-4）。旧实现**连 `suspend` 都不是**——直接在主线程读文件 + 解析 JSON。
+     * Uri 路径至少还有 `viewModelScope`（默认 Main），本机路径连那层都没有。
+     * 两条路径现在口径一致。
+     */
     fun inspectLocalBackup(file: java.io.File) {
         _uiState.value = _uiState.value.copy(
             isInspectingBackup = true,
             pendingRestore = null,
             showLocalBackupPicker = false
         )
-        val result = DataExporter.inspectLocalBackup(file)
-        _uiState.value = _uiState.value.copy(
-            isInspectingBackup = false,
-            pendingRestore = result.fold(
-                onSuccess = { it to RestoreSource.FromFile(file) },
-                onFailure = { null }
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = DataExporter.inspectLocalBackup(file)
+            _uiState.value = _uiState.value.copy(
+                isInspectingBackup = false,
+                pendingRestore = result.fold(
+                    onSuccess = { it to RestoreSource.FromFile(file) },
+                    onFailure = { null }
+                )
             )
-        )
-        result.exceptionOrNull()?.let { showRestoreError(it) }
+            result.exceptionOrNull()?.let { showRestoreError(it) }
+        }
     }
 
     private fun showRestoreError(t: Throwable) {

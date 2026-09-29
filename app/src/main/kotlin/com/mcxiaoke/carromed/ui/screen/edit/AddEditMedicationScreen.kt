@@ -408,6 +408,17 @@ fun AddEditMedicationScreen(
     }
 }
 
+/**
+ * 当前时刻的"当天分钟数"，**每次组合现算**。
+ *
+ * 刻意不做成 `remember` 或一个顶层常量（见 M7-4）。判据是**墙上时钟**，
+ * 而墙上时钟会走 —— 把它冻结在组合时刻等于让提示在用户眼皮底下过期。
+ */
+private fun currentMinuteOfDay(): Int {
+    val c = Calendar.getInstance()
+    return c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
+}
+
 @Composable
 private fun LowFrictionTipCard() {
     Surface(
@@ -758,14 +769,17 @@ private fun ReminderPolicyCard(
                     Spacer(Modifier.height(10.dp))
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
-                            value = if (slot.dose % 1f == 0f) slot.dose.toInt().toString() else slot.dose.toString(),
-                            onValueChange = {
-                                viewModel.updateTimeSlot(index, dose = it.toFloatOrNull() ?: 0f)
-                            },
+                            value = slot.dose,
+                            onValueChange = { viewModel.updateTimeSlot(index, doseText = it) },
                             label = { Text("剂量") },
                             modifier = Modifier.width(96.dp),
                             singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            // ⭐ `Decimal` 而不是 `Number`（M2-1）。
+                            // `Number` 键盘在多数 ROM 上**没有小数点键**，
+                            // 于是 0.5 片这类"半片"根本不可录入 —— 用户只能填整数，
+                            // 随后我们还在别处支持 `Dose` 的毫单位精度，自相矛盾。
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            isError = slot.parsedDose() == null
                         )
                         Spacer(Modifier.width(10.dp))
                         OptionDropdown(
@@ -783,23 +797,38 @@ private fun ReminderPolicyCard(
 
         // 若有落在过去的时点，明确告知"今天这一剂会直接算逾期"，
         // 避免用户保存后在今日清单看到刺眼的红色"已逾期"却不知原因。
-        val nowMinutes = remember {
-            val c = Calendar.getInstance()
-            c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
-        }
+        //
+        // ⚠️ `nowMinutes` **不能** `remember` 住（M7-4）。它是"现在几点"，不是"组合时的几点"：
+        // 表单开着不动，跨过某个时点后判据就该变，而 `remember` 把值冻结在首次组合的那一刻，
+        // 于是提示在用户眼里凭空过期/永不出现。同理 `all { isBeforeNow() }` 的
+        // 顺延判定在 VM 里每次现算，两边口径必须一致。
+        val nowMinutes = currentMinuteOfDay()
         val pastSlots = uiState.timeSlots.filter {
             val p = it.time.split(":")
             val m = (p.getOrNull(0)?.toIntOrNull() ?: 0) * 60 + (p.getOrNull(1)?.toIntOrNull() ?: 0)
             m < nowMinutes
         }
         if (pastSlots.isNotEmpty()) {
+            // ⭐ 判据必须与 VM 的顺延规则**逐字对齐**（M7-4）。
+            // VM 是 `timeSlots.all { isBeforeNow() }` 才顺延明天 ——
+            // **任一**时点未过就照常排进今天。
+            // 旧文案只说"这些时点会记为逾期"，可当六个时点里只过了三个时，
+            // 实际行为是**不**顺延、那三个确实逾期；文案让人以为整单被推迟。
+            // 现在按同一个 `all` 判据分成两种说法，用户看到的就是将要发生的事。
+            val allPast = pastSlots.size == uiState.timeSlots.size
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = WarningAmberContainer
             ) {
                 Text(
-                    text = "⏰ ${pastSlots.joinToString("、") { it.time }} 已早于当前时间，" +
-                        "今天这一剂会直接记为逾期。若只想从明天开始提醒，可把时点改到当前时间之后。",
+                    text = if (allPast) {
+                        "⏰ 所有时点（${pastSlots.joinToString("、") { it.time }}）都已早于当前时间，" +
+                            "保存后起始日会自动顺延到明天，今天这一剂不算逾期。"
+                    } else {
+                        "⏰ ${pastSlots.joinToString("、") { it.time }} 已早于当前时间，" +
+                            "保存后这些时点今天这一剂会直接记为逾期。若只想从明天开始提醒，" +
+                            "可把时点改到当前时间之后。"
+                    },
                     modifier = Modifier.padding(12.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = OnWarningAmberContainer,

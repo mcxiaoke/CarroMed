@@ -118,50 +118,61 @@ fun PermissionCheckScreen(onNavigateBack: () -> Unit) {
         ) {
             item {
                 PermissionItemCard(
-                    title = "1. 精确闹钟权限 (Exact Alarm)",
+                    title = "1. 精确闹钟 (Exact Alarm)",
+                    status = PermissionStatus(
+                        text = facts.precision.label,
+                        ok = !facts.precision.isDegraded
+                    ),
                     desc = "决定提醒是「到点必响」还是「系统择机送达」。用药提醒属于" +
                         "《Android 闹钟类应用》标准场景，CarroMed 已声明 USE_EXACT_ALARM，" +
                         "正常安装即自动授予；若这里显示未授权，说明系统把它降级处理了。",
                     icon = Icons.Default.Alarm,
-                    statusText = facts.precision.label,
-                    isGranted = !facts.precision.isDegraded,
-                    actionText = if (facts.needsExactAlarmRequest) "去授权" else null,
-                    onAction = { openExactAlarmSettings(context) }
+                    // ⚠️ 只在**真的降级**时才给按钮。
+                    // 声明了 `USE_EXACT_ALARM` 的应用即使 `canScheduleExactAlarms()`
+                    // 为 true，系统里也**仍然存在** `ACTION_REQUEST_SCHEDULE_EXACT_ALARM`
+                    // 这个 Activity（`resolveActivity` 会返回非 null）——
+                    // 于是"已授权"旁边配一个"去授权"按钮，自相矛盾。
+                    action = if (facts.precision.isDegraded && facts.needsExactAlarmRequest) {
+                        PermissionAction("去授权", { openExactAlarmSettings(context) })
+                    } else {
+                        null
+                    }
                 )
             }
             item {
                 PermissionItemCard(
-                    title = "2. 发送通知权限 (Notification)",
+                    title = "2. 发送通知 (Notification)",
+                    status = PermissionStatus(
+                        text = if (facts.notificationsEnabled) "已授权" else "未授权",
+                        ok = facts.notificationsEnabled
+                    ),
                     desc = "Android 13+ 必须显式允许通知，否则闹钟会照常唤醒但屏幕上什么都不会出现。",
                     icon = Icons.Default.Notifications,
-                    statusText = if (facts.notificationsEnabled) "已授权" else "未授权",
-                    isGranted = facts.notificationsEnabled,
-                    actionText = if (facts.notificationsEnabled) null else "去开启",
-                    onAction = { openNotificationSettings(context) }
+                    action = if (facts.notificationsEnabled) null
+                    else PermissionAction("去开启", { openNotificationSettings(context) })
                 )
             }
             item {
                 PermissionItemCard(
                     title = "3. 忽略电池优化 (Doze 白名单)",
+                    status = PermissionStatus(
+                        text = if (facts.ignoringBatteryOptimizations) "已加入白名单" else "未加入",
+                        ok = facts.ignoringBatteryOptimizations
+                    ),
                     desc = "强烈推荐。防止手机在夜间待机灭屏时冻结后台 AlarmManager。",
                     icon = Icons.Default.BatteryAlert,
-                    statusText = if (facts.ignoringBatteryOptimizations) "已加入白名单" else "未加入",
-                    isGranted = facts.ignoringBatteryOptimizations,
-                    actionText = if (facts.ignoringBatteryOptimizations) null else "去设置",
-                    onAction = { openBatteryOptimizationSettings(context) }
+                    action = if (facts.ignoringBatteryOptimizations) null
+                    else PermissionAction("去设置", { openBatteryOptimizationSettings(context) })
                 )
             }
             item {
                 PermissionItemCard(
                     title = "4. 锁屏显示与后台自启动",
+                    status = PermissionStatus(text = "需手动确认", ok = false),
                     desc = "国内主流厂商（小米/华为/OPPO/vivo/荣耀）需手动在手机管家中开启" +
                         "【自启动】与【锁屏显示】。该项无法通过系统 API 程序化检测，" +
                         "请自行到手机管家确认。",
-                    icon = Icons.Default.Lock,
-                    statusText = "需手动确认",
-                    isGranted = false,
-                    actionText = null,
-                    onAction = null
+                    icon = Icons.Default.Lock
                 )
             }
         }
@@ -233,59 +244,66 @@ private fun openAppDetails(context: Context) {
     }
 }
 
+/** 一项特权的结论。状态文字与"能否点击修复"是**两件事**，必须分开建模。 */
+data class PermissionStatus(val text: String, val ok: Boolean)
+
+/** 一个可点击的修复入口。`null` 表示这一项当前无需用户操作。 */
+data class PermissionAction(val label: String, val onClick: () -> Unit)
+
 @Composable
 fun PermissionItemCard(
     title: String,
+    status: PermissionStatus,
     desc: String,
     icon: ImageVector,
-    statusText: String,
-    isGranted: Boolean,
-    /** 非 null 时渲染跳转按钮（点了能真正改变 [statusText]） */
-    actionText: String? = null,
-    onAction: (() -> Unit)? = null
+    action: PermissionAction? = null
 ) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                }
+            // ⚠️ 标题独占一行，状态文字放到标题**下方**。
+            //
+            // 旧版是「图标 + 标题」与「状态」挤在同一行 `weight(1f)` 里，
+            // 而「1. 精确闹钟权限 (Exact Alarm)」这类标题在 1080px 宽屏上
+            // 必然换行 —— 换行的第二行与状态文字**上下重叠**，
+            // 截图中可见 "Alarm)" 压在状态下面。
+            //
+            // 竖排布局（图标+标题一行 / 状态一行）也更好扫读：
+            // 状态这一列在四张卡片里天然对齐，比"每行左右两端各一个元素"稳。
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
                 Spacer(modifier = Modifier.width(8.dp))
-                // 状态文字本身**始终**显示 —— 即使没有按钮，用户也要知道结论。
-                // 旧实现把它塞进按钮里，于是一个空 `onClick = {}` 的按钮既是
-                // 状态显示也是唯一入口，等于把"不知道"伪装成"知道了"。
                 Text(
-                    text = statusText,
-                    color = if (isGranted) SuccessGreen else WarningAmber,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
                 )
             }
-            if (actionText != null && onAction != null) {
+            Spacer(modifier = Modifier.height(6.dp))
+            // 状态文字**始终**显示 —— 即使没有按钮，用户也要知道结论。
+            // 旧实现把它塞进按钮里，于是一个空 `onClick = {}` 的按钮既是
+            // 状态显示又是唯一入口，等于把"不知道"伪装成"知道了"。
+            Text(
+                text = status.text,
+                color = if (status.ok) SuccessGreen else WarningAmber,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
+            if (action != null) {
                 Spacer(modifier = Modifier.height(10.dp))
                 OutlinedButton(
-                    onClick = onAction,
+                    onClick = action.onClick,
                     shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
                 ) {
-                    Text(actionText, fontSize = 12.sp, maxLines = 1)
+                    Text(action.label, fontSize = 12.sp, maxLines = 1)
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))

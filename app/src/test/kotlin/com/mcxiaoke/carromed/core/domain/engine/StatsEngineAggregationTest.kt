@@ -185,26 +185,54 @@ class StatsEngineAggregationTest {
         assertThat(days).isEqualTo(70)
     }
 
+    /**
+     * 按需服用 ⇒ 没有"日消耗"这个概念 ⇒ 剩余天数**不适用**。
+     *
+     * 旧实现返回 `Int.MAX_VALUE`（= 2147483647）。那是个**合法但荒谬**的整数：
+     * 一旦被算术碰到就溢出，任何消费者也分不清"无限"与"算错了"。
+     * 现在返回显式哨兵 [StatsEngine.RUNWAY_UNLIMITED]（-1），由
+     * [StatsEngine.isRunwayUnlimited] 判定，UI 渲染成「—」。
+     *
+     * 预警仍然触发：用户确实设了 20000（展示值 20）的预警线，
+     * 而账面只有 10 —— 低于自己的阈值就该告警，这与"有没有日消耗"无关。
+     */
     @Test
     fun runwayBySchedule_prnFallsBackToNoConsumption() {
         val (days, alert) = StatsEngine.calculateStockRunwayBySchedule(
             currentStock = 10f,
             dosesPerScheduledDay = 1f,
             scheduledDosesPerWeek = 0,
-            minStockAlert = 20000f
+            minStockAlert = 20f
         )
-        assertThat(days).isEqualTo(Int.MAX_VALUE)
+        assertThat(StatsEngine.isRunwayUnlimited(days)).isTrue()
+        assertThat(days).isEqualTo(StatsEngine.RUNWAY_UNLIMITED)
         assertThat(alert).isTrue()
     }
 
+    /**
+     * 「7 天内必提醒」现在是**显式开关**，默认关闭（决策 E）。
+     *
+     * 旧实现把 `runwayDays <= 7` 写成一条**隐式**规则：用户没设任何阈值也会被告警。
+     * 看不见的告警是"虚假保证"的镜像 —— 他以为自己没设阈值，却总看到红色横幅。
+     */
     @Test
-    fun runwayBySchedule_triggersAlertWithinSevenDays() {
-        val (days, alert) = StatsEngine.calculateStockRunwayBySchedule(
+    fun runwayBySchedule_shortRunwayAlertIsOptIn() {
+        // 默认关闭：剩 5 天不告警（用户没有设任何阈值）
+        val (days, alertOff) = StatsEngine.calculateStockRunwayBySchedule(
             currentStock = 5f,
             dosesPerScheduledDay = 1f,
             scheduledDosesPerWeek = 7
         )
         assertThat(days).isEqualTo(5)
-        assertThat(alert).isTrue()
+        assertThat(alertOff).isFalse()
+
+        // 显式开启：同样 5 天就告警
+        val (_, alertOn) = StatsEngine.calculateStockRunway(
+            currentStock = 5f,
+            dailyEstimatedConsumption = 1f,
+            minStockAlert = 0f,
+            withShortRunwayAlert = true
+        )
+        assertThat(alertOn).isTrue()
     }
 }

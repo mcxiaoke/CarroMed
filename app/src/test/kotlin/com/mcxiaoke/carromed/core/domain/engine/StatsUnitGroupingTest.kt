@@ -28,17 +28,19 @@ import org.junit.Test
  */
 class StatsUnitGroupingTest {
 
-    private data class Row(val medId: Long, val unit: String, val milli: Int)
-
-    /** 与 StatsViewModel 中的分组逻辑保持一致（纯函数，无 Android 依赖） */
-    private fun groupByUnit(rows: List<Row>): Map<String, Float> =
-        rows.groupBy { it.unit }
-            .mapValues { (_, items) -> items.sumOf { it.milli } }
-            .mapValues { (_, milli) -> Dose(milli).asFloat }
+    /**
+     * ⭐ 直接调 [StatsEngine.groupByUnit] —— 生产与测试**共用同一份实现**。
+     *
+     * 旧版这里在测试文件里**重写了一遍** `groupByUnit`，于是把生产代码改回
+     * 跨单位求和的 bug 时，5 条测试全部仍然全绿：守的是影子。
+     * 影子测试比没有测试更危险，它让人以为这条不变量有门禁。
+     */
+    private fun groupByUnit(rows: List<Pair<String, Int>>): Map<String, Float> =
+        StatsEngine.groupByUnit(rows)
 
     @Test
     fun `单一单位时可以给出总量`() {
-        val rows = listOf(Row(1, "片", 30000), Row(2, "片", 20000))
+        val rows = listOf("片" to 30000, "片" to 20000)
         val grouped = groupByUnit(rows)
         assertThat(grouped).hasSize(1)
         assertThat(grouped["片"]).isEqualTo(50f)
@@ -47,9 +49,9 @@ class StatsUnitGroupingTest {
     @Test
     fun `多种单位时分组求和 而不是跨单位相加`() {
         val rows = listOf(
-            Row(1, "片", 30000),   // 30 片
-            Row(2, "ml", 5000),    // 5 ml
-            Row(3, "粒", 12000)    // 12 粒
+            "片" to 30000,   // 30 片
+            "ml" to 5000,    // 5 ml
+            "粒" to 12000    // 12 粒
         )
         val grouped = groupByUnit(rows)
         assertThat(grouped).hasSize(3)
@@ -64,13 +66,26 @@ class StatsUnitGroupingTest {
 
     @Test
     fun `同单位的多个药品会合并到一组`() {
-        val rows = listOf(Row(1, "片", 1000), Row(2, "片", 1500), Row(3, "片", 500))
+        val rows = listOf("片" to 1000, "片" to 1500, "片" to 500)
         assertThat(groupByUnit(rows)).containsExactly("片", 3f)
     }
 
     @Test
     fun `空集合不产生任何单位`() {
         assertThat(groupByUnit(emptyList())).isEmpty()
+    }
+
+    /**
+     * 整数累加不漂移。
+     *
+     * 旧的内联实现是 `sumOf { it.totalDose.toDouble() }.toFloat()` —— Float 累加。
+     * 一屏几十条记录就能漂出 `9.999998`，UI 会把它显示成 "9.999998 片"。
+     * 领域层用 `Int` 毫单位求和（D-7）从根本上消掉这一类误差。
+     */
+    @Test
+    fun `毫单位用 Int 累加 不产生浮点漂移`() {
+        val rows = List(100) { "片" to 100 }   // 100 × 0.1 片 = 10 片
+        assertThat(groupByUnit(rows)["片"]).isEqualTo(10f)
     }
 
     @Test

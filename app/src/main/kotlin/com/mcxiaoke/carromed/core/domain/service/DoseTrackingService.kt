@@ -101,6 +101,13 @@ class DoseTrackingService(private val db: AppDatabase) {
         takenAmount: Float? = null,
         note: String? = null
     ): Boolean = db.withTransaction {
+        // 显式传入的剂量同样必须为正（M2-2）。
+        // 负剂量打卡 = 扣减变成**加**库存，是这条路径上最恶劣的失败模式。
+        // `slot.doseAmount` 那一路不需要校验：它由 `saveReminderPolicy` 的
+        // `require(dose > 0)` 在写入时保证了（那是所有时点剂量的唯一来源）。
+        require(takenAmount == null || (takenAmount > 0f && takenAmount.isFinite())) {
+            "服药剂量必须大于 0，当前 $takenAmount"
+        }
         val slot = slotDao.getSlotById(slotId) ?: return@withTransaction false
         val medication = medDao.getMedicationById(slot.medicationId) ?: return@withTransaction false
 
@@ -244,6 +251,15 @@ class DoseTrackingService(private val db: AppDatabase) {
         note: String? = null,
         deductStock: Boolean = true
     ): Long = db.withTransaction {
+        // ⚠️ 符号防御（M2-2）。服务层是**所有**入口的公共下游：
+        // 补录页、通知栏 Action、未来的 Widget / 手表 / 快捷指令。
+        // 只靠 UI 过滤挡等于"约定只有一种调用方" —— 那一天到来时没人会记得这条约定。
+        //
+        // 负剂量的后果特别恶劣：`-Dose.of(doseAmount)` 是**加**库存，
+        // 于是"补录一次负剂量服药"会凭空给账面加药，且事实记录显示"已服用 -2 片"。
+        require(doseAmount > 0f && doseAmount.isFinite()) {
+            "服药剂量必须大于 0，当前 $doseAmount"
+        }
         val medication = medDao.getMedicationById(medicationId)
             ?: throw IllegalArgumentException("Medication not found: $medicationId")
 
@@ -282,6 +298,13 @@ class DoseTrackingService(private val db: AppDatabase) {
         actualStock: Float,
         note: String? = null
     ): Boolean = db.withTransaction {
+        // 实测库存可以是 0（用完了），但**不能是负数**（M2-2）。
+        // 负的"实物"在物理上不存在，而它与账面的差额会被写成一条调增流水，
+        // 于是凭空给账面加药 —— 与负剂量同一类危害。
+        // 注意这里**不**要求 `> 0`：0 是合法的"刚好用完"。
+        require(actualStock >= 0f && actualStock.isFinite()) {
+            "实测库存不能为负数，当前 $actualStock"
+        }
         val medication = medDao.getMedicationById(medicationId) ?: return@withTransaction false
         val currentBalance = balanceOf(medicationId)
         val delta = Dose.of(actualStock) - Dose(currentBalance)
@@ -351,6 +374,12 @@ class DoseTrackingService(private val db: AppDatabase) {
         batchNumber: String? = null,
         expiryDate: String? = null
     ): Boolean = db.withTransaction {
+        // "入库"量必须为正（M2-2）。负数入库 = 记一笔 REFILL 却让账面**减少** ——
+        // 台账上写着"采购入库补货"，金额是负的，事后没人能看出发生过什么。
+        // 0 同样拒绝：一条零额流水没有任何信息量。
+        require(addedAmount > 0f && addedAmount.isFinite()) {
+            "入库数量必须大于 0，当前 $addedAmount"
+        }
         val medication = medDao.getMedicationById(medicationId) ?: return@withTransaction false
 
         val balanceAfter = balanceOf(medicationId) + Dose.of(addedAmount).milli
@@ -476,17 +505,25 @@ class DoseTrackingService(private val db: AppDatabase) {
         // 已 COMPLETED / SKIPPED / EXPIRED 的是既成事实，其剂量必须与
         // 对应的 `dose_records` 一致，动它就是改历史。
         val existingByKey = existing.associateBy { slotKey(it.scheduledDate, it.scheduledTime) }
-        val staleDose = projectedSlots.mapNotNull { projected ->
+        val staleDerived = projectedSlots.mapNotNull { projected ->
             val old = existingByKey[slotKey(projected.scheduledDate, projected.scheduledTime)]
                 ?: return@mapNotNull null
             if (old.status != SlotStatus.PENDING && old.status != SlotStatus.SNOOZED) return@mapNotNull null
-            if (old.doseAmount == projected.doseAmount && old.policyId == projected.policyId) {
+            if (old.doseAmount == projected.doseAmount &&
+                old.policyId == projected.policyId &&
+                old.scheduledTs == projected.scheduledTs
+            ) {
                 return@mapNotNull null
             }
-            Triple(old.id, projected.doseAmount, projected.policyId)
+            StaleDerived(old.id, projected.doseAmount, projected.policyId, projected.scheduledTs)
         }
-        staleDose.forEach { (id, doseMilli, policyId) ->
-            slotDao.updateDerivedColumns(id, doseMilli, policyId)
+        staleDerived.forEach {
+            slotDao.updateDerivedColumns(
+                slotId = it.slotId,
+                doseMilli = it.doseMilli,
+                policyId = it.policyId,
+                scheduledTs = it.scheduledTs
+            )
         }
 
         // ---- 插：新增的 ----
@@ -503,6 +540,20 @@ class DoseTrackingService(private val db: AppDatabase) {
 
     /** 槽位的业务唯一键，与 `dose_slots` 的 UNIQUE 索引定义保持一致 */
     private fun slotKey(date: String, time: String): String = "$date $time"
+
+    /**
+     * 一次 `updateDerivedColumns` 的入参。
+     *
+     * 提成 data class 而不是继续用 `Triple`：Triple 的三个位置在下一次
+     * 加第四列时会静默**接错位**（编译器不会报错，因为类型都是 Long/Int 的组合），
+     * 而这四个值每一个接错都意味着"改剂量时把时间戳写成了策略 id"。
+     */
+    private data class StaleDerived(
+        val slotId: Long,
+        val doseMilli: Int,
+        val policyId: Long,
+        val scheduledTs: Long
+    )
 
     // ==================== 工具 ====================
 

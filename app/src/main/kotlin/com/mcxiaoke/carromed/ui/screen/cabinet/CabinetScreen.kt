@@ -1,4 +1,6 @@
 package com.mcxiaoke.carromed.ui.screen.cabinet
+import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
+import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -282,6 +284,10 @@ fun CabinetMedCard(
 ) {
     val med = item.medication
     val stock = item.stock
+    // 暂停徽标是**墙上时钟**驱动的：跨过恢复日而进程仍活着时，
+    // 它必须自动消失（药其实早已恢复提醒）。直接调 `LocalDate.now()` 能拿到新值，
+    // 但**不会**触发重组 —— 那正是 M3-4 这个 bug 的原形。
+    val today by CurrentDateHolder.today.collectAsStateWithLifecycle(LocalDate.now())
     val medColor = med.colorHex.let {
         runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
     } ?: MaterialTheme.colorScheme.primary
@@ -339,7 +345,11 @@ fun CabinetMedCard(
                 )
                 // 暂停说明由 ReminderSettingsEntity 统一生成（含"N 天后恢复"），
                 // 不要在 UI 里重写一遍日期比较 —— 两处实现必然漂移。
-                val pauseText = item.overview.pauseDescription(LocalDate.now())
+                //
+                // ⚠️ "今天"取 [CurrentDateHolder.today]（M3-4）：它是墙上时钟驱动的，
+                // 跨过恢复日而进程仍活着时，`LocalDate.now()` 之外的任何缓存都会
+                // 让徽标停留在「已暂停，N 天后恢复」，而药其实早已恢复提醒。
+                val pauseText = item.overview.pauseDescription(today)
                 if (pauseText != null) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Surface(
@@ -362,7 +372,10 @@ fun CabinetMedCard(
                 // `medication.minStockAlert`（那是整数毫单位）。
                 // 直接比较会让 50 片 <= 15000 恒成立，导致**每个药都误报低库存**。
                 val alert = item.overview.minStockAlert
-                val isLow = stock <= alert && alert > 0f
+                // 判据走 StatsEngine 的唯一实现（M4-1）。本页原先自己写
+                // `stock <= alert && alert > 0f`，而补药页写的是 `stock <= alert` ——
+                // 五页各写一份，差异就在这些"看起来一样"的地方。
+                val isLow = StatsEngine.isLowStock(med.isStockTracked, stock, alert)
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = if (isLow) WarningAmberContainer

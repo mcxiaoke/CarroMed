@@ -35,7 +35,7 @@ interface DoseSlotDao {
     suspend fun update(slot: DoseSlotEntity)
 
     /**
-     * 同步**可从投影完全派生**的两列：剂量与所属策略。
+     * 同步**可从投影完全派生**的三列：剂量、所属策略、计划时间戳。
      *
      * ## 为什么必须存在
      *
@@ -49,11 +49,26 @@ interface DoseSlotDao {
      * 改「服药时刻」不受影响（key 变化 ⇒ 删旧插新 ⇒ 剂量自然新），
      * 漏的恰恰是「时刻不变、剂量变了」这条最高频的路径。
      *
-     * ## 为什么只写这两列
+     * ## `scheduled_ts` 为什么也在其中（M3-1）
      *
-     * 它们是投影的**纯函数输出** —— 只要当前策略是权威的，写回就是幂等的。
-     * 其余列（`status` / `actual_taken_ts` / `snooze_until_ts` / `scheduled_ts`）
-     * 要么是事实、要么由其它命令管理，混进这里就会让对账**重置用户操作**。
+     * 改「服药时刻」会换 key，所以 diff 天然会删旧插新 —— 这掩盖了一个更深的洞：
+     * **`scheduled_ts` 是投影的纯函数输出**，`epochMilli = LocalDateTime.of(date, time).atZone(zoneId)`。
+     * 它依赖 `zoneId`，而时区是会变的。
+     *
+     * 旧实现只写 `dose_amount` / `policy_id`，于是改时区后：
+     * diff 命中"留"分支 ⇒ 新时区算出来的 epoch 被**丢弃** ⇒
+     * 用户从北京飞到纽约，「每天 08:00」继续按**北京时间**响。
+     *
+     * 全工程没有任何一条 UPDATE 写这一列，所以它此前是"创建时冻结"的。
+     * 加上它之后同区重算结果相同（天然幂等），
+     * 而 `DoseSlotDstServiceTest` 的 DST 语义也不受影响 ——
+     * DST 是**同一天内**的时刻漂移，diff 命中"留"分支时同样需要重算。
+     *
+     * ## 为什么只写这三列
+     *
+     * 它们是投影的**纯函数输出** —— 只要当前策略与当前时区是权威的，写回就是幂等的。
+     * 其余列（`status` / `actual_taken_ts` / `snooze_until_ts`）
+     * 是事实、由其它命令管理，混进这里就会让对账**重置用户操作**。
      *
      * `status IN ('PENDING','SNOOZED')` 的守卫写在 SQL 里而不是调用方 ——
      * 与 [markCompletedIfOpen] / [markSkippedIfOpen] 同一套风格，
@@ -64,11 +79,16 @@ interface DoseSlotDao {
     @Query(
         """
         UPDATE dose_slots
-        SET dose_amount = :doseMilli, policy_id = :policyId
+        SET dose_amount = :doseMilli, policy_id = :policyId, scheduled_ts = :scheduledTs
         WHERE id = :slotId AND status IN ('PENDING', 'SNOOZED')
         """
     )
-    suspend fun updateDerivedColumns(slotId: Long, doseMilli: Int, policyId: Long): Int
+    suspend fun updateDerivedColumns(
+        slotId: Long,
+        doseMilli: Int,
+        policyId: Long,
+        scheduledTs: Long
+    ): Int
 
     /** 幂等 diff 的"删"步骤：只删真正不再被投影命中的槽位 */
     @Query("DELETE FROM dose_slots WHERE id IN (:ids)")
@@ -76,6 +96,37 @@ interface DoseSlotDao {
 
     @Query("SELECT * FROM dose_slots WHERE id = :id")
     suspend fun getSlotById(id: Long): DoseSlotEntity?
+
+    /**
+     * 按**业务键**取开放槽位的 id。
+     *
+     * ## 为什么需要它（M5-1）
+     *
+     * 闹钟身份是内容寻址的 `carromed://alarm/{medId}/{date}/{time}/{kind}`，
+     * 而 `dose_slots.id` 是**会变**的：备份恢复用备份里的 id 覆盖当前库。
+     * 于是"恢复前排下的闹钟"带着旧 id、"恢复后的库"用新 id，两边 id 空间交叠。
+     *
+     * `AlarmReceiver` 若按 extras 里的 slotId 反查，就会**取到另一个槽位** ——
+     * 给完全不相干的药发提醒。所以它改为按 `(medId, date, time)` 反查。
+     *
+     * 顺带解决第二个问题：槽位已被打卡/结算时返回 `null`，
+     * Receiver 直接静默返回，不需要再单独查一次状态。
+     */
+    @Query(
+        """
+        SELECT id FROM dose_slots
+        WHERE medication_id = :medicationId
+          AND scheduled_date = :scheduledDate
+          AND scheduled_time = :scheduledTime
+          AND status IN ('PENDING', 'SNOOZED')
+        LIMIT 1
+        """
+    )
+    suspend fun findOpenSlotId(
+        medicationId: Long,
+        scheduledDate: String,
+        scheduledTime: String
+    ): Long?
 
     @Query("SELECT * FROM dose_slots WHERE id = :id")
     fun observeSlotById(id: Long): Flow<DoseSlotEntity?>
@@ -244,16 +295,35 @@ interface DoseSlotDao {
         endDate: String
     ): Flow<List<SlotStatusCountRow>>
 
-    /** 统计报表 / 详情页依从率用的一次性聚合查询 */
+    /**
+     * 统计报表 / 详情页依从率用的一次性聚合查询。
+     *
+     * ## 归档过滤（决策 E / M4-3）
+     *
+     * **已归档的药品不进分母。** 此前这个查询没有归档过滤，而排行榜与
+     * "在服药品数"都只算 active —— 同一屏的数字来自**两个不同的集合**：
+     * 药已停用三个月，它的旧槽位仍然把统计页的依从率往下拉，
+     * 而用户在同一屏看到的"在服药品 2 种"告诉他只剩两种药在吃。
+     *
+     * 用 INNER JOIN 而不是 `NOT IN (归档 id 列表)`：归档判定住在 `medications` 表里，
+     * JOIN 让"什么算 active"只有**一个**定义（`is_archived = 0`），
+     * 不会与 `getActiveOverviews` 的口径各写一份然后漂移。
+     *
+     * ⚠️ 这与 [observeSlotStatusCounts]（进展页打卡矩阵）**故意不同** ——
+     * 那张矩阵要展示全部历史，包括已归档的药（用户要看到"我过去吃了什么"）。
+     * 两处口径不同是**有意的**，不是遗漏。
+     */
     @Query(
         """
-        SELECT medication_id AS medId,
-               scheduled_date AS date,
-               status AS status,
+        SELECT s.medication_id AS medId,
+               s.scheduled_date AS date,
+               s.status AS status,
                COUNT(*) AS cnt
-        FROM dose_slots
-        WHERE scheduled_date BETWEEN :startDate AND :endDate
-        GROUP BY medication_id, scheduled_date, status
+        FROM dose_slots s
+        INNER JOIN medications m ON m.id = s.medication_id
+        WHERE s.scheduled_date BETWEEN :startDate AND :endDate
+          AND m.is_archived = 0
+        GROUP BY s.medication_id, s.scheduled_date, s.status
         """
     )
     suspend fun getSlotStatusCounts(
@@ -263,6 +333,39 @@ interface DoseSlotDao {
 
     @Query("SELECT * FROM dose_slots WHERE status IN ('PENDING', 'SNOOZED') ORDER BY scheduled_ts ASC")
     suspend fun getOpenSlots(): List<DoseSlotEntity>
+
+    /**
+     * 「已产生结论」且**药品未归档**的槽位总数，**只作为变化探针**。
+     *
+     * ## 它解决的是"统计页不刷新"（M4-2）
+     *
+     * 统计页的依从率全部来自 `dose_slots`、累计用量来自 `dose_records`，
+     * 而 `StatsViewModel` 的 `combine` 只挂了「药品概览」——
+     * 那张表在打卡 / 跳过 / 结算时**一行都不变**，于是 Flow 不发射、数字不刷新。
+     *
+     * 与其把按周期变化的聚合查询接进 `combine`（区间会随周期变，Flow 要重建），
+     * 不如挂一句与周期无关的 `COUNT(*)`：它只负责"有事发生了，叫醒 combine"，
+     * 真正的读取仍由调用方按当前周期自己做。
+     *
+     * ## 为什么带 `is_archived = 0`
+     *
+     * 归档这个动作**不改任何槽位状态**，所以只数状态的探针看不到它 ——
+     * 用户归档一个药，统计页的依从率立刻就该变（该药不再计入分母），
+     * 而探针不会发射。JOIN 上 `medications` 让"归档"也成为一个可被观察到的事件。
+     *
+     * 只数**已产生结论**的：PENDING/SNOOZED 会随 14 天窗口每天新增，
+     * 那样每次对账都触发一次无谓的重新聚合。
+     */
+    @Query(
+        """
+        SELECT COUNT(*)
+        FROM dose_slots s
+        INNER JOIN medications m ON m.id = s.medication_id
+        WHERE s.status IN ('COMPLETED', 'SKIPPED', 'EXPIRED')
+          AND m.is_archived = 0
+        """
+    )
+    fun observeDecidedSlotCount(): Flow<Int>
 
     /**
      * 取出"计划时间已经过去、仍开放"的槽位，供对账器结算为 `EXPIRED`。

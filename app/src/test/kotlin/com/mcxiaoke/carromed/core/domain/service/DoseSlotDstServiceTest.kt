@@ -1,4 +1,5 @@
 package com.mcxiaoke.carromed.core.domain.service
+import com.mcxiaoke.carromed.core.data.model.SlotStatus
 
 import android.content.Context
 import androidx.room.Room
@@ -156,33 +157,105 @@ class DoseSlotDstServiceTest {
     }
 
     /**
-     * 同一批日历日期，换一个时区重算会得到**不同**的瞬时 ——
-     * 而 `reconcileSchedule` 不会去改既有行。
+     * 换时区后，已物化的开放槽位的 `scheduled_ts` **必须重算**（M3-1）。
      *
-     * ⚠️ 这条测试**不是在说这是正确行为**，它是在把当前的真实行为钉住，
-     * 因为这个行为有一个尚未处理的产品后果（见下面的 KDoc）。
-     * 如果将来决定处理出差跨时区，这条会红，届时应当**改名**成断言新行为，
-     * 而不是把断言反过来。
+     * ## 这条测试改过方向
+     *
+     * 它原本叫「当前行为 换时区重算不会改写既有槽位（已知限制 非正确性断言）」，
+     * KDoc 里写着"如果将来决定处理出差跨时区，这条会红，届时应当**改名**成断言新行为，
+     * 而不是把断言反过来"。现在就是那个"将来"，所以按它自己写的规矩改成了新断言。
+     *
+     * ## 旧行为为什么是 P1 缺陷
+     *
+     * `scheduled_ts` 是投影的纯函数输出：
+     * `epoch = LocalDateTime.of(scheduled_date, scheduled_time).atZone(zoneId)`。
+     * 它依赖 `zoneId`，而**时区会变**（出差、跨时区、飞行）。旧实现只同步
+     * `dose_amount` / `policy_id`，全工程没有任何一条 UPDATE 写这一列，
+     * 于是它在创建时被永久冻结。
+     *
+     * 幂等 diff 的键是**日历** `(scheduled_date, scheduled_time)`，命中"留"分支，
+     * 新时区算出来的 epoch 被直接**丢弃** ⇒
+     * 用户从北京飞到纽约，「每天 08:00」继续按**北京时间**响。
+     *
+     * 这条测试现在断言的正是"新时区的瞬时被写进去了"，
+     * 并且用 `asTokyo` 作为**独立计算的期望值**（不是复用被测代码），
+     * 避免又一次变成影子断言。
      */
     @Test
-    fun `当前行为 换时区重算不会改写既有槽位（已知限制 非正确性断言）`() = runTest {
+    fun `换时区后 开放槽位的 scheduled_ts 必须按新时区重算`() = runTest {
         val from = springForward.minusDays(1)
         val medId = dailyMedication(from)
         tracking.reconcileSchedule(medId, from, springForward.plusDays(1), zoneId = newYork)
         val inNewYork = slotsOf(medId).associate { it.scheduledDate to it.scheduledTs }
+        assertThat(inNewYork).isNotEmpty()
 
         // 用户"飞"到东京，用东京时区重算
         val tokyo = ZoneId.of("Asia/Tokyo")
         tracking.reconcileSchedule(medId, from, springForward.plusDays(1), zoneId = tokyo)
         val afterTokyo = slotsOf(medId).associate { it.scheduledDate to it.scheduledTs }
 
-        // 槽位集合（日期）与时间戳都没变
+        // 日历键不变（槽位身份是"哪天的哪个时点"，与时区无关）
         assertThat(afterTokyo.keys).isEqualTo(inNewYork.keys)
-        assertThat(afterTokyo).isEqualTo(inNewYork)
-        // 而如果当初按东京时区算，瞬时本该差 13/14 小时 —— 说明时区确实是有意义的输入
+        // ⭐ 瞬时被重算：对每一天都用**独立算出的**东京时区期望值比对。
+        // 期望值在这里现算（`LocalDateTime.of(...).atZone(tokyo)`），
+        // 不是从被测方法里取的 —— 否则就是自己和自己比。
+        afterTokyo.forEach { (dateStr, actualTs) ->
+            val date = LocalDate.parse(dateStr)
+            val expectedTs = date.atTime(LocalTime.of(8, 0))
+                .atZone(tokyo).toInstant().toEpochMilli()
+            assertThat(actualTs).isEqualTo(expectedTs)
+        }
+        // 旧值确实变了（东京比纽约快 13/14 小时），证明这条不是恒真
         val date = from
-        val asTokyo = date.atTime(LocalTime.of(8, 0)).atZone(tokyo).toInstant().toEpochMilli()
-        assertThat(inNewYork.getValue(date.toString())).isNotEqualTo(asTokyo)
+        assertThat(afterTokyo.getValue(date.toString()))
+            .isNotEqualTo(inNewYork.getValue(date.toString()))
+    }
+
+    /**
+     * **同区**重算是幂等的：值不变。
+     *
+     * 这是 M3-1 修复必须满足的另一半 —— 若"任何时候都重算 ts"导致
+     * 每次对账都改写 `scheduled_ts`，而 `scheduled_ts` 正是过期判定与闹钟注册的依据，
+     * 那么同一次对账里的读-写就会打架。
+     * 投影在同区给出**相同**的 epoch，所以"值相同 ⇒ 不写"这条短路自然成立。
+     */
+    @Test
+    fun `同区重对账 ts 不变（重算是幂等的）`() = runTest {
+        val from = springForward.minusDays(1)
+        val medId = dailyMedication(from)
+        tracking.reconcileSchedule(medId, from, springForward.plusDays(1), zoneId = newYork)
+        val first = slotsOf(medId).associate { it.id to it.scheduledTs }
+
+        repeat(3) {
+            tracking.reconcileSchedule(medId, from, springForward.plusDays(1), zoneId = newYork)
+        }
+        val after = slotsOf(medId).associate { it.id to it.scheduledTs }
+
+        // id 与时间戳都一模一样
+        assertThat(after).isEqualTo(first)
+    }
+
+    /**
+     * 已产生结论的槽位**不**重算 `scheduled_ts`。
+     *
+     * 过期判定与"这条是否还算待办"都依赖它，事后改写会让历史事实的呈现随对账漂移。
+     * `updateDerivedColumns` 的 `status IN ('PENDING','SNOOZED')` 守卫守着这条。
+     */
+    @Test
+    fun `已产生结论的槽位不被重算 ts（历史事实不随对账漂移）`() = runTest {
+        val from = springForward.minusDays(1)
+        val medId = dailyMedication(from)
+        tracking.reconcileSchedule(medId, from, springForward.plusDays(1), zoneId = newYork)
+        val target = slotsOf(medId).first()
+        db.doseSlotDao().markCompletedIfOpen(target.id, actualTs = 1L)
+        val tsBefore = db.doseSlotDao().getSlotById(target.id)!!.scheduledTs
+
+        val tokyo = ZoneId.of("Asia/Tokyo")
+        tracking.reconcileSchedule(medId, from, springForward.plusDays(1), zoneId = tokyo)
+
+        val after = db.doseSlotDao().getSlotById(target.id)!!
+        assertThat(after.status).isEqualTo(SlotStatus.COMPLETED)
+        assertThat(after.scheduledTs).isEqualTo(tsBefore)
     }
 
     // ================================================================

@@ -97,15 +97,27 @@ data class ReminderSettingsBackup(
 )
 
 @Serializable
-data class SchedulePolicyBackup(
-    val id: Long,
+data class SchedulePolicyBackup(    val id: Long,
     val medicationId: Long,
     val policyType: PolicyType = PolicyType.DAILY,
     val intervalDays: Int = 1,
     /** 1 = 周一 .. 7 = 周日 */
     val daysOfWeek: List<Int> = emptyList(),
-    val cycleOnDays: Int = 0,
-    val cycleOffDays: Int = 0,
+    /**
+     * 周期用药的"服药天数"。
+     *
+     * 默认值**不是** 0 而是 [DEFAULT_CYCLE_ON_DAYS]（21）：`cycleOnDays = 0`
+     * 在 [com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine] 里被
+     * `coerceAtLeast(1)` 夹成 1，于是「吃 0 天停 N 天」=
+     * **每天都吃药**（`totalCycle = 1`，`cycleDay % 1 = 0 < 1` 恒真）——
+     * 「吃 21 停 7」的疗程会**静默变成每天吃**（M5-8）。
+     *
+     * 用 kotlinx.serialization 的 `decodeDefaults` 语义时，**缺字段**会取这里的默认值；
+     * 旧版本备份里显式写的 `0` 仍要靠 [DataExporter.restoreBackup] 的回退处理，
+     * 两处都设才完整。
+     */
+    val cycleOnDays: Int = BackupDefaults.CYCLE_ON_DAYS,
+    val cycleOffDays: Int = BackupDefaults.CYCLE_OFF_DAYS,
     val startDate: String,
     val endDate: String? = null,
     val isActive: Boolean = true,
@@ -160,7 +172,21 @@ data class InventoryTransactionBackup(
     val recordId: Long? = null,
     @SerialName("changeAmountMilli") val changeAmount: Int = 0,
     @SerialName("balanceAfterMilli") val balanceAfter: Int = 0,
-    val txType: TransactionType,
+    /**
+     * 流水类型。**必须有默认值**（N10）。
+     *
+     * `DataExporter` 配了 `coerceInputValues = true`，KDoc 承诺
+     * 「读到未知枚举值时降级为默认值……宁可少一个字段，也不能恢复不成功」。
+     * 但 `coerceInputValues` 只处理**值无法识别**，救不了**键缺失**：
+     * 一份手工编辑过、漏了 `txType` 的备份会以 `MissingFieldException`
+     * 整份解码失败，用户只看到"不是有效的 CarroMed 备份文件"——
+     * 而 KDoc 承诺过这种情况会降级。承诺与行为不一致比没有承诺更糟。
+     *
+     * 同文件的 `policyType` / `status` 都有默认值，唯独它没有。
+     * 默认取 `TAKEN_DEDUCT`（"服药扣减"）是最常见的一类，
+     * 且 `BackupResilienceTest` 会钉住"缺 txType 的备份仍能恢复"。
+     */
+    val txType: TransactionType = TransactionType.TAKEN_DEDUCT,
     val note: String? = null,
     val batchNumber: String? = null,
     val expiryDate: String? = null,

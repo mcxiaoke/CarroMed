@@ -9,7 +9,9 @@ import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.MedicationOverview
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
+import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -71,9 +73,26 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
     private val medDao = db.medicationDao()
     private val recordDao = db.doseRecordDao()
 
+    /**
+     * 用户当前正在查看的日期。
+     *
+     * ⚠️ **不是** [CurrentDateHolder.today] 的别名，而是**用户的选择**。
+     * 两者必须分开：用户可以翻到昨天、前天看历史（那正是本功能），
+     * 跨过午夜时不该把他的选择强制拉回今天。
+     */
     private val _selectedDate = MutableStateFlow(LocalDate.now())
 
     init {
+        // 跨午夜时把选择**夹回**今天（M3-2）。不是"重置"：若用户正在看历史就保持原样，
+        // 只有选中日期已经**落在未来**（只有跨日才可能发生）时才拉回今天。
+        // 直接重置会把正在看历史的用户莫名其妙地弹回今天。
+        viewModelScope.launch {
+            CurrentDateHolder.today.collect { realToday ->
+                val current = _selectedDate.value
+                if (current > realToday) _selectedDate.value = realToday
+            }
+        }
+
         viewModelScope.launch {
             // 冷启动按当前策略补齐未来排班 + 重排闹钟。
             // 刻意**不播种任何演示数据**：首次启动必须是干净空库，
@@ -89,6 +108,10 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
     val uiState: StateFlow<TodayUiState> = combine(
         _selectedDate,
+        // "今天"参与 combine（M3-2）：跨午夜后即使 `_selectedDate` 被夹回今天，
+        // 页面标题、日期选择器、告警文案都需要跟着重算。
+        // 少了这个源，跨夜后标题仍显示昨天的日期字符串。
+        CurrentDateHolder.today,
         medDao.observeActiveOverviews(),
         _selectedDate.flatMapLatest { date ->
             val dateStr = date.format(SlotProjectionEngine.DATE_FORMATTER)
@@ -97,7 +120,7 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         db.appSettingDao().observeValue(
             com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES
         )
-    ) { selectedDate, overviews, slots, snoozeSetting ->
+    ) { selectedDate, _, overviews, slots, snoozeSetting ->
         val medMap = overviews.associateBy { it.id }
 
         val pending = mutableListOf<DoseSlotItem>()
@@ -135,8 +158,9 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // 低库存告急检测：返回全部告急药品（此前只取第一个，多药告警时会被静默吞掉）
+        // 判据走 StatsEngine 的唯一实现，避免与药箱/详情/库存/补药页漂移（M4-1）
         val lowStock = overviews.filter {
-            it.isStockTracked && it.minStockAlert > 0f && it.stock <= it.minStockAlert
+            StatsEngine.isLowStock(it.isStockTracked, it.stock, it.minStockAlert)
         }
 
         val weekDates = (-3L..3L).map { selectedDate.plusDays(it) }

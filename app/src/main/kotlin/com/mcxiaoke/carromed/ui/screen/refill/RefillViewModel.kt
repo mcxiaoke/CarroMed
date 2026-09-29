@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
+import com.mcxiaoke.carromed.ui.component.DecimalInput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,7 +59,7 @@ class RefillViewModel(
 
     fun onAddAmountChange(amt: String) {
         _uiState.value = _uiState.value.copy(
-            addAmount = amt.filter { it.isDigit() || it == '.' },
+            addAmount = DecimalInput.filter(amt),
             error = null
         )
     }
@@ -78,8 +79,8 @@ class RefillViewModel(
 
     fun confirmRefill(onSuccess: () -> Unit) {
         val s = _uiState.value
-        val amt = s.addAmount.toFloatOrNull()
-        if (amt == null || amt <= 0f) {
+        val amt = DecimalInput.parsePositive(s.addAmount)
+        if (amt == null) {
             _uiState.value = s.copy(error = "请输入大于 0 的入库数量")
             return
         }
@@ -87,28 +88,43 @@ class RefillViewModel(
             _uiState.value = s.copy(error = "有效期格式应为 yyyy-MM-dd")
             return
         }
+        // 双击保护与另两个表单同一条纪律（M2-4）
+        if (s.isSaving) return
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
             // 复用领域层的入库路径，而不是自己重写一遍内联事务 ——
             // 内联版本曾直接调 updateStock 改账面（现已不存在该 API），
             // 而重复实现本身就是两处逻辑漂移的来源。
-            val ok = trackingService.refillStock(
-                medicationId = medId,
-                addedAmount = amt,
-                note = buildString {
-                    append("采购入库 (${s.channel})")
-                    if (s.note.isNotBlank()) append(" · ${s.note}")
-                },
-                batchNumber = s.batchNumber.ifBlank { null },
-                expiryDate = s.expiryDate.ifBlank { null }
-            )
+            //
+            // ⚠️ 整条链包 runCatching（M2-3）：药品被删 / 领域层 require 拒绝时
+            // 未捕获的异常会崩到主线程，且 `isSaving` 永久停在 true。
+            val ok = runCatching {
+                trackingService.refillStock(
+                    medicationId = medId,
+                    addedAmount = amt,
+                    note = buildString {
+                        append("采购入库 (${s.channel})")
+                        if (s.note.isNotBlank()) append(" · ${s.note}")
+                    },
+                    batchNumber = s.batchNumber.ifBlank { null },
+                    expiryDate = s.expiryDate.ifBlank { null }
+                )
+            }.getOrElse { t ->
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = "入库失败：${t.message ?: t::class.java.simpleName}"
+                )
+                return@launch
+            }
             if (!ok) {
                 _uiState.value = _uiState.value.copy(isSaving = false, error = "药品已不存在，入库未执行")
                 return@launch
             }
-            // 入库即自动开启库存追踪（此前需用户手工在表单里填初始库存才开）
-            trackingService.setStockTracking(medId, true)
+            // 入库即自动开启库存追踪（此前需用户手工在表单里填初始库存才开）。
+            // ⚠️ **必须传 initialStock = null**（M2-5）：本页面停留期间可能已发生打卡扣减，
+            // 传页面上的陈旧余额会把它当"用户声明的初始库存"写回账面，凭空多出一份。
+            runCatching { trackingService.setStockTracking(medId, true, initialStock = null) }
             _uiState.value = _uiState.value.copy(isSaving = false)
             onSuccess()
         }

@@ -3,6 +3,7 @@ package com.mcxiaoke.carromed.core.alarm
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
@@ -32,19 +33,38 @@ class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != AlarmScheduler.ACTION_DOSE_ALARM) return
-        val slotId = intent.getLongExtra(AlarmScheduler.EXTRA_SLOT_ID, -1L)
         val kind = AlarmScheduler.Kind.fromCode(intent.data?.lastPathSegment)
-        if (slotId <= 0) {
-            Log.w("AlarmReceiver", "missing slotId, uri=${intent.data}")
+
+        // ⭐ 按**业务键**（medId + date + time）反查槽位，而不是 extras 里的 slotId（M5-1）。
+        //
+        // 闹钟身份本来就是内容寻址的 `carromed://alarm/{medId}/{date}/{time}/{kind}`，
+        // 而 `dose_slots.id` 是**会变**的：备份恢复会用备份里的 id 覆盖当前库，
+        // 于是"恢复前排的闹钟"带着旧 id、"恢复后的库"用新 id，两边交叠。
+        // 按 slotId 反查就会**取到另一个槽位** ⇒ 给错药发提醒。
+        //
+        // `slot.id` 只在找到槽位之后用于取记录；extras 里的 slotId 干脆不再信任
+        // （`filterEquals` 不看 extras，它本来就只是给人看的）。
+        val key = parseAlarmKey(intent.data)
+        if (key == null) {
+            Log.w("AlarmReceiver", "unparseable alarm uri=${intent.data}")
             return
         }
-        Log.i("AlarmReceiver", "dose alarm fired, slotId=$slotId kind=$kind")
+        Log.i("AlarmReceiver", "dose alarm fired, key=$key kind=$kind")
 
         val appContext = context.applicationContext
         val result = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val db = AppDatabase.getInstance(appContext)
+                val slotId = db.doseSlotDao().findOpenSlotId(
+                    medicationId = key.medicationId,
+                    scheduledDate = key.date,
+                    scheduledTime = key.time
+                )
+                if (slotId == null) {
+                    Log.i("AlarmReceiver", "skip: no open slot for $key (已打卡/已结算/已删除)")
+                    return@launch
+                }
                 val slot = db.doseSlotDao().getSlotById(slotId)
                 Log.i("AlarmReceiver", "slot loaded: $slot")
                 if (slot == null || (slot.status != SlotStatus.PENDING && slot.status != SlotStatus.SNOOZED)) {
@@ -81,5 +101,27 @@ class AlarmReceiver : BroadcastReceiver() {
                 result.finish()
             }
         }
+    }
+
+    /**
+     * 解析 `carromed://alarm/{medId}/{date}/{time}/{kind}`。
+     *
+     * **生产代码与测试共用**这一份解析 —— 测试自己再写一遍就守不到影子。
+     * 解析失败返回 `null`（宁可不响，也不要响给错的人）。
+     */
+    data class AlarmKey(val medicationId: Long, val date: String, val time: String)
+
+    fun parseAlarmKey(uri: Uri?): AlarmKey? {
+        if (uri == null) return null
+        val segments = uri.pathSegments
+        // carromed://alarm/a/b/c/d ⇒ pathSegments = [a, b, c, d]（authority 被去掉）
+        if (segments.size < 4) return null
+        return runCatching {
+            AlarmKey(
+                medicationId = segments[0].toLong(),
+                date = segments[1],
+                time = segments[2]
+            )
+        }.getOrNull()?.takeIf { it.medicationId > 0 }
     }
 }

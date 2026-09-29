@@ -94,6 +94,9 @@ tasks.withType<Test>().configureEach {
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    // 进程级生命周期（ON_START/ON_STOP）—— "今天是几号" 的前台翻转检测依赖它。
+    // 不用它就得自己数 Activity 引用 / 猜前台状态，那是另一处会静默失效的机制。
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
 
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")

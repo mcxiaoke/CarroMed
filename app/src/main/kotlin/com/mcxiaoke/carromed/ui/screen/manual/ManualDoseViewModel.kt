@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
+import com.mcxiaoke.carromed.ui.component.DecimalInput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -83,7 +84,7 @@ class ManualDoseViewModel(
 
     fun onDoseAmountChange(amount: String) {
         _uiState.value = _uiState.value.copy(
-            doseAmount = amount.filter { it.isDigit() || it == '.' },
+            doseAmount = DecimalInput.filter(amount),
             error = null
         )
     }
@@ -136,28 +137,43 @@ class ManualDoseViewModel(
             _uiState.value = s.copy(error = "请先选择药品")
             return
         }
-        val amount = s.doseAmount.toFloatOrNull()
-        if (amount == null || amount <= 0f) {
-            _uiState.value = s.copy(error = "请输入有效的服用剂量")
+        val amount = DecimalInput.parsePositive(s.doseAmount)
+        if (amount == null) {
+            _uiState.value = s.copy(error = "请输入有效的服用剂量（大于 0）")
             return
         }
         if (s.actualDateTime.isAfter(LocalDateTime.now().plusMinutes(1))) {
             _uiState.value = s.copy(error = "不能补录未来的服药时间")
             return
         }
+        // 双击保护与 AddEdit/Reminder 同一条纪律（M2-4）
+        if (s.isSaving) return
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
             val epochMilli = s.actualDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
-            trackingService.logManualDose(
-                medicationId = med.id,
-                actualTs = epochMilli,
-                doseAmount = amount,
-                isRetrospective = s.actualDateTime.isBefore(LocalDateTime.now().minusMinutes(2)),
-                note = s.note.ifBlank { "手动补录服药" },
-                deductStock = s.deductStock
-            )
+            // ⚠️ 整个调用包 runCatching（M2-3）。
+            //
+            // 药品列表是 **init 时刻的快照**：表单开着、用户在别处删了这个药，
+            // 点保存时 `logManualDose` 抛 `IllegalArgumentException("Medication not found")`
+            // —— 未捕获 ⇒ 崩溃，且 `isSaving` 永久停在 true ⇒ 按钮再也点不动。
+            runCatching {
+                trackingService.logManualDose(
+                    medicationId = med.id,
+                    actualTs = epochMilli,
+                    doseAmount = amount,
+                    isRetrospective = s.actualDateTime.isBefore(LocalDateTime.now().minusMinutes(2)),
+                    note = s.note.ifBlank { "手动补录服药" },
+                    deductStock = s.deductStock
+                )
+            }.onFailure { t ->
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = "补录失败：${t.message ?: t::class.java.simpleName}"
+                )
+                return@launch
+            }
 
             _uiState.value = _uiState.value.copy(isSaving = false)
             onSuccess()

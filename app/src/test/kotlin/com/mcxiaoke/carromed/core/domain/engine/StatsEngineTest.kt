@@ -58,14 +58,23 @@ class StatsEngineTest {
         assertThat(days1).isEqualTo(15)
         assertThat(alert1).isFalse()
 
-        // 10 片药，每天吃 2 片 -> 可用 5 天，<= 7 天，触发低库存预警
+        // 10 片药，每天吃 2 片 -> 可用 5 天。
+        //
+        // ⚠️ 预警为 **false**，且这是本轮**有意的行为变更**（决策 E）。
+        // 旧实现有一条隐式规则 `runwayDays <= 7` ⇒ 剩 5 天必告警，
+        // 于是「明明还剩 10 片、高于自己设的 5 片预警线」也会亮红。
+        // 那条规则对用户不可见：他没设任何阈值，却总看到红色横幅。
+        // 现在告警只看**他自己设的预警线**，"7 天内必提醒"收成显式开关（默认关闭）。
+        //
+        // 注意 days2 仍如实算出 5 —— 告警与否不该改变这个数字的计算，
+        // 否则"关掉告警"会连可见天数一起关掉，用户就完全不知道还剩多少了。
         val (days2, alert2) = StatsEngine.calculateStockRunway(
             currentStock = 10.0f,
             dailyEstimatedConsumption = 2.0f,
             minStockAlert = 5f
         )
         assertThat(days2).isEqualTo(5)
-        assertThat(alert2).isTrue()
+        assertThat(alert2).isFalse()
 
         // 4 片药，阈值 5 片 -> 立即触发预警
         val (days3, alert3) = StatsEngine.calculateStockRunway(

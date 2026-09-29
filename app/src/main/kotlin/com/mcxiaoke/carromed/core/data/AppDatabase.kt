@@ -86,27 +86,30 @@ abstract class AppDatabase : RoomDatabase() {
         private var INSTANCE: AppDatabase? = null
 
         /**
-         * schema v1 → v2 迁移（历史保留）
+         * ⚠️ schema v1 → v2 迁移**已删除**（M5-9）。发布前不需要它，且它本身是坏的。
          *
-         * 全部为 `ADD COLUMN` / `CREATE INDEX`，对既有数据零破坏。
-         * 保留仅为让 git 里的旧安装不至于直接崩溃；当前开发主线已不再依赖它。
+         * ## 为什么删除而不是保留
+         *
+         * 两份独立审查（sba / DB）各自发现、修复计划交叉确认。
+         *
+         * 1. **它建的索引与实体声明冲突**：迁移里
+         *    `CREATE INDEX IF NOT EXISTS index_dose_slots_medication_id_scheduled_date_scheduled_time`
+         *    建的是一个**非 UNIQUE** 索引，而 [DoseSlotEntity] 上同名索引声明
+         *    `unique = true`。Room 的 schema 校验会看到这个矛盾并抛异常 ——
+         *    也就是说这段"迁移"一旦执行，就把用户的库变成打不开的状态。
+         * 2. **迁移链本身不完整**：`version = 5` 而链上只有 1→2。
+         *    Room 的 `findMigrationPath(1, 5)` 要求**完整链路**，缺 2→3/3→4/4→5
+         *    时返回 null，于是走 `fallbackToDestructiveMigration()` 整库重建。
+         *
+         * 关于第 2 条，审查之间有分歧（一份认为"部分链路会执行"、
+         * 一份认为"因缺边而从不执行"），`exportSchema = false` 也没有 v1 schema JSON
+         * 可供在真库上重放，**当前无法实证**。但两说的**修复动作完全相同**，
+         * 分歧只影响"风险是否可达"的表述 —— 所以直接删掉，不留一个
+         * "可能可达、可能不可达、但一旦可达就炸库"的代码。
+         *
+         * `AGENTS.md` 已明确：项目未公开发布，**不需要任何迁移或兼容旧版本的代码**。
+         * 发布前按 §2 的纪律重建迁移并逐条验证。
          */
-        val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE medications ADD COLUMN expiry_date TEXT NOT NULL DEFAULT ''")
-                db.execSQL("ALTER TABLE medications ADD COLUMN is_critical_reminder INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("ALTER TABLE medications ADD COLUMN snooze_minutes INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("ALTER TABLE medications ADD COLUMN advance_minutes INTEGER NOT NULL DEFAULT 0")
-
-                db.execSQL("ALTER TABLE inventory_transactions ADD COLUMN batch_number TEXT")
-                db.execSQL("ALTER TABLE inventory_transactions ADD COLUMN expiry_date TEXT")
-
-                db.execSQL(
-                    "CREATE INDEX IF NOT EXISTS index_dose_slots_medication_id_scheduled_date_scheduled_time " +
-                        "ON dose_slots (medication_id, scheduled_date, scheduled_time)"
-                )
-            }
-        }
 
         /**
          * ⚠️⚠️ **发布前必须删除这一行** ⚠️⚠️
@@ -139,7 +142,6 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2)
                     .fallbackToDestructiveMigration() // TODO(发布前删除)：见上方 KDoc
                     .build()
                     .also { INSTANCE = it }

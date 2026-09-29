@@ -158,6 +158,31 @@ class BackupResilienceTest {
             BackupProblemKind.DUPLICATE_POLICY_TIME_ID to
                 (if (tim != null) good.copy(policyTimes = listOf(tim, tim.copy()))
                  else good.copy(reminderSettings = emptyList())),
+            // ↓ M5-3：这三类的键**不是**自增 id，上面那个"id 重复"检查覆盖不到它们。
+            // 缺了这里的 case，`assertThat(dirty.keys).containsExactlyElementsIn(entries)`
+            // 会立刻报出"新增的 kind 没有对应用例" —— 这就是全遍历的价值。
+            BackupProblemKind.DUPLICATE_REMINDER_SETTINGS to
+                (if (good.reminderSettings.isNotEmpty()) good.copy(
+                    reminderSettings = good.reminderSettings +
+                        good.reminderSettings.first().copy(advanceMinutes = 30)
+                ) else good.copy(reminderSettings = emptyList())),
+            BackupProblemKind.DUPLICATE_APP_SETTING_KEY to good.copy(
+                // 刻意**自己造**两行，而不是复制 `good.appSettings` ——
+                // 全新库可能一条 `app_settings` 都没有（设置页还没被写过），
+                // 那样这条 case 会静默退化成"什么都没造"，断言报的是
+                // `expected to contain: DUPLICATE_APP_SETTING_KEY but was: []`，
+                // 指不到"fixture 为空"这个真实原因。
+                appSettings = listOf(
+                    good.appSettings.firstOrNull()?.copy(key = "snooze_minutes", value = "30")
+                        ?: AppSettingBackup("snooze_minutes", "30", 1L),
+                    good.appSettings.firstOrNull()?.copy(key = "snooze_minutes", value = "45")
+                        ?: AppSettingBackup("snooze_minutes", "45", 1L)
+                )
+            ),
+            BackupProblemKind.MULTIPLE_ACTIVE_POLICIES to
+                (if (pol != null) good.copy(
+                    schedulePolicies = listOf(pol, pol.copy(id = pol.id + 1000, version = pol.version + 1))
+                ) else good),
             BackupProblemKind.MISSING_REMINDER_SETTINGS to good.copy(reminderSettings = emptyList())
         )
         assertThat(dirty.keys).containsExactlyElementsIn(BackupProblemKind.entries.toSet())

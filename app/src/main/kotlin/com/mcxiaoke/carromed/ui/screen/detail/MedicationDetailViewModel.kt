@@ -131,18 +131,35 @@ class MedicationDetailViewModel(
         }
     }
 
-    /** 每周实际排班天数，用于把日均消耗折算到"日历日"而非"服药日" */
+    /**
+     * 每周实际排班天数，用于把日均消耗折算到"日历日"而非"服药日"。
+     *
+     * ## 为什么必须与 `InventoryViewModel` 逐字一致（M4-1）
+     *
+     * 两页显示同一个数（预计可用天数），公式却各写一份，而这份**是坏的**：
+     *
+     * | 分支 | 本页旧实现 | `InventoryViewModel`（正确） | 后果 |
+     * | :--- | :--- | :--- | :--- |
+     * | `CYCLE` | 写死 **5** | `7·on/(on+off)` | 「吃2停6」本页日消耗高估 4 倍 |
+     * | `INTERVAL` | `round(7/n)` **无下界** | `.coerceAtLeast(1)` | `n ≥ 15` ⇒ 0 ⇒ **可用天数 ∞**，负库存都不告警 |
+     *
+     * `CYCLE -> 5` 尤其恶劣：它是把"吃 21 停 7"当成"每周 5 天"，
+     * 而正确答案是 `7·21/28 = 5.25`。改动看似小，但"吃 2 停 6"（正确值 1.75）
+     * 会被算成 5，**高估近 3 倍**，两页给出完全不同的可用天数。
+     *
+     * 修法不是"把这里改对"，而是**消除重复**：抽成
+     * [StatsEngine.scheduledDaysPerWeek]，两个 ViewModel 共用同一份实现。
+     * 重复的公式就是下一次漂移的起点，而"两个页面数字不一致"用户只会认为是 Bug。
+     */
     private fun scheduledDosesPerWeek(policy: SchedulePolicyEntity?, timesCount: Int): Int =
-        when (policy?.policyType) {
-            PolicyType.DAILY -> 7
-            PolicyType.INTERVAL -> {
-                val n = (policy.intervalDays ?: 2).coerceAtLeast(1)
-                Math.round(7.0 / n).toInt()
-            }
-            PolicyType.DAYS_OF_WEEK -> policy.daysOfWeek.size
-            PolicyType.CYCLE -> 5
-            PolicyType.PRN, null -> 0
-        }.let { days -> if (timesCount == 0) 0 else days.coerceAtLeast(0) }
+        if (timesCount == 0) 0
+        else StatsEngine.scheduledDaysPerWeek(
+            type = policy?.policyType,
+            intervalDays = policy?.intervalDays,
+            daysOfWeek = policy?.daysOfWeek,
+            cycleOnDays = policy?.cycleOnDays,
+            cycleOffDays = policy?.cycleOffDays
+        )
 
     /**
      * 暂停提醒。

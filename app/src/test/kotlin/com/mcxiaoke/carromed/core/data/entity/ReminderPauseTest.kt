@@ -77,6 +77,68 @@ class ReminderPauseTest {
         assertThat(s.pauseDescription(today)).isEqualTo("提醒已暂停，明天恢复")
     }
 
+    // ---------------- 按钮档位与徽标必须自洽（M3-3） ----------------
+
+    /**
+     * 「暂停到明天」按钮传的日期必须让**徽标**也说"明天恢复"。
+     *
+     * ## 这个 bug 长什么样
+     *
+     * `paused_until` 的语义是「暂停**含**这一天」（`!end.isBefore(today)`），
+     * 而旧实现里那个按钮传的是 `now() + 1`：
+     *
+     * | | `paused_until` | 今天 | 明天 | 徽标 |
+     * | :--- | :--- | :--- | :--- | :--- |
+     * | 旧实现 | 明天 | **静默** | **静默** | 「**2 天后**恢复」 |
+     * | 现在 | 今天 | 静默 | 恢复 | 「明天恢复」 |
+     *
+     * 旧实现把**两天**压掉了，而按钮写着"暂停到明天"、徽标写着"2 天后恢复" ——
+     * 用户点完立刻看到自相矛盾的提示，且**实际多丢了一天的提醒**。
+     *
+     * ## 为什么这条断言放在领域层
+     *
+     * 三处必须同一条规则：[isPausedOn]（投影/闹钟）、[daysUntilResume]（徽标）、
+     * 详情页的按钮。按钮在 UI 层，但**它传的日期必须满足这条不变量**，
+     * 所以把"档位 → 结果"的映射在这里钉住，UI 改坏时立即可见。
+     */
+    @Test
+    fun `暂停到明天 = 压掉今天 徽标说明天恢复`() {
+        val buttonValue = today            // 「暂停到明天」按钮应传今天（含当天 ⇒ 明天恢复）
+        val s = settings(buttonValue.toString())
+
+        assertThat(s.isPausedOn(today)).isTrue()              // 今天静默
+        assertThat(s.isPausedOn(today.plusDays(1))).isFalse() // 明天恢复
+        assertThat(s.daysUntilResume(today)).isEqualTo(1)
+        assertThat(s.pauseDescription(today)).isEqualTo("提醒已暂停，明天恢复")
+    }
+
+    @Test
+    fun `暂停到一周后 = 压掉七天 徽标说 7 天后恢复`() {
+        val buttonValue = today.plusDays(6)  // 含当天 ⇒ 共 7 天
+        val s = settings(buttonValue.toString())
+
+        assertThat(s.isPausedOn(today)).isTrue()
+        assertThat(s.isPausedOn(today.plusDays(6))).isTrue()
+        assertThat(s.isPausedOn(today.plusDays(7))).isFalse()
+        assertThat(s.daysUntilResume(today)).isEqualTo(7)
+        assertThat(s.pauseDescription(today)).isEqualTo("提醒已暂停，7 天后恢复")
+    }
+
+    /**
+     * 反例：旧的 off-by-one 写法必须被这条断言挡住。
+     *
+     * 把它单独写出来，是为了让"为什么是 `now()` 而不是 `now()+1`"在测试里
+     * 留下证据 —— 否则下一个人看到"含当天"这个约定，很可能又会去改按钮。
+     */
+    @Test
+    fun `反例 传明天会压掉两天 与按钮文案矛盾`() {
+        val wrong = settings(today.plusDays(1).toString())
+        assertThat(wrong.isPausedOn(today)).isTrue()
+        assertThat(wrong.isPausedOn(today.plusDays(1))).isTrue()  // ⭐ 多压了一天
+        assertThat(wrong.daysUntilResume(today)).isEqualTo(2)    // ⭐ 徽标说 2 天后
+        // 而按钮写的是"暂停到明天" ⇒ 文案与行为、与徽标三者互相矛盾
+    }
+
     @Test
     fun `尚未到期时天数递减`() {
         val s = settings("2026-10-05")

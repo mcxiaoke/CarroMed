@@ -11,18 +11,43 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
+import com.mcxiaoke.carromed.core.alarm.ReminderSettings
 import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService
+import com.mcxiaoke.carromed.ui.component.DecimalInput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+/**
+ * 一个提醒时点的草稿。
+ *
+ * ## [dose] 为什么是 `String`（M2-1）
+ *
+ * 与 `AddEditMedicationViewModel.TimeSlotDraft` 同因同解，见那里的详细论证：
+ * `Float` 表达不了"正在输入 `0.`"这个中间态（小数点打不出来），
+ * 也区分不了"清空"与"填 0"（0 剂量可保存 ⇒ 库存永不扣），
+ * 更拦不住负号（打卡变成给库存**加**药）。
+ * 过滤走 [DecimalInput.filter]，`> 0` 的判定在 [save]。
+ */
+/**
+ * 「跟随全局」哨兵。0 在 `reminder_settings.snooze_minutes` 里的既定含义。
+ *
+ * 提成常量而不是散落字面量 `0`：这个 0 与"推迟 0 分钟"挤在同一个 Int 字段上，
+ * 只有一处定义才能保证读代码的人立刻知道它不是笔误。
+ * 放在顶层是因为 UI 状态类的默认值也要用它。
+ */
+const val FOLLOW_GLOBAL = 0
+
 data class ReminderTimeDraft(
     val time: String,
-    val dose: Float,
+    val dose: String,
     val label: String
-)
+) {
+    /** 合法剂量；null 表示"空 / 0 / 无法解析"，保存前必须拦下 */
+    fun parsedDose(): Float? = DecimalInput.parsePositive(dose)
+}
 
 data class ReminderSettingsUiState(
     val medication: MedicationEntity? = null,
@@ -45,7 +70,22 @@ data class ReminderSettingsUiState(
 
     // 提醒行为
     val isCriticalReminder: Boolean = false,
-    val snoozeMinutes: Int = 30,
+    /**
+     * 本药专属的推迟分钟数。**0 = 跟随全局**（[FOLLOW_GLOBAL]），不是"0 分钟"。
+     *
+     * 哨兵 0 本身是对的（`ReminderSettings.resolve` 就是这么解析的），
+     * 错的是 UI 把它显示成 30 —— 那让"显示值"与"生效值"分叉。
+     * 现在 UI 显示 [globalSnoozeMinutes] 并标注来源，两者不可能再分叉（M7-5）。
+     */
+    val snoozeMinutes: Int = FOLLOW_GLOBAL,
+    /**
+     * 全局 `app_settings.snooze_minutes` 的真实值。
+     *
+     * 单独读一次进状态，而不是让 UI 自己去猜：解析优先级是
+     * 「药品专属 > 全局 > 30」，UI 要显示"跟随全局时实际生效多少"
+     * 就必须知道全局值，而它**会变**（用户可能在设置页改过）。
+     */
+    val globalSnoozeMinutes: Int = 30,
     val advanceMinutes: Int = 0,
     val isPaused: Boolean = false,
 
@@ -115,11 +155,18 @@ class ReminderSettingsViewModel(
                 hasEndDate = policy?.endDate != null,
                 endDate = policy?.endDate,
                 times = times.sortedBy { it.sortOrder }.map {
-                    ReminderTimeDraft(it.timeOfDay, Dose(it.doseAmount).asFloat, it.label)
+                    ReminderTimeDraft(
+                        it.timeOfDay,
+                        DecimalInput.display(Dose(it.doseAmount).asFloat),
+                        it.label
+                    )
                 },
                 isCriticalReminder = rs.isCriticalReminder,
-                // 0 是"跟随全局设置"的档位，UI 上显示为 30
-                snoozeMinutes = rs.snoozeMinutes.coerceIn(0, 120).let { if (it == 0) 30 else it },
+                // ⭐ 0 原样保留为"跟随全局"哨兵（M7-5）。
+                // 旧实现 `if (it == 0) 30 else it` 把哨兵翻译成了 30，
+                // 于是「本药固定 30 分钟」不可表达，且全局改 20 后这一行仍显示 30。
+                snoozeMinutes = rs.snoozeMinutes.coerceIn(0, 120),
+                globalSnoozeMinutes = globalSnoozeMinutes(),
                 advanceMinutes = rs.advanceMinutes.coerceIn(0, 120),
                 isPaused = rs.isPausedOn(today)
             )
@@ -149,10 +196,30 @@ class ReminderSettingsViewModel(
      * 所以这里同时清掉 `endDate` 值并置位 [MedicationAdminService.PolicyDraft.clearEndDate] ——
      * 只把 `endDate` 置 null 会被服务端当成"用户没改"而沿用旧值，
      * 于是关掉开关后提醒仍在原定结束日静默停止，用户却以为已经改成长期服用了。
+     *
+     * 打开开关时**必须**给一个默认日期（M7-1）。旧实现只置位不填值，
+     * 于是"打开却不选日期"这条最自然的操作路径产生两个方向都错的结果：
+     * - 新药：`endDate` 为 null 保存 ⇒ 服务端把 null 当"没传"⇒ 开关在下次加载时**自己弹回**；
+     * - 老药：`endDate` 为 null 但 `clearEndDate = false` ⇒ 沿用**库里的旧结束日**，
+     *   页面显示「未设置」而实际仍在那天静默停药。
+     *
+     * 两者都在骗用户。默认取"今天 + 90 天"（一个常见疗程长度），
+     * 用户可在日期选择器里改。
      */
-    fun onHasEndDateChange(v: Boolean) = mutate {
-        if (v) it.copy(hasEndDate = true) else it.copy(hasEndDate = false, endDate = null)
+    fun onHasEndDateChange(v: Boolean) = mutate { s ->
+        if (v) {
+            s.copy(
+                hasEndDate = true,
+                endDate = s.endDate ?: defaultEndDate()
+            )
+        } else {
+            s.copy(hasEndDate = false, endDate = null)
+        }
     }
+
+    /** 疗程结束日的默认值：今天 + 90 天。写死一个数而不是"今天"是为了不立刻到期。 */
+    private fun defaultEndDate(): String = LocalDate.now().plusDays(90)
+        .format(SlotProjectionEngine.DATE_FORMATTER)
 
     fun onEndDateChange(v: String?) = mutate { it.copy(endDate = v) }
 
@@ -160,16 +227,20 @@ class ReminderSettingsViewModel(
 
     fun addTime() = mutate { s ->
         val last = s.times.maxByOrNull { it.time }?.time ?: "08:30"
-        s.copy(times = s.times + ReminderTimeDraft(nextTime(last), 1.0f, guessLabel(last)))
+        s.copy(times = s.times + ReminderTimeDraft(nextTime(last), defaultDoseText(s), guessLabel(last)))
     }
 
-    fun updateTime(index: Int, time: String? = null, dose: Float? = null, label: String? = null) =
+    fun updateTime(index: Int, time: String? = null, doseText: String? = null, label: String? = null) =
         mutate { s ->
             if (index !in s.times.indices) return@mutate s
             val c = s.times[index]
             s.copy(
                 times = s.times.toMutableList().also {
-                    it[index] = c.copy(time = time ?: c.time, dose = dose ?: c.dose, label = label ?: c.label)
+                    it[index] = c.copy(
+                        time = time ?: c.time,
+                        dose = doseText?.let { DecimalInput.filter(it) } ?: c.dose,
+                        label = label ?: c.label
+                    )
                 }
             )
         }
@@ -179,18 +250,39 @@ class ReminderSettingsViewModel(
         else s.copy(times = s.times.toMutableList().also { it.removeAt(index) })
     }
 
+    /**
+     * 一键铺排。
+     *
+     * 剂量统一取药品档案的 `defaultDose`（M4-5）。旧实现写死 1.0f，
+     * 而"新建药品"页的同名函数取 `defaultDose` —— 两处来源不同，
+     * 用户设了「每次 2 片」之后，两个页面的"一键铺排"产出**不同剂量**，都显示成功。
+     *
+     * 保留一条"已有时点的剂量"作为回退：本页不暴露 `defaultDose` 字段，
+     * 而用户可能已经在这里手工调过剂量；一律用档案值会把他刚填的覆盖掉。
+     * 优先级：`medication.defaultDose` > 现有首个时点的剂量 > 1。
+     */
+    private fun defaultDoseText(s: ReminderSettingsUiState): String {
+        val fromMed = s.medication?.let { DecimalInput.display(Dose(it.defaultDose).asFloat) }
+        if (fromMed != null && DecimalInput.parsePositive(fromMed) != null) return fromMed
+        val existing = s.times.firstOrNull()?.dose
+        if (existing != null && DecimalInput.parsePositive(existing) != null) return existing
+        return "1"
+    }
+
     fun spreadTimes(n: Int) = mutate { s ->
         val count = n.coerceIn(1, 8)
         val start = 7 * 60
         val end = 21 * 60
         val step = if (count == 1) 0 else (end - start) / (count - 1)
+        val dose = defaultDoseText(s)
         s.copy(
             times = (0 until count).map { i ->
                 val t = if (count == 1) 8 * 60 else start + step * i
+                val text = String.format(java.util.Locale.getDefault(), "%02d:%02d", t / 60, t % 60)
                 ReminderTimeDraft(
-                    time = String.format(java.util.Locale.getDefault(), "%02d:%02d", t / 60, t % 60),
-                    dose = 1.0f,
-                    label = guessLabel(String.format(java.util.Locale.getDefault(), "%02d:%02d", t / 60, t % 60))
+                    time = text,
+                    dose = dose,
+                    label = guessLabel(text)
                 )
             }
         )
@@ -200,6 +292,18 @@ class ReminderSettingsViewModel(
 
     fun onCriticalChange(v: Boolean) = mutate { it.copy(isCriticalReminder = v) }
     fun onSnoozeMinutesChange(v: Int) = mutate { it.copy(snoozeMinutes = v.coerceIn(0, 120)) }
+
+    /**
+     * 全局推迟时长的真实值。
+     *
+     * 与 [ReminderSettings.resolve] 的解析链保持一致（药品专属 > 全局 > 默认），
+     * 但这里**只取全局那一级** —— 用途是"当本药选跟随全局时，实际会生效多少"。
+     */
+    private suspend fun globalSnoozeMinutes(): Int =
+        db.appSettingDao().getValue(ReminderSettings.KEY_SNOOZE_MINUTES)
+            ?.toIntOrNull()
+            ?.takeIf { it > 0 }
+            ?: ReminderSettings.DEFAULT_SNOOZE_MINUTES
     fun onAdvanceMinutesChange(v: Int) = mutate { it.copy(advanceMinutes = v.coerceIn(0, 120)) }
     fun onPausedChange(v: Boolean) = mutate { it.copy(isPaused = v) }
 
@@ -207,6 +311,10 @@ class ReminderSettingsViewModel(
 
     fun save() {
         val s = _uiState.value
+
+        // ⭐ 同步前置的"正在保存"闸门（M2-4）：双击会重复提交。
+        if (s.isSaving) return
+
         if (s.policyType == PolicyType.DAYS_OF_WEEK && s.daysOfWeek.isEmpty()) {
             _uiState.value = s.copy(error = DOW_ERROR)
             return
@@ -222,45 +330,95 @@ class ReminderSettingsViewModel(
             _uiState.value = s.copy(error = DUPLICATE_TIME_ERROR)
             return
         }
+        // ⭐ 剂量必须逐条为正（M2-1）。0 剂量 ⇒ 闹钟照响、打卡照记、库存永不扣。
+        // 报错必须指出是哪一条时点，六个时点的表单只说"剂量非法"等于没说。
+        val badDose = s.times.firstOrNull { it.parsedDose() == null }
+        if (badDose != null) {
+            _uiState.value = s.copy(
+                error = "${badDose.time} 的剂量无效：请输入大于 0 的数值（例如 1 或 0.5）"
+            )
+            return
+        }
+        // ⭐ 疗程结束日不得早于起始日（N2 / sbf P1-11）。
+        //
+        // 这个校验此前**完全不存在**。结束日早于起始日时，
+        // `SlotProjectionEngine.projectSlots` 的 `effectiveStart.isAfter(effectiveEnd)`
+        // 命中空投影 ⇒ **该药一个槽位都不产生、不响任何提醒**，
+        // 而保存却显示成功。日期来自系统 `DatePickerDialog`（格式合法、先后不受控），
+        // 所以这是一条完全可达的路径，不是理论风险。
+        if (s.hasEndDate) {
+            val start = runCatching { LocalDate.parse(s.startDate) }.getOrNull()
+            val end = s.endDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            // 结束日解析不出来（理论上不会，日期都是选择器给的）时**不拦**：
+            // 拿一个解析失败当"非法"去阻止用户保存，是在制造新问题。
+            if (start != null && end != null && end.isBefore(start)) {
+                _uiState.value = s.copy(error = END_BEFORE_START_ERROR)
+                return
+            }
+        }
 
         viewModelScope.launch {
             _uiState.value = s.copy(isSaving = true, error = null)
 
-            adminService.saveReminderPolicy(
-                medicationId = medId,
-                draft = MedicationAdminService.PolicyDraft(
-                    policyType = s.policyType,
-                    intervalDays = s.intervalDays,
-                    daysOfWeek = s.daysOfWeek,
-                    cycleOnDays = s.cycleOnDays,
-                    cycleOffDays = s.cycleOffDays,
-                    startDate = s.startDate,
-                    endDate = if (s.hasEndDate) s.endDate else null,
-                    clearEndDate = !s.hasEndDate,
-                    times = s.times.map { MedicationAdminService.TimeDraft(it.time, it.dose, it.label) }
+            // ⚠️ 整条保存链包 runCatching（M2-3）。领域层的 `require`
+            // （重复时点 / 药品不存在）在 ViewModel 里未捕获会一路打到主线程 → 崩溃，
+            // 且 `isSaving` 永远停在 true ⇒ 保存按钮**永久禁用**。
+            runCatching {
+                // N5：这几步分属不同 service、各自开事务，**四步之间没有共同事务**。
+                // 第 2 步抛异常 ⇒ 药品档案已保存、提醒计划未保存，而用户什么都不知道。
+                // 这里显式串行 + 失败即整单报错（不假装成功），把"部分写入"从静默变成可见。
+                adminService.saveReminderPolicy(
+                    medicationId = medId,
+                    draft = MedicationAdminService.PolicyDraft(
+                        policyType = s.policyType,
+                        intervalDays = s.intervalDays,
+                        daysOfWeek = s.daysOfWeek,
+                        cycleOnDays = s.cycleOnDays,
+                        cycleOffDays = s.cycleOffDays,
+                        startDate = s.startDate,
+                        endDate = if (s.hasEndDate) s.endDate else null,
+                        clearEndDate = !s.hasEndDate,
+                        times = s.times.map {
+                            // `!!` 安全：save() 已在协程之前逐条校验过 parsedDose() != null
+                            MedicationAdminService.TimeDraft(
+                                it.time,
+                                requireNotNull(it.parsedDose()) { "剂量无效：${it.time}" },
+                                it.label
+                            )
+                        }
+                    )
                 )
-            )
 
-            // 提醒行为写回 reminder_settings (只写这三列，不动药品档案、库存、暂停状态)。
-            // P0-5 至此没有第二条写路径。snoozeMinutes 的 30 是 UI 的"跟随全局"档位，存 0。
-            adminService.saveReminderBehavior(
-                MedicationAdminService.ReminderBehaviorDraft(
-                    medId = medId,
-                    isCriticalReminder = s.isCriticalReminder,
-                    snoozeMinutes = if (s.snoozeMinutes == 30) 0 else s.snoozeMinutes,
-                    advanceMinutes = s.advanceMinutes
+                // 提醒行为写回 reminder_settings (只写这三列，不动药品档案、库存、暂停状态)。
+                // P0-5 至此没有第二条写路径。snoozeMinutes 的 30 是 UI 的"跟随全局"档位，存 0。
+                adminService.saveReminderBehavior(
+                    MedicationAdminService.ReminderBehaviorDraft(
+                        medId = medId,
+                        isCriticalReminder = s.isCriticalReminder,
+                        // ⚠️ 这里**直接写**状态值，不再做 `== 30 → 0` 的翻译（M7-5）。
+                        // 旧翻译让"本药固定 30 分钟"永远存成"跟随全局"，于是 30 不可表达；
+                        // 而"跟随全局"现在有了显式档位（[FOLLOW_GLOBAL]），不需要再猜。
+                        snoozeMinutes = s.snoozeMinutes,
+                        advanceMinutes = s.advanceMinutes
+                    )
                 )
-            )
-            // 暂停归详情页的开关所有；提醒设置页只读展示，不在这里改。
-            val wasPaused = db.reminderSettingsDao().getByMedicationId(medId)
-                ?.isPausedOn(LocalDate.now()) == true
-            if (s.isPaused != wasPaused) {
-                if (s.isPaused) adminService.setPausedUntil(medId, "")
-                else adminService.resume(medId)
+                // 暂停归详情页的开关所有；提醒设置页只读展示，不在这里改。
+                val wasPaused = db.reminderSettingsDao().getByMedicationId(medId)
+                    ?.isPausedOn(LocalDate.now()) == true
+                if (s.isPaused != wasPaused) {
+                    if (s.isPaused) adminService.setPausedUntil(medId, "")
+                    else adminService.resume(medId)
+                }
+
+                trackingService.reconcileSchedule(medId)
+                runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db) }
+            }.onFailure { t ->
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = "保存失败：${t.message ?: t::class.java.simpleName}"
+                )
+                return@launch
             }
-
-            trackingService.reconcileSchedule(medId)
-            runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db) }
 
             _uiState.value = _uiState.value.copy(isSaving = false, savedAt = System.currentTimeMillis())
             load()
@@ -353,5 +511,6 @@ class ReminderSettingsViewModel(
         const val DOW_ERROR = "请至少选择一个每周服药日"
         const val TIME_ERROR = "请至少设置一个提醒时点"
         const val DUPLICATE_TIME_ERROR = "存在重复的服药时点，请合并或修改"
+        const val END_BEFORE_START_ERROR = "疗程结束日不能早于起始日"
     }
 }

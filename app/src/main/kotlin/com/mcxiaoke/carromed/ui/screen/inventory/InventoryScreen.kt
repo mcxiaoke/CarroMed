@@ -1,4 +1,5 @@
 package com.mcxiaoke.carromed.ui.screen.inventory
+import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
 
 import androidx.compose.foundation.background
@@ -180,7 +181,11 @@ fun InventoryScreen(
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 MiniStat(
                                     Modifier.weight(1f),
-                                    if (uiState.runwayDays >= 9999) "∞" else "${uiState.runwayDays}",
+                                    // ⚠️ 走 [StatsEngine.isRunwayUnlimited] 而不是 `>= 9999`
+                                    // 的魔数比较（M4-1）。领域层已把"不适用"改成显式哨兵，
+                                    // UI 再去猜一个下界，两处定义必然会漂移。
+                                    if (StatsEngine.isRunwayUnlimited(uiState.runwayDays)) "—"
+                                    else "${uiState.runwayDays}",
                                     "预计可用天数"
                                 )
                                 MiniStat(

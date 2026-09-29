@@ -67,8 +67,16 @@ private fun List<MedicationItemUi>.sortedBy(order: CabinetSortOrder): List<Medic
     when (order) {
         CabinetSortOrder.DEFAULT -> sortedByDescending { it.medication.id }
         CabinetSortOrder.NAME -> sortedBy { it.medication.name }
-        CabinetSortOrder.STOCK_LOW ->
-            sortedBy { if (it.medication.isStockTracked) it.stock else Float.MAX_VALUE }
+        // ⭐ 不用 `Float.MAX_VALUE` 哨兵（M7-8）。
+        //
+        // 哨兵把"未追踪库存"和"账面 3.4 亿片"放进**同一个数值空间**：
+        // 一旦某味药真的有巨额账面（囤药、换包装一次入库几千片），
+        // 它会被排到未追踪的药**前面**，而用户选中的是"库存由少到多"。
+        // 排序键必须是"未追踪优先分组"这个**结构**，不是某个假想的最大值。
+        CabinetSortOrder.STOCK_LOW -> sortedWith(
+            // null（未追踪）排在最前 —— 它没有库存概念，不该参与数值比较
+            compareBy({ if (it.medication.isStockTracked) 1 else 0 }, { if (it.medication.isStockTracked) it.stock else 0f })
+        )
         CabinetSortOrder.EXPIRY_SOON ->
             sortedBy { it.medication.expiryDate.takeIf { d -> d.isNotBlank() } ?: "9999-12-31" }
     }
@@ -126,7 +134,23 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
         val freqDesc = when (policy?.policyType) {
             PolicyType.DAILY -> "每天 $perDay · $timeStr"
             PolicyType.INTERVAL -> {
-                val intervalText = if (policy.intervalDays <= 2) "隔天" else "每隔 ${policy.intervalDays - 1} 天"
+                // ⭐ 与库存页逐字同口径（M4-4）。
+                //
+                // 旧实现：`if (n <= 2) "隔天" else "每隔 ${n-1} 天"`。
+                // 两个问题：
+                //   ① `n == 1`（**每天**）被标成「隔天」—— 引擎语义是每 1 天一次 = 每天，
+                //      文案与实际排班**相反**；
+                //   ② 措辞与库存页的「每 N 天」不统一，同一个药在两个页面被描述成两件事。
+                //
+                // 统一为「n<=1 每天 / n==2 隔天 / 其余 每 n 天」。
+                // 注意是「每 n 天」而不是「每隔 n-1 天」：中文里后者读起来是同一个意思，
+                // 但两个页面用两种写法会让人怀疑它们算的是不同的事。
+                val n = policy.intervalDays
+                val intervalText = when {
+                    n <= 1 -> "每天"
+                    n == 2 -> "隔天"
+                    else -> "每 $n 天"
+                }
                 "$intervalText $perDay · $timeStr"
             }
             PolicyType.DAYS_OF_WEEK -> {

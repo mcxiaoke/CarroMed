@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.mcxiaoke.carromed.core.alarm.Notifications
 import com.mcxiaoke.carromed.core.alarm.ReconcileWorker
+import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
 
 /**
  * 应用入口。
@@ -34,6 +35,10 @@ class CarroMedApp : Application() {
         // 渠道一经创建其 importance 就不可修改，而系统只在**首次弹通知时**才懒初始化。
         // 若首次弹通知时渠道还不存在，HIGH 这一档就永远生效了。
         Notifications.ensureChannel(this)
+
+        // "今天是几号"的可刷新事实（M3-2）。进程级单例，任何页面都不再自己
+        // `LocalDate.now()` 存字段 —— 那样进程跨夜存活时"今日"会永久停在昨天。
+        CurrentDateHolder.install(this)
 
         // 兜底重排：系统升级 App / 用户清数据后，WorkManager 里的既有周期任务会被丢弃，
         // 这里确保它重新排上。

@@ -1,4 +1,6 @@
 package com.mcxiaoke.carromed.ui.screen.detail
+import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
+import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import android.app.DatePickerDialog
 
 import androidx.compose.foundation.background
@@ -143,7 +145,14 @@ fun MedicationDetailScreen(
         val policyType = uiState.policy?.policyType
         val isPrn = policyType == null || policyType == PolicyType.PRN
         // 暂停说明与判定统一走 ReminderSettingsEntity（含"暂停至某日"的到期恢复语义）
-        val pauseText = uiState.reminderSettings.pauseDescription(LocalDate.now())
+        //
+        // ⚠️ "今天"取 [CurrentDateHolder.today] 而不是 `LocalDate.now()`（M3-4）。
+        // `pauseDescription` 是**墙上时钟**驱动的：跨过恢复日而进程仍活着时，
+        // 徽标会一直显示「提醒已暂停，N 天后恢复」，而实际上早已自动恢复、
+        // 闹钟也照常排了。用户会以为这个药还在停药期里而漏服。
+        // 页面在 state 里 observe 这个 Flow（M3-2），跨过恢复日会重新组合。
+        val today by CurrentDateHolder.today.collectAsStateWithLifecycle(LocalDate.now())
+        val pauseText = uiState.reminderSettings.pauseDescription(today)
         val isPaused = pauseText != null
         val statusText = when {
             med.isArchived -> "已停药归档"
@@ -556,13 +565,26 @@ fun MedicationDetailScreen(
             title = { Text("暂停提醒到什么时候？", fontWeight = FontWeight.Bold) },
             text = {
                 Column {
+                    // ⚠️ `paused_until` 的语义是「暂停**含**这一天」
+                    // （`ReminderSettingsEntity.isPausedOn` 用 `!end.isBefore(today)`）。
+                    //
+                    // 旧实现「暂停到明天」传 `now() + 1`，于是今天与明天**两天**都被压掉，
+                    // 而徽标按同一条规则算成「2 天后恢复」—— 按钮写着"明天"、
+                    // 徽标写着"2 天后"，**点完立刻自相矛盾**（M3-3）。
+                    //
+                    // 正确写法：用户说"暂停到明天"意思是"今天别叫我了"，
+                    // 所以 `paused_until = 今天`（含今天 ⇒ 今天静音），明天自动恢复。
+                    // 同理「暂停到一周后」= 静默 7 天 ⇒ `now() + 6`。
+                    //
+                    // 三个地方必须同一条规则：[isPausedOn]（投影）、
+                    // [ReminderSettingsEntity.daysUntilResume]（徽标）、这里的按钮。
                     PauseOptionRow("暂停到明天") {
                         showPauseDialog = false
-                        viewModel.pauseReminderUntil(LocalDate.now().plusDays(1))
+                        viewModel.pauseReminderUntil(LocalDate.now())
                     }
                     PauseOptionRow("暂停到一周后") {
                         showPauseDialog = false
-                        viewModel.pauseReminderUntil(LocalDate.now().plusDays(7))
+                        viewModel.pauseReminderUntil(LocalDate.now().plusDays(6))
                     }
                     PauseOptionRow("暂停到指定日期") {
                         showPauseDialog = false
@@ -683,7 +705,7 @@ private fun buildInventorySummary(s: MedDetailUiState): String {
     } else {
         "${Quantity.fmt(balance)} ${med.unit} 剩余"
     }
-    val runway = if (s.runwayDays >= 9999) "" else " · 约可用 ${s.runwayDays} 天"
+    val runway = if (StatsEngine.isRunwayUnlimited(s.runwayDays)) "" else " · 约可用 ${s.runwayDays} 天"
     return stock + runway
 }
 

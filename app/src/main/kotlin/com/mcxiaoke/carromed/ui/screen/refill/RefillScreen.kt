@@ -1,4 +1,6 @@
 package com.mcxiaoke.carromed.ui.screen.refill
+
+import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
 
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +61,15 @@ fun RefillScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val med = uiState.medication
 
+    // 低库存告警与今日 / 药箱 / 详情 / 库存四页**同一份判据**（M4-1）。
+    // 直接调共享函数，而不是在这里再写一次 `stock <= minStockAlert` ——
+    // 五处各写一份正是本次缺陷的成因。
+    val isLowStock = StatsEngine.isLowStock(
+        isStockTracked = med?.isStockTracked == true,
+        stock = uiState.stock,
+        minStockAlert = Dose(med?.minStockAlert ?: 0).asFloat
+    )
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -107,7 +118,11 @@ fun RefillScreen(
                                 text = Quantity.withUnit(uiState.stock, med?.unit),
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = if (uiState.stock <= Dose(med?.minStockAlert ?: 0).asFloat) {
+                                // ⚠️ 告警红必须与**其他四页同口径**（M4-1），判据见上面的
+                                //   [StatsEngine.isLowStock]：未追踪的药不告警；
+                                //   `minStockAlert = 0`（关闭告警）也不告警 ——
+                                //   旧写法 `stock <= minStockAlert` 在余额为 0 时**恒真**。
+                                color = if (isLowStock) {
                                     MaterialTheme.colorScheme.error
                                 } else {
                                     MaterialTheme.colorScheme.onSurface

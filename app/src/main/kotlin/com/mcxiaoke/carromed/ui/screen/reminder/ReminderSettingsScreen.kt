@@ -389,12 +389,16 @@ fun ReminderSettingsScreen(
                                     Spacer(Modifier.height(10.dp))
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         OutlinedTextField(
-                                            value = if (t.dose % 1f == 0f) t.dose.toInt().toString() else t.dose.toString(),
-                                            onValueChange = { viewModel.updateTime(index, dose = it.toFloatOrNull() ?: 0f) },
+                                            value = t.dose,
+                                            onValueChange = { viewModel.updateTime(index, doseText = it) },
                                             label = { Text("剂量") },
                                             modifier = Modifier.width(100.dp),
                                             singleLine = true,
-                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                            // ⭐ `Decimal` 而非 `Number`（M2-1）：
+                                            // `Number` 键盘多数 ROM 上没有小数点键，
+                                            // 0.5 片这类"半片"根本不可录入。
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                            isError = t.parsedDose() == null
                                         )
                                         Spacer(Modifier.width(10.dp))
                                         LabelDropdown(
@@ -438,12 +442,42 @@ fun ReminderSettingsScreen(
                     Spacer(Modifier.height(14.dp))
                     Stepper(
                         label = "推迟时长",
-                        hint = "通知栏「稍后提醒」的分钟数",
-                        value = uiState.snoozeMinutes,
-                        canDec = uiState.snoozeMinutes > 5,
-                        canInc = uiState.snoozeMinutes < 120,
-                        onDec = { viewModel.onSnoozeMinutesChange(uiState.snoozeMinutes - 5) },
-                        onInc = { viewModel.onSnoozeMinutesChange(uiState.snoozeMinutes + 5) }
+                        // ⭐ 显式的「跟随全局」档位（M7-5）。
+                        //
+                        // 旧实现把哨兵 0 显示成 30，于是：
+                        // - 「本药固定 30 分钟」**不可表达** —— 一调到 30 就变成"跟随全局"；
+                        // - 全局改成 20 之后，本药这一行仍显示 30，**实际生效 20**。
+                        //
+                        // 显示值与生效值分叉是最坏的一种不一致：用户看到的数字
+                        // 恰恰是**系统没有采用**的那个。
+                        //
+                        // 现在把"跟随全局"做成一个看得见、点得回的档位：
+                        // 显示全局实际生效的分钟数，并标明来源，让两者不可能再分叉。
+                        hint = if (uiState.snoozeMinutes == 0) {
+                            "跟随全局设置（当前 ${uiState.globalSnoozeMinutes} 分钟）"
+                        } else {
+                            "通知栏「稍后提醒」的分钟数（本药专属）"
+                        },
+                        value = if (uiState.snoozeMinutes == 0) uiState.globalSnoozeMinutes
+                        else uiState.snoozeMinutes,
+                        canDec = uiState.snoozeMinutes > 0,
+                        canInc = (if (uiState.snoozeMinutes == 0) uiState.globalSnoozeMinutes
+                        else uiState.snoozeMinutes) < 120,
+                        onDec = {
+                            val cur = if (uiState.snoozeMinutes == 0) uiState.globalSnoozeMinutes
+                            else uiState.snoozeMinutes
+                            // 从"跟随全局"第一次减 ⇒ 落到"专属 5"，让用户能表达出这一档
+                            viewModel.onSnoozeMinutesChange(cur - 5)
+                        },
+                        onInc = {
+                            val cur = if (uiState.snoozeMinutes == 0) uiState.globalSnoozeMinutes
+                            else uiState.snoozeMinutes
+                            viewModel.onSnoozeMinutesChange(cur + 5)
+                        },
+                        // 从"专属"退回"跟随全局"的唯一出口
+                        onResetToGlobal = {
+                            viewModel.onSnoozeMinutesChange(FOLLOW_GLOBAL)
+                        }
                     )
                     Spacer(Modifier.height(10.dp))
                     Stepper(
@@ -451,7 +485,11 @@ fun ReminderSettingsScreen(
                         hint = if (uiState.advanceMinutes == 0) "准点提醒" else "提前 ${uiState.advanceMinutes} 分钟",
                         value = uiState.advanceMinutes,
                         canDec = uiState.advanceMinutes > 0,
-                        canInc = uiState.advanceMinutes < 60,
+                        // ⭐ 上界 120，与 VM 的 `coerceIn(0, 120)` **逐字对齐**（M7-7）。
+                        // 旧实现这里写 60，而 VM 允许到 120：导入一个 90 分钟后
+                        // 「+」是禁用的，值卡在 90 上不去也下不来（先减到 55 再加能回来，
+                        // 但那是"绕"，不是"能用"）。UI 与 VM 的取值域必须只有一个定义。
+                        canInc = uiState.advanceMinutes < 120,
                         onDec = { viewModel.onAdvanceMinutesChange(uiState.advanceMinutes - 5) },
                         onInc = { viewModel.onAdvanceMinutesChange(uiState.advanceMinutes + 5) }
                     )
@@ -577,7 +615,14 @@ private fun Stepper(
     canDec: Boolean,
     canInc: Boolean,
     onDec: () -> Unit,
-    onInc: () -> Unit
+    onInc: () -> Unit,
+    /**
+     * 非 null 时显示一个「回到全局」的文字按钮。
+     *
+     * 只给"存在哨兵档位"的字段用（当前只有推迟时长）。给一个纯数值的
+     * 步进器加这个按钮会让人以为它也能"恢复默认"，而它没有默认值概念。
+     */
+    onResetToGlobal: (() -> Unit)? = null
 ) {
     Row(
         Modifier.fillMaxWidth(),
@@ -587,6 +632,14 @@ private fun Stepper(
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(hint, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            if (onResetToGlobal != null) {
+                TextButton(
+                    onClick = onResetToGlobal,
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+                ) {
+                    Text("跟随全局", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            }
         }
         Row(
             Modifier
