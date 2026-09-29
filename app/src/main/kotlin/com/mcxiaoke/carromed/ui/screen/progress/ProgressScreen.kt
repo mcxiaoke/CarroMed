@@ -1,5 +1,4 @@
 package com.mcxiaoke.carromed.ui.screen.progress
-import com.mcxiaoke.carromed.core.domain.model.Dose
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,7 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,13 +28,14 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,14 +44,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.SuccessGreenContainer
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import java.util.Locale
 
 @Composable
@@ -59,8 +62,29 @@ fun ProgressScreen(
     viewModel: ProgressViewModel
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+
+    /**
+     * 触底加载更早的流水。
+     *
+     * 阈值取"距离末尾 5 项"，而不是"到底了才加载"：等真的滚到最后一项再查库，
+     * 用户会看到一段明显的空白停顿。先把数据备好，视觉上就是滚不完的连续列表。
+     */
+    LaunchedEffect(uiState.selectedTab) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisible to info.totalItemsCount
+        }
+            .distinctUntilChanged()
+            .filter { (lastVisible, total) ->
+                uiState.hasMoreTimeline && lastVisible >= total - LOAD_MORE_THRESHOLD
+            }
+            .collect { viewModel.loadMoreTimeline() }
+    }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
@@ -68,7 +92,7 @@ fun ProgressScreen(
         contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item {
+        item(key = "header") {
             HomeTabHeader(
                 title = "进展追踪",
                 actionIcon = Icons.Default.FileDownload,
@@ -77,41 +101,10 @@ fun ProgressScreen(
             )
         }
 
-        item {
-            val tabs = listOf("7 天打卡矩阵", "今日服药流水")
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                tabs.forEachIndexed { index, title ->
-                    val selected = uiState.selectedTab == index
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) MaterialTheme.colorScheme.surface else Color.Transparent)
-                            .clickable { viewModel.selectTab(index) }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
+        item(key = "tabs") { ProgressTabSelector(uiState.selectedTab, viewModel::selectTab) }
 
         if (uiState.isLoading) {
-            item {
+            item(key = "loading") {
                 Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
@@ -121,15 +114,76 @@ fun ProgressScreen(
 
         if (uiState.selectedTab == 0) {
             if (uiState.matrixItems.isEmpty()) {
-                item { EmptyStateCard("还没有在服药品。添加第一个药品后，这里会显示近 7 天的真实打卡情况。") }
-            } else {
-                item { OverallAdherenceCard(uiState.overallAdherence, uiState) }
-                items(uiState.matrixItems, key = { it.medication.id }) { item ->
-                    MedicationMatrixCard(item)
+                item(key = "matrix-empty") {
+                    EmptyStateCard("还没有在服药品。添加第一个药品后，这里会显示近 7 天的真实打卡情况。")
                 }
+            } else {
+                item(key = "overall") { OverallAdherenceCard(uiState.overallAdherence, uiState) }
+                items(
+                    count = uiState.matrixItems.size,
+                    key = { "m-${uiState.matrixItems[it].medication.id}" }
+                ) { idx -> MedicationMatrixCard(uiState.matrixItems[idx]) }
             }
         } else {
-            item { TodayTimelineCard(uiState.todayTimeline) }
+            if (uiState.timelineDays.isEmpty()) {
+                item(key = "timeline-empty") {
+                    EmptyStateCard(
+                        "还没有服药记录。在今日清单点「手动补录」可记录临时用药，" +
+                            "或从提醒里确认服药。"
+                    )
+                }
+            } else {
+                uiState.timelineDays.forEach { day ->
+                    item(key = "day-${day.date}") { TimelineDayHeader(day) }
+                    items(
+                        count = day.items.size,
+                        key = { "rec-${day.items[it].record.id}" }
+                    ) { idx -> TimelineRow(day.items[idx]) }
+                }
+                item(key = "timeline-tail") {
+                    TimelineFooter(
+                        loading = uiState.isTimelineLoadingMore,
+                        hasMore = uiState.hasMoreTimeline
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 距离列表末尾多少项时预取下一页（见 [ProgressScreen] 里的注释）。 */
+private const val LOAD_MORE_THRESHOLD = 5
+
+@Composable
+private fun ProgressTabSelector(selectedTab: Int, onSelect: (Int) -> Unit) {
+    val tabs = listOf("7 天打卡矩阵", "服药流水")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        tabs.forEachIndexed { index, title ->
+            val selected = selectedTab == index
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (selected) MaterialTheme.colorScheme.surface else Color.Transparent)
+                    .clickable { onSelect(index) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (selected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -380,77 +434,113 @@ private fun DayDot(day: DayAdherence) {
 }
 
 @Composable
-private fun TodayTimelineCard(items: List<TimelineItem>) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+private fun TimelineDayHeader(day: TimelineDay) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Bottom
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Text(
+            text = if (day.isToday) "今天 · ${day.headerLabel}" else day.headerLabel,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = if (day.isToday) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurface
+        )
+        // 只在真有可计入的量时才显示合计：显示「合计 0 片」对全被跳过的日子是噪音
+        if (day.completedDoseMilli > 0) {
             Text(
-                text = "今日服药流水",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
+                text = Quantity.withUnit(
+                    Dose(day.completedDoseMilli).asFloat,
+                    "片"
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(Modifier.height(12.dp))
-
-            if (items.isEmpty()) {
-                Text(
-                    text = "今天没有排班。若是临时用药，可在今日清单用「手动补录」记录。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                return@Column
-            }
-
-            items.forEachIndexed { idx, item ->
-                val unit = item.medication?.unit ?: "片"
-                // doseAmount 是整数毫单位（D-7）。原先的 `doseAmount % 1f == 0f` 判断
-                // 能编译（Kotlin 允许 Int % Float）却恒为真，会把 1 片显示成「1000 片」。
-                val doseText = Quantity.withUnit(Dose(item.slot.doseAmount).asFloat, unit)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = item.medication?.name ?: "已删除的药品",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        if (Dose(item.slot.doseAmount).asFloat > 0f) {
-                            Text(
-                                text = doseText,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    StatusChip(item.slot.status, item.slot.scheduledTime)
-                }
-                if (idx < items.size - 1) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                }
-            }
         }
     }
 }
 
 @Composable
-private fun StatusChip(status: SlotStatus, scheduledTime: String) {
+private fun TimelineRow(item: TimelineItem) {
+    val unit = item.medication?.unit ?: "片"
+    // doseTaken 是整数毫单位（D-7）。此处**不能**写 `doseTaken % 1f == 0f` 那类判断：
+    // 它能编译（Kotlin 允许 Int % Float）却恒为真，会把 1 片显示成「1000 片」。
+    val dose = Dose(item.record.doseTaken).asFloat
+    val reverted = item.record.status == RecordStatus.REVERTED
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (reverted) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            else MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = item.medication?.name ?: "已删除的药品",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (reverted) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurface
+                )
+                val subtitle = buildString {
+                    if (dose > 0f) append(Quantity.fmt(dose)).append(' ').append(unit)
+                    if (item.isManual) {
+                        if (isNotEmpty()) append(" · ")
+                        append("临时用药")
+                    }
+                    if (item.record.isRetrospective) {
+                        if (isNotEmpty()) append(" · ")
+                        append("补录")
+                    }
+                    if (!item.record.note.isNullOrBlank()) {
+                        if (isNotEmpty()) append(" · ")
+                        append(item.record.note)
+                    }
+                }
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            RecordStatusChip(item.timeLabel, item.record.status)
+        }
+    }
+}
+
+/**
+ * 服药事实的状态 chip。
+ *
+ * 与 7 天矩阵里 [DayDot] 的 [StatsEngine.DayAdherenceState] 是两套东西：
+ * 那边画的是**排班**状态（含"待服用 / 已漏服"），这边画的是**事实**状态
+ * （含"已撤销"、不含待服）。
+ * 把两套塞进一个枚举再靠 `else` 兜底，就是本轮 M7-2 修掉的那个 bug。
+ */
+@Composable
+private fun RecordStatusChip(timeLabel: String, status: RecordStatus) {
     val (text, color) = when (status) {
-        SlotStatus.COMPLETED -> "已服" to SuccessGreen
-        SlotStatus.SKIPPED -> "已跳过" to MaterialTheme.colorScheme.outline
-        SlotStatus.EXPIRED -> "已漏服" to WarningAmber
-        SlotStatus.SNOOZED -> "已推迟" to MaterialTheme.colorScheme.tertiary
-        SlotStatus.PENDING -> "待服用" to MaterialTheme.colorScheme.onSurfaceVariant
+        RecordStatus.COMPLETED -> "已服" to SuccessGreen
+        RecordStatus.SKIPPED -> "已跳过" to MaterialTheme.colorScheme.outline
+        // ⚠️ REVERTED 必须有自己的分支：它与 `else -> "已服"` 的旧写法
+        // 会把"已撤销"显示成绿色的"已服"，而同一条记录在统计里已被剔除 ——
+        // 同一屏自相矛盾。详见 MedicationDetailScreen.RecordStatusChip 的注释。
+        RecordStatus.REVERTED -> "已撤销" to MaterialTheme.colorScheme.outline
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
-            text = scheduledTime,
+            text = timeLabel,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -466,6 +556,35 @@ private fun StatusChip(status: SlotStatus, scheduledTime: String) {
                 style = MaterialTheme.typography.labelSmall,
                 color = color,
                 fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimelineFooter(loading: Boolean, hasMore: Boolean) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        when {
+            loading -> CircularProgressIndicator(
+                modifier = Modifier.size(22.dp),
+                strokeWidth = 2.dp
+            )
+            // 说清"到底了"而不是留一片空白：用户不知道是加载失败还是没有更多
+            hasMore -> Text(
+                text = "继续下滑查看更早的记录",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            else -> Text(
+                text = "没有更早的记录了",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
         }
     }

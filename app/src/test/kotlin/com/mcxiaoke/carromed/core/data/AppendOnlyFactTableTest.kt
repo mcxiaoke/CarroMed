@@ -316,11 +316,21 @@ class AppendOnlyFactTableTest {
      * 语义上只有这三类入口是正当的：
      * - 整表清空：只在恢复备份前调用（`DataExporter.restoreBackup`）
      * - 撤销打卡：只翻 `status` 一列，且 WHERE 卡死 `status != 'REVERTED'`
+     *
+     * 2026-09-29 新增 [DoseRecordDao.markReverted]：与 [DoseRecordDao.markRevertedBySlot]
+     * **语义完全相同**，只是寻址键从 `slot_id` 换成记录 `id`。
+     * 新增它的理由是后者对手动补录的服药（`slot_id == null`）**完全无效** ——
+     * 那类记录没有槽位，用户因此没有任何撤销路径。
+     * 下面 [DoseRecordDao.markReverted] 的专属用例把它的语义钉死。
      */
     @Test
     fun `事实表上的改写型 Query 全部落在显式白名单内`() {
         val allowed = mapOf(
-            DoseRecordDao::class.java to setOf("markRevertedBySlot", "deleteAllRecords"),
+            DoseRecordDao::class.java to setOf(
+                "markRevertedBySlot",
+                "markReverted",
+                "deleteAllRecords"
+            ),
             InventoryTransactionDao::class.java to setOf("deleteAllTransactions")
         )
 
@@ -354,6 +364,40 @@ class AppendOnlyFactTableTest {
 
         // 再调一次受影响行数为 0 ⇒ 天然幂等，不存在"翻两次"的路径
         assertThat(db.doseRecordDao().markRevertedBySlot(slotId)).isEqualTo(0)
+    }
+
+    /**
+     * `markReverted`（按记录 id 撤销）与 `markRevertedBySlot` 同语义。
+     *
+     * 差别只在寻址键，但正因为键换了，**必须单独钉一遍**：
+     * 白名单只保证"允许存在"，管不了"翻的是哪一列、是不是幂等"。
+     * 白拿一个"看起来一样"的豁免，是这个白名单最容易腐化的地方。
+     */
+    @Test
+    fun `按记录 id 撤销只翻 status 一列且幂等`() = runTest {
+        val medId = newDailyMedication()
+        // 手动补录：slot_id == null，旧入口对它完全无效
+        val recordId = tracking.logManualDose(
+            medicationId = medId,
+            actualTs = tsOf(today, 12),
+            doseAmount = 0.5f,
+            note = "原文备注",
+            deductStock = false
+        )
+        val original = db.doseRecordDao().getRecordById(recordId)!!
+
+        // 旧入口对这条记录**必须**无效 —— 这正是新增 markReverted 的理由
+        assertThat(db.doseRecordDao().markRevertedBySlot(slotId = 0)).isEqualTo(0)
+
+        val affected = db.doseRecordDao().markReverted(recordId)
+        assertThat(affected).isEqualTo(1)
+        val once = db.doseRecordDao().getRecordById(recordId)!!
+        // 除 status 外**每一列**都不变（含 note —— 撤销不是清空备注）
+        assertThat(once.copy(status = original.status)).isEqualTo(original)
+        assertThat(once.status).isEqualTo(RecordStatus.REVERTED)
+
+        // 幂等：第二次受影响行数为 0
+        assertThat(db.doseRecordDao().markReverted(recordId)).isEqualTo(0)
     }
 
     // ==================================================================

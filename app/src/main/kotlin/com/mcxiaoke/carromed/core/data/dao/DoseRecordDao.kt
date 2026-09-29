@@ -36,6 +36,20 @@ interface DoseRecordDao {
     @Query("UPDATE dose_records SET status = 'REVERTED' WHERE slot_id = :slotId AND status != 'REVERTED'")
     suspend fun markRevertedBySlot(slotId: Long): Int
 
+    /**
+     * 按**记录 id** 撤销，而不是按槽位。
+     *
+     * [markRevertedBySlot] 依赖 `slot_id`，而手动补录的服药
+     * （`slot_id == null`，即 PRN / 临时用药）**没有槽位**——
+     * 也就是说旧写法对这类记录完全无效，用户没有任何撤销路径。
+     * 服药记录详情页需要按 id 撤销，所以补上这个入口。
+     *
+     * `status != 'REVERTED'` 保证**幂等**：重复撤销不会覆盖已经记过的状态。
+     * 返回受影响行数，供调用方区分"确实撤销了"与"本来就不可撤销"。
+     */
+    @Query("UPDATE dose_records SET status = 'REVERTED' WHERE id = :recordId AND status != 'REVERTED'")
+    suspend fun markReverted(recordId: Long): Int
+
     @Query("SELECT * FROM dose_records WHERE id = :id")
     suspend fun getRecordById(id: Long): DoseRecordEntity?
 
@@ -74,6 +88,48 @@ interface DoseRecordDao {
 
     @Query("SELECT * FROM dose_records WHERE medication_id = :medicationId ORDER BY actual_ts DESC")
     suspend fun getRecordsForMedication(medicationId: Long): List<DoseRecordEntity>
+
+    /**
+     * 服药流水翻页：**keyset 游标**取一批比 [beforeTs] 更早的服药事实。
+     *
+     * ## 为什么不用 `LIMIT :offset, :limit`
+     *
+     * 翻页期间用户随时可能撤销/删除记录。OFFSET 分页是按**行号**定位的，
+     * 一旦前面少了一行，后面每一页都会**整段错位**——结果是静默漏记录。
+     * 游标分页按**时间戳**定位，对数据的并发变更免疫。
+     *
+     * 本项目服药事实是 append-only（撤销只改状态、不删行，见本文件顶部），
+     * 这与游标分页的取向天然一致。
+     *
+     * ## 严格小于而不是 `<=`
+     *
+     * 用 `<=` 时，同一时间戳的记录会在相邻两页各出现一次。
+     * 时间戳精确到毫秒，理论上会有同刻记录（同一次操作写多行），
+     * 所以 `<` 不是可有可无的严谨，而是**正确性要求**。
+     *
+     * ## 索引
+     *
+     * `DoseRecordEntity` 已有 `Index(value = ["actual_ts"])`，
+     * `ORDER BY actual_ts DESC LIMIT` 走索引，**无需新增索引**。
+     */
+    @Query(
+        """
+        SELECT * FROM dose_records
+        WHERE actual_ts < :beforeTs
+        ORDER BY actual_ts DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getRecordsBefore(beforeTs: Long, limit: Int): List<DoseRecordEntity>
+
+    /**
+     * [getRecordsBefore] 的 reactive 版本，供流水页首屏跟随写入刷新。
+     *
+     * 只用于首屏（`beforeTs = Long.MAX_VALUE`），翻页仍走 suspend 版本 ——
+     * 分页不该每一页都订阅一个 Flow，那会让"已加载"这个状态无处安放。
+     */
+    @Query("SELECT * FROM dose_records ORDER BY actual_ts DESC LIMIT :limit")
+    fun observeLatestRecords(limit: Int): Flow<List<DoseRecordEntity>>
 
     @Query("SELECT * FROM dose_records WHERE actual_ts BETWEEN :startTs AND :endTs ORDER BY actual_ts DESC")
     fun observeRecordsInRange(startTs: Long, endTs: Long): Flow<List<DoseRecordEntity>>
