@@ -53,13 +53,21 @@ sealed class Screen(val route: String) {
     }
 
     /**
-     * 服药记录详情：查看 / 改剂量备注 / 撤销跳过。
+     * **统一记录详情页**：待服 / 已逾期 / 已服 / 已跳过 / 手动补录，一个页面按状态渲染。
      *
-     * 独立页面而非弹菜单 —— 低频操作有四个（撤销、跳过、确认、改剂量），
-     * 弹菜单只给操作不给上下文，而"我记错了"恰恰发生在已经忘了当时填了什么的时候。
+     * 两个查询参数**二选一**（都必须有 `defaultValue`，否则路由匹配不上）：
+     * - `slotId`：今日清单三分区，以及进展流水/单药历史里**有排班**的记录
+     *   （导航层按 `record.slotId` 归一，见 `AppNavigation`）
+     * - `recordId`：手动补录记录（`slot_id == null`）
+     *
+     * 为什么是一个页面：三种状态共享同一套信息区，只有操作区不同；
+     * 而状态在运行期会变（点「撤销」后同一条就从"已服"变"待服"），
+     * 单页面 + Flow 数据源能让形态自动跟随。理由详见
+     * `docs/PLAN-RECORD-DETAIL-20260929.md` §3。
      */
-    data object DoseRecordEdit : Screen("dose_record/{recordId}") {
-        fun createRoute(recordId: Long) = "dose_record/$recordId"
+    data object DoseDetail : Screen("dose_detail?slotId={slotId}&recordId={recordId}") {
+        fun forSlot(slotId: Long) = "dose_detail?slotId=$slotId"
+        fun forRecord(recordId: Long) = "dose_detail?recordId=$recordId"
     }
 
     /** 补药入库 */

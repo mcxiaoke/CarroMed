@@ -12,7 +12,7 @@ import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
-import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
+import com.mcxiaoke.carromed.core.domain.service.DoseEntryActions
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -68,7 +68,13 @@ data class TodayUiState(
 class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getInstance(application)
-    private val trackingService = DoseTrackingService(db)
+    /**
+     * 动作编排（打卡 / 跳过 / 推迟 / 撤销 / 改判 + 闹钟与通知的副作用）。
+     *
+     * 这一层此前在本 VM 与 `DoseActionReceiver` 各写一份，记录详情页会需要第三份 ——
+     * 三份必然漂移，而漂移的后果是静默的（不响、或响两次），所以收敛到一处。
+     */
+    private val actions = DoseEntryActions(application, db)
     private val slotDao = db.doseSlotDao()
     private val medDao = db.medicationDao()
     private val recordDao = db.doseRecordDao()
@@ -192,73 +198,7 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
     fun takeDose(slotId: Long) {
         viewModelScope.launch {
-            val ok = trackingService.takeDose(slotId)
-            cancelAlarmsOf(slotId)
-            if (!ok) emitEvent("该服药记录已处理过，未重复扣减库存")
-        }
-    }
-
-    fun undoDose(slotId: Long) {
-        viewModelScope.launch {
-            trackingService.undoDose(slotId)
-            // 撤销后槽位回到待服，重新对账恢复其未来闹钟
-            runCatching {
-                com.mcxiaoke.carromed.core.alarm.AlarmReconciler.rescheduleAll(getApplication<Application>(), db)
-            }
-        }
-    }
-
-    fun skipDose(slotId: Long) {
-        viewModelScope.launch {
-            val ok = trackingService.skipDose(slotId)
-            cancelAlarmsOf(slotId)
-            if (!ok) emitEvent("该服药记录已处理过")
-        }
-    }
-
-    /**
-     * 取消某槽位的**全部种类**闹钟。
-     *
-     * 闹钟身份是内容寻址的（medId/date/time/kind），不再依赖 `slot.id` 算术编码，
-     * 所以取消必须带齐定位信息。打卡 / 跳过后这次提醒就终结了，三种种类一次清干净。
-     */
-    private suspend fun cancelAlarmsOf(slotId: Long) {
-        val app = getApplication<Application>()
-        val slot = db.doseSlotDao().getSlotById(slotId) ?: return
-        com.mcxiaoke.carromed.core.alarm.AlarmScheduler.cancelAll(
-            app, slot.medicationId, slot.scheduledDate, slot.scheduledTime, slot.id
-        )
-    }
-
-    /** 推迟提醒：置 SNOOZED 并重排该槽位的临时闹钟 */
-    fun snoozeDose(slotId: Long, minutes: Int) {
-        viewModelScope.launch {
-            val app = getApplication<Application>()
-            val ok = trackingService.snoozeDose(slotId, minutes)
-            if (!ok) {
-                emitEvent("该服药记录已处理过，无法推迟")
-                return@launch
-            }
-            com.mcxiaoke.carromed.core.alarm.Notifications.cancelDoseNotification(app, slotId)
-            val slot = db.doseSlotDao().getSlotById(slotId)
-            if (slot == null) {
-                emitEvent("该服药记录已不存在")
-                return@launch
-            }
-            val triggerAt = slot.snoozeUntilTs ?: (System.currentTimeMillis() + minutes * 60_000L)
-            // 原定准点/提前提醒已无意义：清掉后只留一个 SNOOZE 种类
-            com.mcxiaoke.carromed.core.alarm.AlarmScheduler.cancelAll(
-                app, slot.medicationId, slot.scheduledDate, slot.scheduledTime, slot.id,
-                kinds = listOf(
-                    com.mcxiaoke.carromed.core.alarm.AlarmScheduler.Kind.MAIN,
-                    com.mcxiaoke.carromed.core.alarm.AlarmScheduler.Kind.ADVANCE
-                )
-            )
-            runCatching {
-                com.mcxiaoke.carromed.core.alarm.AlarmScheduler.schedule(
-                    app, slot, triggerAt, com.mcxiaoke.carromed.core.alarm.AlarmScheduler.Kind.SNOOZE
-                )
-            }.onFailure { emitEvent("推迟失败：${it.message}") }
+            if (!actions.confirm(slotId)) emitEvent("该服药记录已处理过，未重复扣减库存")
         }
     }
 

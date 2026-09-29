@@ -118,7 +118,22 @@ interface DoseRecordDao {
     )
     suspend fun getCompletedRecordsForSlots(slotIds: List<Long>): List<DoseRecordEntity>
 
-    @Query("SELECT * FROM dose_records WHERE medication_id = :medicationId ORDER BY actual_ts DESC")
+    /**
+     * 单药历史（进展 → 点某个药）。
+     *
+     * ⚠️ 与流水同口径：**不返回已撤销的事实**。撤销是动作不是状态，
+     * 用户撤销掉的那条不该继续出现在"我吃了什么"的清册里。
+     *
+     * 药品详情页的「最近服药记录」也走这个查询，所以两处口径天然一致 ——
+     * 不必在 UI 层再各写一份过滤（那必然漂移）。
+     */
+    @Query(
+        """
+        SELECT * FROM dose_records
+        WHERE medication_id = :medicationId AND status != 'REVERTED'
+        ORDER BY actual_ts DESC
+        """
+    )
     suspend fun getRecordsForMedication(medicationId: Long): List<DoseRecordEntity>
 
     /**
@@ -143,11 +158,17 @@ interface DoseRecordDao {
      *
      * `DoseRecordEntity` 已有 `Index(value = ["actual_ts"])`，
      * `ORDER BY actual_ts DESC LIMIT` 走索引，**无需新增索引**。
+     *
+     * ## 为什么不返回已撤销的事实
+     *
+     * 见 [observeLatestRecords] 的说明：撤销是**动作**而不是状态，
+     * 用户撤销过的记录不该继续占用流水的位置。过滤同样落在 SQL 里，
+     * 否则 keyset 分页的页大小会不稳定。
      */
     @Query(
         """
         SELECT * FROM dose_records
-        WHERE actual_ts < :beforeTs
+        WHERE actual_ts < :beforeTs AND status != 'REVERTED'
         ORDER BY actual_ts DESC
         LIMIT :limit
         """
@@ -159,8 +180,23 @@ interface DoseRecordDao {
      *
      * 只用于首屏（`beforeTs = Long.MAX_VALUE`），翻页仍走 suspend 版本 ——
      * 分页不该每一页都订阅一个 Flow，那会让"已加载"这个状态无处安放。
+     *
+     * ## ⚠️ 不返回已撤销的事实（2026-09-29 用户决定）
+     *
+     * 撤销是一个**动作**，不是一个状态：用户点「撤销」的意思是"这条不该存在"，
+     * 而流水里留一条标着「已撤销」的灰条，等于把他刚撤销掉的东西又摆回眼前
+     * （测试撤销几次后，流水里连着四条"已撤销"，用户的原话是"我感觉撤销只是一个动作"）。
+     *
+     * 事实本身仍然留在库里（append-only，不变量 I11），只是不进这**两个视图**；
+     * 需要完整事实的地方走 [getAllRecords]（备份 / 导出 / 诊断）。
+     *
+     * ## 过滤必须落在 SQL 里，不能取回后再 filter
+     *
+     * 后者会让**页大小不稳定**：一页 20 条里若有 17 条被丢掉，首屏只剩 3 条，
+     * 而"是否还有更早"的判断（`items.size >= PAGE_SIZE`）也跟着失真 ——
+     * 用户会看到一个永远填不满、还提前说"没有更早的记录"的列表。
      */
-    @Query("SELECT * FROM dose_records ORDER BY actual_ts DESC LIMIT :limit")
+    @Query("SELECT * FROM dose_records WHERE status != 'REVERTED' ORDER BY actual_ts DESC LIMIT :limit")
     fun observeLatestRecords(limit: Int): Flow<List<DoseRecordEntity>>
 
     @Query("SELECT * FROM dose_records WHERE actual_ts BETWEEN :startTs AND :endTs ORDER BY actual_ts DESC")
@@ -191,6 +227,15 @@ interface DoseRecordDao {
     @Query("SELECT COUNT(*) FROM dose_records WHERE medication_id = :medicationId AND status = 'COMPLETED' AND actual_ts BETWEEN :startTs AND :endTs")
     suspend fun countDoseRecordsForMedication(medicationId: Long, startTs: Long, endTs: Long): Int
 
+    /**
+     * **全部**服药事实，含已撤销的那些。
+     *
+     * ⚠️ 这是唯一不过滤 `REVERTED` 的读取入口，**只给备份 / 导出 / 诊断用**。
+     *
+     * 别拿它当列表数据源：撤销是动作不是状态，流水与历史都不该出现
+     * 「已撤销」的行（见 [observeLatestRecords]）。而备份必须完整 ——
+     * 事实被撤销过这件事本身也是历史的一部分，恢复时不能丢。
+     */
     @Query("SELECT * FROM dose_records ORDER BY actual_ts ASC")
     suspend fun getAllRecords(): List<DoseRecordEntity>
 

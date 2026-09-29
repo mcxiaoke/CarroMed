@@ -9,6 +9,7 @@ import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Before
@@ -22,8 +23,10 @@ import java.io.IOException
  *
  * ## 为什么测游标而不是测 offset
  *
- * OFFSET 分页按行号定位，而服药事实在本项目里会被就地改状态
- * （撤销 → `REVERTED`）。翻页途中前面少一行，后面每一页都会**整段错位**，
+ * OFFSET 分页按行号定位，而流水的内容是**会变少**的：
+ * 撤销一条记录（`COMPLETED → REVERTED`）之后它就不再出现在流水里
+ * （2026-09-29 用户决定：撤销是动作不是状态）。
+ * 翻页途中前面少一行，后面每一页都会**整段错位**，
  * 表现为"静默漏记录"——不报错，只是内容不对。所以这里构造的正是
  * "翻页中途数据被改动"的场景。
  *
@@ -108,9 +111,21 @@ class DoseRecordTimelinePagingTest {
             .isEqualTo(collected.toSet())                    // 无遗漏
     }
 
+    /** 流水**首屏**（`observeLatestRecords`，reactive 版本）与翻页同口径 */
     @Test
-    fun `结果按 actual_ts 倒序`() = runTest {
+    fun `流水首屏不含已撤销记录`() = runTest {
         val base = 1_700_000_000_000L
+        seed(count = 3, startTs = base, stepMs = 60_000L)
+        val revertedId = recordDao.getRecordsBefore(Long.MAX_VALUE, 10).first().id
+        recordDao.markReverted(revertedId)
+
+        val firstPage = recordDao.observeLatestRecords(10).first()
+        assertThat(firstPage).hasSize(2)
+        assertThat(firstPage.map { it.id }).doesNotContain(revertedId)
+    }
+
+    @Test
+    fun `结果按 actual_ts 倒序`() = runTest {        val base = 1_700_000_000_000L
         seed(count = 5, startTs = base, stepMs = 60_000L)
 
         val page = recordDao.getRecordsBefore(Long.MAX_VALUE, 10)
@@ -121,33 +136,85 @@ class DoseRecordTimelinePagingTest {
     /**
      * ⭐ 核心用例：翻页途中把**更早**的记录撤销。
      *
-     * 撤销不删行（append-only），所以 keyset 仍然取全；
-     * 但如果实现换成 OFFSET，页 2 就会从"错位的行号"开始，漏掉一条。
-     * 这里的 `REVERTED` 记录**仍应出现**在翻页结果里（事实保留、可追溯），
-     * 只是 UI 会把它置灰。
+     * 撤销不删行（append-only），所以 keyset 仍按时间戳定位、不会整段错位；
+     * 但被撤销的那条**会从流水里消失**（2026-09-29 用户决定：撤销是动作不是状态）。
+     *
+     * ⚠️ 这里要分清两个快照：前两页是在撤销**之前**取回的，那条当然还在里面；
+     * 而"撤销后重新查询"（等价于用户撤销完返回列表）才不含它。
+     * 把两者混为一谈就会写出一个永远失败的断言。
      */
     @Test
-    fun `翻页途中撤销某条记录 仍不漏不重`() = runTest {
+    fun `翻页途中撤销某条记录 不漏不重且重新查询时该条不再出现`() = runTest {
         val base = 1_700_000_000_000L
         seed(count = 25, startTs = base, stepMs = 60_000L)
 
         val firstPage = recordDao.getRecordsBefore(Long.MAX_VALUE, 10)
-        val cursor = firstPage.last().actualTs
-        val page2 = recordDao.getRecordsBefore(cursor, 10)
+        val page2 = recordDao.getRecordsBefore(firstPage.last().actualTs, 10)
 
         // 翻页期间：把第 1 页里最早那条标记为已撤销
-        recordDao.markReverted(firstPage.first().id)
+        val revertedId = firstPage.first().id
+        recordDao.markReverted(revertedId)
 
+        // 游标语义：第三页必须接着第二页的末尾继续，既不重复也不少一条
         val third = recordDao.getRecordsBefore(page2.last().actualTs, 10)
-        val all = (firstPage + page2 + third).map { it.id }
+        val snapshot = (firstPage + page2 + third).map { it.id }
+        assertThat(snapshot).containsNoDuplicates()
+        assertThat(snapshot.toSet()).hasSize(25)
 
-        assertThat(all).containsNoDuplicates()
-        assertThat(all).hasSize(25)
-        // 被撤销的那条仍然在历史里（事实不删除）
-        assertThat(all).contains(firstPage.first().id)
-        assertThat(
-            recordDao.getRecordById(firstPage.first().id)?.status
-        ).isEqualTo(RecordStatus.REVERTED)
+        // 重新查询（撤销后返回列表走的正是这条路径）：那条消失，其余 24 条一条不漏
+        val fresh = collectAllIds()
+        assertThat(fresh.toSet()).hasSize(24)
+        assertThat(fresh).doesNotContain(revertedId)
+
+        // 事实仍在库里（append-only / I11），只是不进这个视图
+        assertThat(recordDao.getRecordById(revertedId)?.status)
+            .isEqualTo(RecordStatus.REVERTED)
+        assertThat(recordDao.getAllRecords()).hasSize(25)
+    }
+
+    /** 从最新一路翻到底，返回全部 id（新 → 旧）。`guard` 防游标不前进导致死循环。 */
+    private suspend fun collectAllIds(pageSize: Int = 10): List<Long> {
+        val out = mutableListOf<Long>()
+        var cursor = Long.MAX_VALUE
+        var guard = 0
+        while (true) {
+            val page = recordDao.getRecordsBefore(cursor, pageSize)
+            if (page.isEmpty()) break
+            out += page.map { it.id }
+            cursor = page.last().actualTs
+            if (++guard > 50) error("翻页未终止，说明游标没有前进")
+        }
+        return out
+    }
+
+    /**
+     * ⭐ 过滤必须落在 SQL 里：**已撤销的记录不能占用页位置**。
+     *
+     * 若实现改成"先取一页再 `filter`"，一页 10 条里若有 7 条已撤销，
+     * 用户只看到 3 条，而"是否还有更早"的判断（`items.size >= PAGE_SIZE`）
+     * 还会提前说"没有更早的记录"——列表永远填不满，且没有任何报错。
+     */
+    @Test
+    fun `已撤销的记录不占用页位置`() = runTest {
+        val base = 1_700_000_000_000L
+        // 20 条有效（较新） + 10 条已撤销（更早）
+        seed(count = 20, startTs = base, stepMs = 60_000L)
+        seed(
+            count = 10,
+            startTs = base - 100 * 60_000L,
+            stepMs = 60_000L,
+            status = RecordStatus.REVERTED
+        )
+
+        val page = recordDao.getRecordsBefore(Long.MAX_VALUE, 10)
+        assertThat(page).hasSize(10)                       // 满页，而不是 3 条
+        assertThat(page.all { it.status == RecordStatus.COMPLETED }).isTrue()
+
+        val page2 = recordDao.getRecordsBefore(page.last().actualTs, 10)
+        assertThat(page2).hasSize(10)                      // 第三页才会只剩有效记录
+
+        val page3 = recordDao.getRecordsBefore(page2.last().actualTs, 10)
+        assertThat(page3).isEmpty()                        // 10 条已撤销一条都不出现
     }
 
     /**

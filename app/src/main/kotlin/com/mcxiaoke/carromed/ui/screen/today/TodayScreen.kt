@@ -4,7 +4,6 @@ import com.mcxiaoke.carromed.core.domain.model.Dose
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,14 +22,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
@@ -43,8 +40,6 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -52,13 +47,10 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -83,11 +75,14 @@ import java.util.Locale
 /**
  * 今日清单
  *
- * 交互补充：待服卡片支持长按 → 「推迟 / 跳过 / 详情」三选一。
- * 此前 App 内**完全没有推迟与跳过的入口**（只有通知栏有），
- * 导致"被闹钟吵醒决定先不吃"的用户在 App 内无路可走。
+ * 交互：**任意一条 item 点开都进记录详情页**（待服 / 已服 / 已跳过 共用一个页面），
+ * 推迟、跳过、撤销、改判这些低频操作全在那里。列表上只留一个高频动作 ——
+ * 待服卡右侧的 ✓ 快捷打卡。
+ *
+ * 此前列表卡上直接挂着「撤销」按钮、长按还会弹一个操作 sheet：那等于把同一批操作
+ * 在两处各实现一遍，而两者必然会漂移（sheet 里连「确认」都没有）。
  */
-@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodayScreen(
     viewModel: TodayViewModel,
@@ -97,10 +92,10 @@ fun TodayScreen(
     onNavigateToRefill: (Long) -> Unit,
     /** 账面为负时引导去库存管理页做盘点校准（而不是补药） */
     onNavigateToInventory: (Long) -> Unit,
-    onNavigateToMedDetail: (Long) -> Unit
+    /** 点开任意一条 item 都进记录详情页（待服 / 已服 / 已跳过 同一个页面） */
+    onOpenDose: (Long) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var actionTarget by remember { mutableStateOf<DoseSlotItem?>(null) }
 
     // 一次性提示：VM 的 6 处失败分支全靠这条通道上报。
     //
@@ -245,7 +240,7 @@ fun TodayScreen(
                     if (uiState.pendingItems.isNotEmpty()) {
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "长按可推迟或跳过",
+                            text = "点开可推迟或跳过",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -300,8 +295,7 @@ fun TodayScreen(
                     PendingDoseCard(
                         item = item,
                         onTakeDose = { viewModel.takeDose(item.slot.id) },
-                        onClick = { item.medication?.let { onNavigateToMedDetail(it.id) } },
-                        onLongClick = { actionTarget = item }
+                        onClick = { onOpenDose(item.slot.id) }
                     )
                 }
             }
@@ -322,18 +316,14 @@ fun TodayScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "防误触随时可撤销",
+                            text = "点开可撤销或改判",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
                 items(uiState.completedItems, key = { "slot-${it.slot.id}" }) { item ->
-                    CompletedDoseCard(
-                        item = item,
-                        onUndoDose = { viewModel.undoDose(item.slot.id) },
-                        onClick = { item.medication?.let { onNavigateToMedDetail(it.id) } }
-                    )
+                    CompletedDoseCard(item = item, onClick = { onOpenDose(item.slot.id) })
                 }
             }
 
@@ -348,107 +338,19 @@ fun TodayScreen(
                     )
                 }
                 items(uiState.skippedItems, key = { "slot-${it.slot.id}" }) { item ->
-                    SkippedDoseCard(
-                        item = item,
-                        onUndoDose = { viewModel.undoDose(item.slot.id) },
-                        onClick = { item.medication?.let { onNavigateToMedDetail(it.id) } }
-                    )
+                    SkippedDoseCard(item = item, onClick = { onOpenDose(item.slot.id) })
                 }
             }
         }
     }
 
-    // 长按 → 推迟 / 跳过
-    actionTarget?.let { target ->
-        ModalBottomSheet(
-            onDismissRequest = { actionTarget = null },
-            sheetState = rememberModalBottomSheetState()
-        ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 32.dp)
-            ) {
-                Text(
-                    text = target.medication?.name ?: "药品",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "计划 ${target.slot.scheduledTime} · " +
-                        "${Quantity.fmt(Dose(target.slot.doseAmount).asFloat)} ${target.medication?.unit ?: "片"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(20.dp))
-
-                Text(
-                    "稍后提醒",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(8.dp))
-                val snoozeOptions = listOf(10, 15, 30, 60, 120)
-                    .let { if (it.contains(uiState.globalSnoozeMinutes)) it else (it + uiState.globalSnoozeMinutes).sorted() }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    snoozeOptions.take(3).forEach { m ->
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.snoozeDose(target.slot.id, m)
-                                actionTarget = null
-                            },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(vertical = 8.dp)
-                        ) { Text("$m 分", fontSize = 13.sp) }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    snoozeOptions.drop(3).forEach { m ->
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.snoozeDose(target.slot.id, m)
-                                actionTarget = null
-                            },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(vertical = 8.dp)
-                        ) { Text("$m 分", fontSize = 13.sp) }
-                    }
-                }
-
-                Spacer(Modifier.height(20.dp))
-                OutlinedButton(
-                    onClick = {
-                        viewModel.skipDose(target.slot.id)
-                        actionTarget = null
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(vertical = 10.dp)
-                ) {
-                    Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("跳过本次 (不扣库存)")
-                }
-
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "已跳过 / 已推迟都可以在下方「已跳过」或对应卡片上撤销。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun PendingDoseCard(
     item: DoseSlotItem,
     onTakeDose: () -> Unit,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onClick: () -> Unit
 ) {
     val med = item.medication
     val unit = med?.unit ?: "片"
@@ -459,7 +361,7 @@ private fun PendingDoseCard(
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -659,7 +561,6 @@ private fun StatusBadge(
 @Composable
 private fun CompletedDoseCard(
     item: DoseSlotItem,
-    onUndoDose: () -> Unit,
     onClick: () -> Unit
 ) {
     val med = item.medication
@@ -724,20 +625,8 @@ private fun CompletedDoseCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            OutlinedButton(
-                onClick = onUndoDose,
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                modifier = Modifier.height(34.dp)
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Undo,
-                    contentDescription = "撤销",
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(Modifier.width(4.dp))
-                Text("撤销", fontSize = 12.sp)
-            }
+            // ⚠️ 这里**不再**放「撤销」按钮（2026-09-29）：低频操作统一收进记录详情页，
+            // 列表卡上放操作按钮等于把同一批动作实现第二遍，两处必然会漂移。
         }
     }
 }
@@ -746,7 +635,6 @@ private fun CompletedDoseCard(
 @Composable
 private fun SkippedDoseCard(
     item: DoseSlotItem,
-    onUndoDose: () -> Unit,
     onClick: () -> Unit
 ) {
     val med = item.medication
@@ -783,9 +671,6 @@ private fun SkippedDoseCard(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )
-            }
-            TextButton(onClick = onUndoDose, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Text("撤销", fontSize = 12.sp)
             }
         }
     }

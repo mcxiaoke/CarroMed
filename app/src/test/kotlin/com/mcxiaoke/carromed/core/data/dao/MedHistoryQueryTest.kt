@@ -79,14 +79,17 @@ class MedHistoryQueryTest {
     }
 
     /**
-     * 已撤销的记录**必须**出现在历史里。
+     * 已撤销的记录**不出现在历史里**（2026-09-29 用户决定，推翻了原来的规则）。
      *
-     * 单药历史页是用户问"这条到底怎么回事"的入口 ——
-     * 把它过滤掉，用户就只能看到剂量凭空少了一截而无从解释。
-     * （UI 会把它置灰加「已撤销」，不计入合计。）
+     * 原规则是"显示但置灰加「已撤销」标签"，理由是"用户可能想知道这条为什么没了"。
+     * 实际用起来不是这样：测试撤销几次之后，流水里连着四条「已撤销」。
+     * 用户的原话是"我感觉撤销只是一个动作不是一个状态，所以这里面不应该显示撤销"。
+     *
+     * 事实本身**不删**（append-only / I11）：`getAllRecords`（备份 / 导出用）
+     * 仍能取到它，只是不进"我吃了什么"这个视图。
      */
     @Test
-    fun `已撤销的记录仍出现在历史里`() = runTest {
+    fun `已撤销的记录不出现在历史里`() = runTest {
         val d = LocalDate.of(2026, 9, 1)
         val id1 = recordDao.insert(
             DoseRecordEntity(medicationId = medA, actualTs = ts(d, 8), doseTaken = 1000)
@@ -95,9 +98,12 @@ class MedHistoryQueryTest {
         recordDao.markReverted(id1)
 
         val rows = recordDao.getRecordsForMedication(medA)
-        assertThat(rows).hasSize(2)
-        assertThat(rows.map { it.status })
-            .containsExactly(RecordStatus.REVERTED, RecordStatus.COMPLETED)
+        assertThat(rows).hasSize(1)
+        assertThat(rows.single().status).isEqualTo(RecordStatus.COMPLETED)
+
+        // 事实仍在库里 —— 只是不进这个视图
+        assertThat(recordDao.getRecordById(id1)?.status).isEqualTo(RecordStatus.REVERTED)
+        assertThat(recordDao.getAllRecords().map { it.id }).contains(id1)
     }
 
     @Test

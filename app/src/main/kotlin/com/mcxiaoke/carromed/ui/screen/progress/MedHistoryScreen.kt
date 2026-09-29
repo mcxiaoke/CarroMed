@@ -48,7 +48,7 @@ import com.mcxiaoke.carromed.ui.theme.SuccessGreenContainer
 /**
  * 单个药品的服药历史（UX 方案 §4.2）。
  *
- * 按月分组，组内倒序；每行点进 [DoseRecordEditScreen]（第 2 步做的那个页面）。
+ * 按月分组，组内倒序；每行点进统一的「记录详情页」（`DoseRecordDetailScreen`）。
  * 每次进入都重新读库（`load` 有 `loadedMedId` 的一次性守卫，
  * 但返回时页面是新的组合，所以会重新载入），
  * 这样刚在详情页改完的剂量回到这里立刻可见。
@@ -57,7 +57,7 @@ import com.mcxiaoke.carromed.ui.theme.SuccessGreenContainer
 fun MedHistoryScreen(
     medId: Long,
     onNavigateBack: () -> Unit,
-    onNavigateToRecord: (Long) -> Unit,
+    onOpenDose: (Long?, Long) -> Unit,
     viewModel: MedHistoryViewModel = viewModel()
 ) {
     LaunchedEffect(medId) { viewModel.load(medId) }
@@ -155,7 +155,7 @@ fun MedHistoryScreen(
                     items(
                         count = month.items.size,
                         key = { "r-${month.items[it].recordId}" }
-                    ) { idx -> MedHistoryRow(month.items[idx], unit, onNavigateToRecord) }
+                    ) { idx -> MedHistoryRow(month.items[idx], unit, onOpenDose) }
                 }
             }
         }
@@ -166,26 +166,14 @@ fun MedHistoryScreen(
 private fun MedHistoryRow(
     item: MedHistoryItem,
     unit: String,
-    onNavigateToRecord: (Long) -> Unit
+    onOpenDose: (Long?, Long) -> Unit
 ) {
-    val reverted = item.status == RecordStatus.REVERTED
-    val onSurface = if (reverted) {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onNavigateToRecord(item.recordId) },
+            .clickable { onOpenDose(item.slotId, item.recordId) },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (reverted) {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
-        )
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
@@ -215,7 +203,7 @@ private fun MedHistoryRow(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = onSurface
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
             HistoryStatusChip(item.timeLabel, item.status)
@@ -223,6 +211,12 @@ private fun MedHistoryRow(
     }
 }
 
+/**
+ * 事实状态 chip。与流水页同口径。
+ *
+ * ⚠️ `REVERTED` 分支正常不会渲染（查询已在 SQL 层排除已撤销的事实）；
+ * 保留它是为了在"某处漏过滤"时如实显示，而不是被 `else` 伪装成「已服」。
+ */
 @Composable
 private fun HistoryStatusChip(timeLabel: String, status: RecordStatus) {
     val (text, color) = when (status) {

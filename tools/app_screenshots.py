@@ -116,6 +116,31 @@ PROGRAM: list[Step] = [
     # ---- 1. 今日清单 ------------------------------------------------------- #
     Step("shot", key="today", shots=2, note="待服 / 已服分区、库存告警横幅、手动补录 FAB"),
 
+    # ---- 1b. 记录详情页（统一承载待服 / 已服 / 已跳过，非 sheet）----------- #
+    # 点的是**卡片本体**（药名文本所在的可点击祖先），不是右侧的 ✓ 快捷打卡 ——
+    # 点 ✓ 会真的写库，走查不该改动数据。
+    Step("text", "环孢素", note="第一张待服卡（演示数据里 10:30 那味）",
+         expect="记录详情", requires_data=True),
+    Step("shot", key="dose_detail_expired",
+         note="已逾期形态：确认服用 / 跳过本次（逾期不给「推迟」）",
+         requires_data=True),
+    Step("back", note="返回今日清单", expect="今日清单"),
+
+    # 第二张"环孢素"是当晚 22:00 那条 —— 只要走查不在深夜跑，它就是 PENDING，
+    # 用来覆盖"待服形态含推迟档位"这条唯一没被上面两张图拍到的分支。
+    Step("text", "环孢素", index=1, note="第二张环孢素卡（22:00，通常仍是 PENDING）",
+         expect="记录详情", requires_data=True),
+    Step("shot", key="dose_detail_pending",
+         note="待服形态：确认服用 / 推迟档位 / 跳过本次 / 备注（随确认落库）",
+         requires_data=True),
+    Step("back", note="返回今日清单", expect="今日清单"),
+
+    Step("text", "羟氯喹", note="第一张已服卡（演示数据里 09:00 那味）",
+         expect="记录详情", requires_data=True),
+    Step("shot", key="dose_detail_completed",
+         note="已服形态：跳过（改判）+ 撤销（仅当天）", requires_data=True),
+    Step("back", note="返回今日清单", expect="今日清单"),
+
     # ---- 2. 手动补录服药 --------------------------------------------------- #
     Step("desc", "补录", note="今日页 FAB", expect="手动补录服药"),
     Step("shot", key="manual_dose", shots=2, note="补录时间选择器、是否扣库存"),

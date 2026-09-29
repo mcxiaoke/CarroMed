@@ -62,7 +62,7 @@ import java.util.Locale
 @Composable
 fun ProgressScreen(
     viewModel: ProgressViewModel,
-    onNavigateToRecord: (Long) -> Unit = {},
+    onOpenDose: (Long?, Long) -> Unit = { _, _ -> },
     onNavigateToMedHistory: (Long) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -144,7 +144,7 @@ fun ProgressScreen(
                     items(
                         count = day.items.size,
                         key = { "rec-${day.items[it].record.id}" }
-                    ) { idx -> TimelineRow(day.items[idx], onNavigateToRecord) }
+                    ) { idx -> TimelineRow(day.items[idx], onOpenDose) }
                 }
                 item(key = "timeline-tail") {
                     TimelineFooter(
@@ -521,24 +521,20 @@ private fun TimelineDayHeader(day: TimelineDay) {
 }
 
 @Composable
-private fun TimelineRow(item: TimelineItem, onNavigateToRecord: (Long) -> Unit) {
+private fun TimelineRow(item: TimelineItem, onOpenDose: (Long?, Long) -> Unit) {
     val unit = item.medication?.unit ?: "片"
     // doseTaken 是整数毫单位（D-7）。此处**不能**写 `doseTaken % 1f == 0f` 那类判断：
     // 它能编译（Kotlin 允许 Int % Float）却恒为真，会把 1 片显示成「1000 片」。
     val dose = Dose(item.record.doseTaken).asFloat
-    val reverted = item.record.status == RecordStatus.REVERTED
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            // 整行可点进详情（UX 方案 §3）。已撤销的记录**仍然可点** ——
-            // 用户翻到几个月前就是想看"这条到底怎么回事"，
-            // 把它做成不可点等于让最需要解释的记录最没地方问。
-            .clickable { onNavigateToRecord(item.record.id) },
+            // 整行可点进详情（统一记录详情页）。
+            // 这里不会出现已撤销的记录 —— 它们在 SQL 层就被排除了
+            // （见 `DoseRecordDao.observeLatestRecords`：撤销是动作不是状态）。
+            .clickable { onOpenDose(item.record.slotId, item.record.id) },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (reverted) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-            else MaterialTheme.colorScheme.surface
-        )
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
             modifier = Modifier
@@ -551,8 +547,7 @@ private fun TimelineRow(item: TimelineItem, onNavigateToRecord: (Long) -> Unit) 
                 Text(
                     text = item.medication?.name ?: "已删除的药品",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = if (reverted) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 val subtitle = buildString {
                     if (dose > 0f) append(Quantity.fmt(dose)).append(' ').append(unit)
@@ -589,15 +584,18 @@ private fun TimelineRow(item: TimelineItem, onNavigateToRecord: (Long) -> Unit) 
  * 那边画的是**排班**状态（含"待服用 / 已漏服"），这边画的是**事实**状态
  * （含"已撤销"、不含待服）。
  * 把两套塞进一个枚举再靠 `else` 兜底，就是本轮 M7-2 修掉的那个 bug。
+ *
+ * ⚠️ `REVERTED` 分支**正常不会渲染**：流水与历史的查询已在 SQL 层排除它
+ * （撤销是动作不是状态，见 `DoseRecordDao.observeLatestRecords`）。
+ * 保留显式分支而不是补一个 `else -> "已服"`：一旦将来某处漏了过滤，
+ * 显式分支还能让"已撤销"如实显示，而 `else` 会把它伪装成绿色的「已服」——
+ * 同一屏自相矛盾，且没有任何报错。
  */
 @Composable
 private fun RecordStatusChip(timeLabel: String, status: RecordStatus) {
     val (text, color) = when (status) {
         RecordStatus.COMPLETED -> "已服" to SuccessGreen
         RecordStatus.SKIPPED -> "已跳过" to MaterialTheme.colorScheme.outline
-        // ⚠️ REVERTED 必须有自己的分支：它与 `else -> "已服"` 的旧写法
-        // 会把"已撤销"显示成绿色的"已服"，而同一条记录在统计里已被剔除 ——
-        // 同一屏自相矛盾。详见 MedicationDetailScreen.RecordStatusChip 的注释。
         RecordStatus.REVERTED -> "已撤销" to MaterialTheme.colorScheme.outline
     }
     Row(verticalAlignment = Alignment.CenterVertically) {

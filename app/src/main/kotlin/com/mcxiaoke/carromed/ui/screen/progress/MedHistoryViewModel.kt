@@ -26,6 +26,14 @@ import java.time.format.DateTimeFormatter
  */
 data class MedHistoryItem(
     val recordId: Long,
+    /**
+     * 排班槽位 id（手动补录的记录为 null）。
+     *
+     * 点开记录详情页时用它做**入口归一**：有槽位就按槽位打开（形态由槽位状态决定），
+     * 没有槽位才按事实打开。少了它就只能按 recordId 打开，
+     * 于是同一条记录从今日清单和从流水点开会看到两套形态。
+     */
+    val slotId: Long?,
     val actualTs: Long,
     val timeLabel: String,
     val doseMilli: Int,
@@ -78,6 +86,7 @@ class MedHistoryViewModel(application: Application) : AndroidViewModel(applicati
             val items = records.map { r ->
                 MedHistoryItem(
                     recordId = r.id,
+                    slotId = r.slotId,
                     actualTs = r.actualTs,
                     timeLabel = timeFmt.format(Instant.ofEpochMilli(r.actualTs).atZone(zone)),
                     doseMilli = r.doseTaken,

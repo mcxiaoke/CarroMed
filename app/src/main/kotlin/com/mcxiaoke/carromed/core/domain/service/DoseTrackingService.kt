@@ -192,33 +192,45 @@ class DoseTrackingService(private val db: AppDatabase) {
      * 台账里指向该记录的 `record_id` 变成悬空引用。
      */
     suspend fun undoDose(slotId: Long): Boolean = db.withTransaction {
-        val slot = slotDao.getSlotById(slotId) ?: return@withTransaction false
+        revertSlotInternal(slotId)
+    }
+
+    /**
+     * 作废槽位当前的结论：槽位回 `PENDING`、事实标 `REVERTED`、台账按净额逐条冲正。
+     *
+     * ## 库存层：先算出"这一轮实际还欠多少扣"，再回退槽位
+     *
+     * ⚠️ 判据是**该事实的台账净额**，不是"读一条代表事实的剂量"，
+     * 也不是"药品当前是否追踪库存"。两个旧写法都会错：
+     *
+     * | 写法 | 错在哪 |
+     * | :--- | :--- |
+     * | `getRecordBySlotId` 取 `id ASC LIMIT 1` 读它的 `doseTaken` | 第二次撤销拿到的是最早那条（已 `REVERTED`）⇒ 判"没扣过"⇒ **账面凭空少一次扣减** |
+     * | `medication.isStockTracked`（当前值） | 打卡后用户改过追踪开关 ⇒ 虚增或永远不回补 |
+     *
+     * 净额口径同时解决两者，而且天然幂等：冲正后该事实净额变 0，
+     * 重复撤销时 `net >= 0`，不会再补第二条。
+     *
+     * ⚠️ 本方法**不带事务包装**：由调用方开事务（[undoDose] 与 [restateSlot] 各自开），
+     * 这样"改判"才能把"作废旧结论 + 施加新结论"合进**同一个**事务里，
+     * 不会出现"旧的作废了、新的没写上"的中间态。
+     */
+    private suspend fun revertSlotInternal(slotId: Long): Boolean {
+        val slot = slotDao.getSlotById(slotId) ?: return false
         // 幂等锚点：只有"已产生结论"的槽位才可撤销，与 takeDose/skipDose 的返回语义保持一致
         if (slot.status != SlotStatus.COMPLETED && slot.status != SlotStatus.SKIPPED) {
-            return@withTransaction false
+            return false
         }
         // 槽位必须真有事实（跳过也会留一条 SKIPPED 事实）
-        if (recordDao.getAllRecordsBySlotId(slotId).isEmpty()) return@withTransaction false
+        if (recordDao.getAllRecordsBySlotId(slotId).isEmpty()) return false
 
-        // ---- 库存层：先算出"这一轮实际还欠多少扣"，再回退槽位 ----
-        //
-        // ⚠️ 判据是**该事实的台账净额**，不是"读一条代表事实的剂量"，
-        // 也不是"药品当前是否追踪库存"。两个旧写法都会错：
-        //
-        // | 写法 | 错在哪 |
-        // | :--- | :--- |
-        // | `getRecordBySlotId` 取 `id ASC LIMIT 1` 读它的 `doseTaken` | 第二次撤销拿到的是最早那条（已 `REVERTED`）⇒ 判"没扣过"⇒ **账面凭空少一次扣减** |
-        // | `medication.isStockTracked`（当前值） | 打卡后用户改过追踪开关 ⇒ 虚增或永远不回补 |
-        //
-        // 净额口径同时解决两者，而且天然幂等：冲正后该事实净额变 0，
-        // 重复撤销时 `net >= 0`，不会再补第二条。
         val rollbacks = recordDao.getCompletedRecordsBySlot(slotId).mapNotNull { rec ->
             val net = inventoryDao.getSumOfChangeByRecordId(rec.id) ?: 0
             if (net < 0) rec.id to Dose(-net) else null
         }
 
         // 条件回退（原子；受影响行数为 0 表示并发下已被别人撤销）
-        if (slotDao.revertToPending(slotId) == 0) return@withTransaction false
+        if (slotDao.revertToPending(slotId) == 0) return false
 
         // 事实层：保留记录，仅改状态（append-only 的补偿，而不是抹除）
         recordDao.markRevertedBySlot(slotId)
@@ -232,6 +244,112 @@ class DoseTrackingService(private val db: AppDatabase) {
                 txType = TransactionType.REVERT_ROLLBACK,
                 note = "用户误触打卡撤销冲正"
             )
+        }
+        return true
+    }
+
+    // ==================== 4a-2. 改判：已服 ↔ 已跳过 ====================
+
+    /**
+     * 把一条**已产生结论**的槽位改判成另一种结论。
+     *
+     * ## 为什么必须新增这条通路
+     *
+     * [takeDose] 与 [skipDose] 的幂等锚点都写在 SQL 的 WHERE 里
+     * （`DoseSlotDao.markCompletedIfOpen` / `markSkippedIfOpen`，
+     * 守卫是 `status IN ('PENDING','SNOOZED','EXPIRED')`）——
+     * 这是**故意**的：它们要防止连点重复扣库存。
+     *
+     * 但也因此，「已服 → 跳过」「已跳过 → 确认」在旧代码里**没有任何路径**，
+     * 两个按钮点下去只会返回 false。改判必须走"先作废、再施加"，
+     * 且两步在同一个事务里。
+     *
+     * ## 时间不变，只改结论
+     *
+     * 新事实沿用槽位原来的 `actual_taken_ts`（而不是 `now`）：改判的语义是
+     * "我其实没吃 / 我其实吃了"，不是"我现在服了"。若改用 `now`，
+     * 一条昨天漏判的记录改判后会凭空跳到今天，既污染当日统计，
+     * 也会让"撤销仅当天"的判据变得诡异。
+     *
+     * ## 台账守恒
+     *
+     * 作废走 [revertSlotInternal]（按净额回补），施加走与 takeDose/skipDose
+     * **同一套**写库与记账代码，所以 `SUM(change_amount)` 与事实净额始终一致。
+     *
+     * @return true 表示确实改判了；false 表示槽位不存在、已是目标结论、
+     *         或槽位还没有结论（开放槽位请走 [takeDose] / [skipDose]）。
+     */
+    suspend fun restateSlot(
+        slotId: Long,
+        target: RecordStatus,
+        note: String? = null
+    ): Boolean = db.withTransaction {
+        val slot = slotDao.getSlotById(slotId) ?: return@withTransaction false
+        val medication = medDao.getMedicationById(slot.medicationId) ?: return@withTransaction false
+
+        // 幂等：已经是目标结论 ⇒ 什么都不做
+        if (target == RecordStatus.COMPLETED && slot.status == SlotStatus.COMPLETED) {
+            return@withTransaction false
+        }
+        if (target == RecordStatus.SKIPPED && slot.status == SlotStatus.SKIPPED) {
+            return@withTransaction false
+        }
+        // 只有"已产生结论"的槽位才谈得上改判
+        if (slot.status != SlotStatus.COMPLETED && slot.status != SlotStatus.SKIPPED) {
+            return@withTransaction false
+        }
+
+        // 结论未定之前先记下来：回退会清空 actual_taken_ts
+        val restatedTs = slot.actualTakenTs ?: System.currentTimeMillis()
+
+        if (!revertSlotInternal(slotId)) return@withTransaction false
+
+        when (target) {
+            RecordStatus.COMPLETED -> {
+                if (slotDao.markCompletedIfOpen(slotId, restatedTs) == 0) {
+                    return@withTransaction false
+                }
+                val record = DoseRecordEntity(
+                    slotId = slotId,
+                    medicationId = slot.medicationId,
+                    actualTs = restatedTs,
+                    doseTaken = slot.doseAmount,
+                    status = RecordStatus.COMPLETED,
+                    isRetrospective = false,
+                    note = note
+                )
+                val recordId = recordDao.insert(record)
+
+                // 与 takeDose 同一记账口径：单条 TAKEN_DEDUCT，允许扣成负数（D-9）
+                if (medication.isStockTracked) {
+                    appendLedger(
+                        medicationId = slot.medicationId,
+                        recordId = recordId,
+                        changeAmount = -Dose(slot.doseAmount),
+                        txType = TransactionType.TAKEN_DEDUCT,
+                        note = note ?: "改判为已服"
+                    )
+                }
+            }
+
+            RecordStatus.SKIPPED -> {
+                if (slotDao.markSkippedIfOpen(slotId, restatedTs) == 0) {
+                    return@withTransaction false
+                }
+                recordDao.insert(
+                    DoseRecordEntity(
+                        slotId = slotId,
+                        medicationId = slot.medicationId,
+                        actualTs = restatedTs,
+                        doseTaken = 0,
+                        status = RecordStatus.SKIPPED,
+                        note = note ?: "主动跳过本次服药"
+                    )
+                )
+            }
+
+            // REVERTED 不是"结论"，改判到它请走 undoDose
+            else -> return@withTransaction false
         }
         return@withTransaction true
     }

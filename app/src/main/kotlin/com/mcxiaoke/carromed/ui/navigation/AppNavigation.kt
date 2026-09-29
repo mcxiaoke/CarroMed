@@ -48,7 +48,7 @@ import com.mcxiaoke.carromed.ui.screen.inventory.InventoryViewModel
 import com.mcxiaoke.carromed.ui.screen.manual.ManualDoseScreen
 import com.mcxiaoke.carromed.ui.screen.manual.ManualDoseViewModel
 import com.mcxiaoke.carromed.ui.screen.progress.MedHistoryScreen
-import com.mcxiaoke.carromed.ui.screen.record.DoseRecordEditScreen
+import com.mcxiaoke.carromed.ui.screen.record.DoseRecordDetailScreen
 import com.mcxiaoke.carromed.ui.screen.progress.ProgressScreen
 import com.mcxiaoke.carromed.ui.screen.progress.ProgressViewModel
 import com.mcxiaoke.carromed.ui.screen.refill.RefillScreen
@@ -137,7 +137,8 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                     onNavigateToManualDose = { navController.navigate(Screen.ManualDose.createRoute()) },
                     onNavigateToRefill = { medId -> navController.navigate(Screen.Refill.createRoute(medId)) },
                     onNavigateToInventory = { medId -> navController.navigate(Screen.Inventory.createRoute(medId)) },
-                    onNavigateToMedDetail = { medId -> navController.navigate(Screen.MedicationDetail.createRoute(medId)) }
+                    // 今日清单的 item 一律进记录详情页（不再跳药品详情）
+                    onOpenDose = { slotId -> navController.navigate(Screen.DoseDetail.forSlot(slotId)) }
                 )
             }
 
@@ -156,8 +157,8 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 val vm: ProgressViewModel = viewModel()
                 ProgressScreen(
                     viewModel = vm,
-                    onNavigateToRecord = { recordId ->
-                        navController.navigate(Screen.DoseRecordEdit.createRoute(recordId))
+                    onOpenDose = { slotId, recordId ->
+                        navController.navigate(doseDetailRoute(slotId, recordId))
                     },
                     onNavigateToMedHistory = { medId ->
                         navController.navigate(Screen.MedHistory.createRoute(medId))
@@ -305,13 +306,25 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 )
             }
 
-            // 7b. 服药记录详情 (二级全屏)
+            // 7b. 记录详情 (二级全屏；统一承载待服 / 已逾期 / 已服 / 已跳过 / 手动补录)
             composable(
-                route = Screen.DoseRecordEdit.route,
-                arguments = listOf(navArgument("recordId") { type = NavType.LongType })
-            ) {
-                DoseRecordEditScreen(
-                    recordId = it.arguments?.getLong("recordId") ?: 0L,
+                route = Screen.DoseDetail.route,
+                arguments = listOf(
+                    // 两个参数都必须给 defaultValue，否则 "dose_detail?slotId=3"
+                    // 这种只带一个参数的实参匹配不上路由模板
+                    navArgument("slotId") {
+                        type = NavType.LongType
+                        defaultValue = 0L
+                    },
+                    navArgument("recordId") {
+                        type = NavType.LongType
+                        defaultValue = 0L
+                    }
+                )
+            ) { backStackEntry ->
+                DoseRecordDetailScreen(
+                    slotId = backStackEntry.arguments?.getLong("slotId")?.takeIf { it > 0 },
+                    recordId = backStackEntry.arguments?.getLong("recordId")?.takeIf { it > 0 },
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
@@ -324,8 +337,8 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 MedHistoryScreen(
                     medId = it.arguments?.getLong("medId") ?: 0L,
                     onNavigateBack = { navController.popBackStack() },
-                    onNavigateToRecord = { recordId ->
-                        navController.navigate(Screen.DoseRecordEdit.createRoute(recordId))
+                    onOpenDose = { slotId, recordId ->
+                        navController.navigate(doseDetailRoute(slotId, recordId))
                     }
                 )
             }
@@ -371,3 +384,13 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         }
     }
 }
+
+/**
+ * 一条服药事实该以哪种身份打开记录详情页。
+ *
+ * **有排班的记录（`slot_id != null`）必须按槽位打开**：待服 / 已服 / 已跳过三种形态
+ * 都由槽位承载，按事实打开就取不到"还没有事实"的待服形态；
+ * 而手动补录（`slot_id == null`）没有槽位，只能按事实打开。
+ */
+private fun doseDetailRoute(slotId: Long?, recordId: Long): String =
+    if (slotId != null) Screen.DoseDetail.forSlot(slotId) else Screen.DoseDetail.forRecord(recordId)
