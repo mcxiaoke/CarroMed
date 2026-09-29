@@ -27,6 +27,17 @@ import java.time.LocalDate
 data class DayAdherence(
     val date: LocalDate,
     val dayLabel: String,
+    /**
+     * 「这一格是今天」——**给 UI 判定用，不要拿 [dayLabel] 去比字符串**（M7-9）。
+     *
+     * 旧实现在 `ProgressScreen` 里写 `dayLabel == "今日"` 来决定高亮。
+     * 判据挂在**给人看的文案**上：把"今日"改成"今天"、加个空格，
+     * 或者将来支持多语言走 `strings.xml`，高亮就**静默失效** ——
+     * 而且编译通过、单测全绿，只有肉眼能看出"今天的格子没变色"。
+     *
+     * 展示与判定是两件事，所以这里给的是布尔值，文案随便改。
+     */
+    val isToday: Boolean,
     val state: StatsEngine.DayAdherenceState,
     val completed: Int,
     val total: Int
@@ -102,8 +113,7 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
                         ?: StatsEngine.DayStatusBreakdown()
                     DayAdherence(
                         date = d,
-                        // ⚠️ 不用 `dayLabel == "今日"` 这种字符串比较（M7-9）：
-                        // 标签一改文案，判定就静默失效。
+                        isToday = d == today,
                         dayLabel = if (d == today) "今日" else dayLabelOf(d),
                         state = StatsEngine.resolveDayState(b, isFutureDay = d.isAfter(today)),
                         completed = b.completed,

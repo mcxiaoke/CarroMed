@@ -46,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,7 +91,10 @@ fun CabinetScreen(
 
         // 2. 搜索 + 排序
         item {
-            var sortExpanded by remember { mutableStateOf(false) }
+            // ⚠️ `rememberSaveable`（M7-6）。写在 `LazyColumn` 的 `item {}` 内的
+            // `remember` 会随 item 滚出视口而销毁 —— 药品列表很长时这个 item
+            // 很容易被回收，用户点开排序菜单、往下滑两屏再回来，**菜单自己合上了**。
+            var sortExpanded by rememberSaveable { mutableStateOf(false) }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,

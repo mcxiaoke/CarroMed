@@ -261,7 +261,7 @@ class AlarmReconcilerIdempotencyTest {
         val medId = db.medicationDao().getAllMedications().first { it.name == "环孢素" }.id
         AlarmReconciler.rescheduleAll(context, db)
         val target = db.doseSlotDao().getAllSlots().first { it.medicationId == medId }
-        db.doseSlotDao().updateStatus(target.id, SlotStatus.EXPIRED, null)
+        db.doseSlotDao().forceStatusForTest(target.id, SlotStatus.EXPIRED, null)
         val expiredId = target.id
 
         db.reminderSettingsDao().setPausedUntil(medId, "")

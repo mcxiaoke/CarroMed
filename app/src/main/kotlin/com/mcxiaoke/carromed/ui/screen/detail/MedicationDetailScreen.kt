@@ -835,10 +835,24 @@ private fun TagChip(text: String) {
 
 @Composable
 private fun RecordStatusChip(status: RecordStatus, isRetrospective: Boolean) {
-    val (text, color) = when {
-        status == RecordStatus.SKIPPED -> "已跳过" to MaterialTheme.colorScheme.outline
-        isRetrospective -> "补录" to MaterialTheme.colorScheme.tertiary
-        else -> "已服" to SuccessGreen
+    val (text, color) = when (status) {
+        // ⭐ REVERTED 必须有自己的分支（M7-2）。
+        //
+        // 旧实现的 `when` 只有 `SKIPPED` 与 `else => "已服"`，
+        // 于是用户**撤销**的打卡（事实行仍在，只是标了 REVERTED）
+        // 在「服药历史」里显示成绿色的"已服" ——
+        // 而同屏上方的消耗统计**已经把它剔除了**（`sumDoseByDate` 只算 COMPLETED）。
+        //
+        // 同一屏的两块数据自相矛盾：上面说没消耗，下面说已服。
+        // 用户对"撤销"这件事毫无概念（这是补偿，不是删除），于是他只能理解成
+        // "系统算错了" —— 而实际上是他自己刚点的撤销没生效。
+        //
+        // `REVERTED` 显示为灰色"已撤销"，与 `SKIPPED` 同族（都不是有效服药）。
+        RecordStatus.REVERTED -> "已撤销" to MaterialTheme.colorScheme.outline
+        RecordStatus.SKIPPED -> "已跳过" to MaterialTheme.colorScheme.outline
+        RecordStatus.COMPLETED ->
+            if (isRetrospective) "补录" to MaterialTheme.colorScheme.tertiary
+            else "已服" to SuccessGreen
     }
     Surface(shape = RoundedCornerShape(6.dp), color = color.copy(alpha = 0.14f)) {
         Text(
@@ -850,9 +864,6 @@ private fun RecordStatusChip(status: RecordStatus, isRetrospective: Boolean) {
         )
     }
 }
-
-private fun Quantity.fmt(v: Float): String =
-    if (v % 1f == 0f) v.toInt().toString() else String.format(Locale.getDefault(), "%.2f", v)
 
 /** 暂停对话框里的一行可选项。 */
 @Composable

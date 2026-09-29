@@ -62,7 +62,6 @@ data class MedicationBackup(
     val form: String = "片剂",
     val unit: String = "片",
     val colorHex: String = "#2563EB",
-    val iconName: String = "pill",
     @SerialName("defaultDoseMilli") val defaultDose: Int = 1000,
     val description: String = "",
     val precautions: List<String> = emptyList(),

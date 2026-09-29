@@ -139,7 +139,7 @@ class StatsDaoAggregationTest {
         assertThat(StatsEngine.aggregateBreakdowns(before).getValue(medId).getValue(today).pending)
             .isEqualTo(1)
 
-        slotDao.updateStatus(
+        slotDao.forceStatusForTest(
             slotDao.getSlotsForDate(today).first().id,
             SlotStatus.COMPLETED,
             System.currentTimeMillis()

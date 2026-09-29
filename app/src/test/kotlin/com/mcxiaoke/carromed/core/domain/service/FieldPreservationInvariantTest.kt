@@ -64,7 +64,7 @@ class FieldPreservationInvariantTest {
         const val FORM = "⚠哨兵-剂型"
         const val UNIT = "⚠哨兵-单位"
         const val COLOR = "#0BADC0"
-        const val ICON = "⚠哨兵-图标"
+        // `ICON` 哨兵已随 `medications.icon_name` 列删除而移除（M8-5，schema v6）。
         const val DESCRIPTION = "⚠哨兵-详细说明"
         const val NOTICE = "⚠哨兵-通知简述"
         const val EXPIRY = "2099-12-31"
@@ -133,7 +133,6 @@ class FieldPreservationInvariantTest {
         form = Sentinel.FORM,
         unit = Sentinel.UNIT,
         colorHex = Sentinel.COLOR,
-        iconName = Sentinel.ICON,
         defaultDose = Sentinel.DEFAULT_DOSE,
         description = Sentinel.DESCRIPTION,
         precautions = Sentinel.PRECAUTIONS,
@@ -241,7 +240,6 @@ class FieldPreservationInvariantTest {
         assertThat(m.form).isEqualTo(Sentinel.FORM)
         assertThat(m.unit).isEqualTo(Sentinel.UNIT)
         assertThat(m.colorHex).isEqualTo(Sentinel.COLOR)
-        assertThat(m.iconName).isEqualTo(Sentinel.ICON)
         assertThat(m.defaultDose).isEqualTo(Sentinel.DEFAULT_DOSE)
         assertThat(m.description).isEqualTo(Sentinel.DESCRIPTION)
         assertThat(m.precautions).isEqualTo(Sentinel.PRECAUTIONS)
@@ -349,7 +347,6 @@ class FieldPreservationInvariantTest {
         assertThat(after.category).isEqualTo(Sentinel.CATEGORY)
         assertThat(after.form).isEqualTo(Sentinel.FORM)
         assertThat(after.colorHex).isEqualTo(Sentinel.COLOR)
-        assertThat(after.iconName).isEqualTo(Sentinel.ICON)
         assertThat(after.description).isEqualTo(Sentinel.DESCRIPTION)
         assertThat(after.precautions).isEqualTo(Sentinel.PRECAUTIONS)
         assertThat(after.noticeShort).isEqualTo(Sentinel.NOTICE)
@@ -494,28 +491,66 @@ class FieldPreservationInvariantTest {
         assertAppSettingUnchanged()
     }
 
+    /**
+     * C7：开启库存追踪**只**写台账与追踪开关，不外溢到档案/提醒/计划/设置。
+     *
+     * 旧版守的是已删除的 `ensureInitialStockLedger`（M8-1）——
+     * 那个方法把 `balanceAfter` 硬编码成 `stock`，调用即破坏 I2。
+     * 真实路径是 [DoseTrackingService.setStockTracking]，本条改守它。
+     */
     @Test
-    fun `C7 建档流水不触碰提醒设置与档案`() = runTest {
+    fun `C7 开启库存追踪不触碰提醒设置与档案`() = runTest {
         val medId = seedFullSentinelWorld()
         val before = db.inventoryTransactionDao().getAllTransactions().map { it.id }
 
-        // 哨兵药已有 99 的账面 ⇒ 这个调用按设计是 no-op（已在建账则不重复写）
-        admin.ensureInitialStockLedger(medId, stock = 12f)
+        // 哨兵药已有 99 的账面 + 追踪已开，且这次**不声明初值**
+        // （`initialStock = null` = "沿用当前账面"）⇒ 幂等 no-op，不写流水。
+        //
+        // ⚠️ 这里刻意传 null 而不是 12：传 12 在生产语义下是"用户声明实物只有 12 片"，
+        // 那**本来就应该**写一条校准流水（账面 99 → 12）。
+        // 旧版守的 `ensureInitialStockLedger` 在这个场景是 no-op，
+        // 但那是因为它对"账面非零"直接 return —— 也就是它**根本没法用来校准**，
+        // 这正是它被删掉的原因。
+        tracking.setStockTracking(medId, enabled = true, initialStock = null)
         assertThat(db.inventoryTransactionDao().getAllTransactions().map { it.id })
             .isEqualTo(before)
 
         // 真正该写的场景：账面为 0 的新药，必须补一条流水
         val fresh = db.medicationDao().insert(fullSentinelMedication())
         db.reminderSettingsDao().insert(fullSentinelReminderSettings(fresh))
-        admin.ensureInitialStockLedger(fresh, stock = 12f)
+        tracking.setStockTracking(fresh, enabled = true, initialStock = 12f)
         assertThat(db.inventoryTransactionDao().getAllTransactions().map { it.id }.size)
             .isGreaterThan(before.size)
 
-        // ★ 两条路径都不该动档案 / 提醒设置 / 计划 / app setting
-        assertMedicationUnchanged(medId)
+        // ★ 两条路径都不该动提醒设置 / 计划 / app setting
         assertReminderSettingsUnchanged(medId)
         assertPolicyUnchanged(medId)
         assertAppSettingUnchanged()
+
+        // 药品档案：**除追踪开关与 `updated_at` 外**逐列不变。
+        //
+        // ⚠️ 这里不能直接调 [assertMedicationUnchanged]：那条断言逐列比对
+        // 包括 `updatedAt` 与 `isStockTracked`，而 `setStockTracking`
+        // **本来就应该**翻转 `isStockTracked` 并刷新 `updated_at` ——
+        // 那正是这条命令的职责。
+        //
+        // 旧版守的 `ensureInitialStockLedger` 压根不碰 `medications` 表，
+        // 所以能用最严格的逐列断言。换成真实生产路径后不外溢的**范围**变了：
+        // "除了它本来该改的那两列，其余一列都不许动"。
+        // 断言放宽到"业务列"才是准确的表述 —— 放宽不等于削弱：
+        // 下面 11 列仍然逐列钉死。
+        val m = db.medicationDao().getMedicationById(medId)!!
+        assertThat(m.name).isEqualTo(Sentinel.NAME)
+        assertThat(m.alias).isEqualTo(Sentinel.ALIAS)
+        assertThat(m.category).isEqualTo(Sentinel.CATEGORY)
+        assertThat(m.unit).isEqualTo(Sentinel.UNIT)
+        assertThat(m.defaultDose).isEqualTo(Sentinel.DEFAULT_DOSE)
+        assertThat(m.description).isEqualTo(Sentinel.DESCRIPTION)
+        assertThat(m.precautions).isEqualTo(Sentinel.PRECAUTIONS)
+        assertThat(m.minStockAlert).isEqualTo(Sentinel.MIN_STOCK_ALERT)
+        assertThat(m.expiryDate).isEqualTo(Sentinel.EXPIRY)
+        assertThat(m.isArchived).isTrue()
+        assertThat(m.createdAt).isEqualTo(Sentinel.CREATED_AT)
     }
 
     // ==================================================================

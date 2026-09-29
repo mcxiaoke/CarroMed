@@ -149,8 +149,26 @@ interface DoseSlotDao {
     @Query("SELECT * FROM dose_slots WHERE medication_id = :medicationId AND status = 'PENDING' AND scheduled_ts >= :fromTs ORDER BY scheduled_ts ASC")
     suspend fun getPendingSlotsForMedicationAfter(medicationId: Long, fromTs: Long): List<DoseSlotEntity>
 
+    /**
+     * ⚠️ **无状态守卫的写入口，只供测试构造 fixture 使用**（M8-1）。
+     *
+     * 旧的 `updateStatus(slotId, status, actualTs)` 是本文件**唯一**不带
+     * `status IN (...)` 守卫的 UPDATE。它的返回值是 `Unit`，
+     * 调用方**无法知道**自己是不是把一个已 COMPLETED 的槽位覆写成了别的状态。
+     *
+     * 零生产调用方，却是一个**复活型 footgun**：将来任何人在"临时改一下状态"的
+     * 冲动下找到它，就会绕过全部 5 条幂等锚点 ——
+     * 而绕过它们的后果是数据损坏（重复扣库存、既成事实被改写），不是报错。
+     *
+     * 改名 `forceStatusForTest` 而不是直接删除：它有 6 处**测试**调用方
+     * （构造 EXPIRED / SNOOZED 的前置状态），删掉要连带重写 6 处 fixture。
+     * 改名的收益是**意图写进了签名**：`force` + `ForTest` 两个词都在说
+     * "这不是业务路径"，而原来的 `updateStatus` 看起来像个正经 API。
+     *
+     * 将来若测试不再需要，删掉即可 —— 那时它已经不会误导任何人了。
+     */
     @Query("UPDATE dose_slots SET status = :status, actual_taken_ts = :actualTs WHERE id = :slotId")
-    suspend fun updateStatus(slotId: Long, status: SlotStatus, actualTs: Long? = null)
+    suspend fun forceStatusForTest(slotId: Long, status: SlotStatus, actualTs: Long? = null)
 
     /**
      * 幂等打卡：`PENDING` / `SNOOZED` / `EXPIRED` 的槽位都可被置为 COMPLETED。

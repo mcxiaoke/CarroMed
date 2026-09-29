@@ -81,7 +81,6 @@ class AppDatabaseRealTest {
             form = "肠溶片",
             unit = "片",
             colorHex = "#E53935",
-            iconName = "pill",
             defaultDose = 1000,
             description = "用于预防心肌梗死",
             precautions = listOf("饭后半小时服用", "避免与布洛芬同服"),
@@ -180,7 +179,7 @@ class AppDatabaseRealTest {
         val recordId = recordDao.insert(record)
         assertThat(recordId).isGreaterThan(0L)
 
-        slotDao.updateStatus(1001L, SlotStatus.COMPLETED, actualTs)
+        slotDao.forceStatusForTest(1001L, SlotStatus.COMPLETED, actualTs)
 
         // 验证打卡记录写入
         val savedRecord = recordDao.getRecordBySlotId(1001L)
@@ -276,6 +275,32 @@ class AppDatabaseRealTest {
                 buildSet { while (c.moveToNext()) add(c.getString(nameIdx)) }
             }
         assertThat(txColumns).containsAtLeast("change_amount", "balance_after", "tx_type")
+    }
+
+    /**
+     * schema v6（M8-5）：`medications.icon_name` 已删列。
+     *
+     * ## 为什么删列也要有一条断言
+     *
+     * `icon_name` 是"有列、有备份字段、**无写入无消费**"的典型：
+     * 建档走默认值 `"pill"`，备份原样存回，UI 从不读它。
+     * 它不会让任何功能出错，但会让每个读代码的人以为"药品图标"已经实现了 ——
+     * 真正要实现时又多一层"这一列什么时候开始有意义"的考古。
+     *
+     * 断言写在这里（而不是删掉就完事）是因为 AGENTS §2 的红线：
+     * **改 `@Entity` 必须同时有 schema 断言**。只删代码不留断言，
+     * 下一个人很容易"顺手加回来"，而那时没有任何东西会告诉他它曾经被刻意删掉。
+     */
+    @Test
+    fun `medications 表已无 icon_name 列（schema v6 删掉的死列）`() = runTest {
+        val columns = db.openHelper.readableDatabase
+            .query("PRAGMA table_info(medications)").use { c ->
+                val nameIdx = c.getColumnIndexOrThrow("name")
+                buildSet { while (c.moveToNext()) add(c.getString(nameIdx)) }
+            }
+        assertThat(columns).doesNotContain("icon_name")
+        // 而真正承载"这个药长什么样"的字段仍在：`form`（剂型）驱动图标渲染
+        assertThat(columns).contains("form")
     }
 
     @Test

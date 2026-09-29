@@ -52,6 +52,28 @@ data class TimeSlotDraft(
 ) {
     /** 合法剂量；null 表示"空 / 0 / 无法解析"，保存前必须拦下 */
     fun parsedDose(): Float? = DecimalInput.parsePositive(dose)
+
+    /**
+     * 合法时点；null 表示"空 / 不是 `HH:mm`"，保存前必须拦下。
+     *
+     * ⚠️ 为什么光靠 `timeSlots.isEmpty()` 不够（M7-9）：
+     * 列表里有**一个** `time = ""` 的槽位时，`isEmpty()` 返回 false，
+     * 于是校验放行、空时点一路写进 `policy_times.time_of_day`。
+     * 领域层 [com.mcxiaoke.carromed.core.domain.service.MedicationAdminService]
+     * 只查重复与剂量，不查时点格式 —— 而 `SlotProjectionEngine` 对坏串的
+     * 处理是**回退到 08:00**。合起来的效果是：用户清空了时间框，
+     * App 安静地给这味药排了每天 08:00 的闹钟，界面上写的是空。
+     *
+     * 判据用 `LocalTime.parse` 本身，与引擎的回退判据**同源** ——
+     * 否则这里放行、那里回退，两处对"什么算坏串"的理解会漂移。
+     */
+    fun parsedTime(): java.time.LocalTime? =
+        runCatching {
+            java.time.LocalTime.parse(
+                time.trim(),
+                com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine.TIME_FORMATTER
+            )
+        }.getOrNull()
 }
 
 data class AddEditUiState(
@@ -332,13 +354,37 @@ class AddEditMedicationViewModel(
             _uiState.value = s.copy(error = DOW_ERROR)
             return
         }
-        if (policyRequired && s.policyType != PolicyType.PRN && s.timeSlots.isEmpty()) {
-            _uiState.value = s.copy(error = TIME_ERROR)
-            return
-        }
-        if (policyRequired && s.policyType == PolicyType.PRN && s.timeSlots.isEmpty()) {
-            _uiState.value = s.copy(error = TIME_ERROR)
-            return
+        // ⚠️ 两个 `if` 的条件互斥且体完全相同，等价于
+        // `policyRequired && s.timeSlots.isEmpty()`（M7-9）。
+        // 更要紧的是它与**提醒页入口口径不一**：
+        // `ReminderSettingsViewModel` 写的是 `policyType != PRN && times.isEmpty()`，
+        // 而 PRN 在领域层（`SlotProjectionEngine`）根本不产生槽位。
+        //
+        // 于是同一份"按需服用"配置，从新建页存要按时段，
+        // 从提醒页存不按时段也能过 —— 用户改个入口就换一套校验规则。
+        // 这里对齐提醒页：PRN 不要求时段。
+        if (policyRequired && s.policyType != PolicyType.PRN) {
+            // ⚠️ 判据是"有没有**合法**时点"，不是"列表空不空"（M7-9）。
+            // 详见 [TimeSlotDraft.parsedTime]：一个 `time = ""` 的槽位
+            // 能让 `isEmpty()` 放行，随后被引擎回退成 08:00。
+            if (s.timeSlots.none { it.parsedTime() != null }) {
+                _uiState.value = s.copy(error = TIME_ERROR)
+                return
+            }
+            // 逐条指出是哪一格没填 —— 六格表单只说"请设置提醒时点"，
+            // 用户不知道要改哪个框。半截输入（"08:"）同样在这里被点名。
+            val badTime = s.timeSlots.firstOrNull { it.parsedTime() == null }
+            if (badTime != null) {
+                _uiState.value = s.copy(
+                    error = if (badTime.time.isBlank()) {
+                        "第 ${s.timeSlots.indexOf(badTime) + 1} 个提醒时点还没填时间（格式 08:00）"
+                    } else {
+                        "第 ${s.timeSlots.indexOf(badTime) + 1} 个提醒时点的「${badTime.time}」" +
+                            "不是有效时间，请按 08:00 的格式填写"
+                    }
+                )
+                return
+            }
         }
         // 重复时点在领域层会被 require 拒绝（事务回滚）；这里前置拦下，
         // 把它变成表单台词而不是一个没接住的异常（P1）

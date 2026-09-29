@@ -23,6 +23,12 @@ CarroMed —— 全屏页面自动走查截图脚本
 5. **多屏截图后必须滚回顶部**：Compose 的 `LazyColumn` 会记住滚动偏移，
    不复位的话从该页返回时页头标题已在视口外，后续所有按标题/图标定位的步骤连环失败。
    断言找不到目标时也会先尝试复位再找。
+6. **一次失败不许扩散**：下滑手势有可能被系统判给 StatusBar 而拉下通知栏，
+   它会一直留在那里，于是后面二十几步全部截到通知栏。
+   每次 swipe 之后都检查一次焦点，发现通知栏就收起来、必要时把 App 拉回前台
+   （见 `Driver.collapse_shade_if_open`）。
+7. **`--only` 保留导航步骤**：只丢掉非目标页的 shot，不丢导航与断言。
+   否则会在**当前页**截图，而清单仍写"全部导航断言通过"。
 
 用法
 ----
@@ -37,6 +43,8 @@ python tools/app_screenshots.py --clear
 python tools/app_screenshots.py --install --clear --seed
 
 # 只截某几页 / 换输出目录 / 指定设备
+#   `--only` 保留到达目标页所需的**全部导航步骤**，断言照跑。
+#   它不是"在当前页截几张图" —— 那样出的图是错的而报告说一切正常。
 python tools/app_screenshots.py --only today,stats --out temp/shots/round2
 python tools/app_screenshots.py --serial emulator-5556
 
@@ -268,6 +276,32 @@ class Driver:
     def swipe(self, x1: int, y1: int, x2: int, y2: int, ms: int = 350) -> None:
         self.shell("input", "swipe", str(x1), str(y1), str(x2), str(y2), str(ms))
         time.sleep(1.0)
+        # ⚠️ 下滑有可能把**通知栏**拉下来而不是滚动列表。
+        #
+        # 从屏幕顶部附近起手下滑时，系统会把手势判给 StatusBar；
+        # 一旦通知栏被拉开，它会**一直留在那里**，于是后面每一步的截图
+        # 拍到的都是通知栏，而按 text/desc 定位的断言又会连环失败 ——
+        # 一次手势失败毁掉后面二十几步（2026-09-29 真实踩过：
+        # 第 17 步 med_edit 之后，第 18~35 步全部截到通知栏）。
+        #
+        # 每步都收一次状态：这不是在跟"正常情况"较劲，
+        # 而是承认这条路径一定会偶发失败，失败时**立刻自愈**，
+        # 不让它扩散到后面的步骤。
+        self.collapse_shade_if_open()
+
+    def collapse_shade_if_open(self) -> None:
+        """通知栏/快捷设置被拉开时收起来，App 失焦时重新拉起。"""
+        focus = self.shell("dumpsys", "window", "grep", "mCurrentFocus")
+        if "StatusBar" not in focus and "NotificationShade" not in focus:
+            return
+        self.shell("cmd", "statusbar", "collapse")
+        time.sleep(0.6)
+        # 收起来之后系统可能停在桌面，把 App 拉回前台再继续，
+        # 否则后续每一步都会在桌面上"找不到任何控件"。
+        focus = self.shell("dumpsys", "window", "grep", "mCurrentFocus")
+        if "carromed" not in focus:
+            self.shell("am", "start", "-n", f"{PKG}/.MainActivity")
+            time.sleep(2.0)
 
     def scroll_down(self, ratio: float = 0.55) -> None:
         w, h = self.screen_size()
@@ -405,7 +439,35 @@ class Report:
 def run(driver: Driver, out: Path, only: set[str], dump_ui: bool,
         keep: bool, strict: bool, has_data: bool) -> Report:
     report = Report()
-    steps = [s for s in PROGRAM if not only or (s.action == "shot" and s.key in only)]
+    # ⚠️ `--only` 不能简单地把非 shot 步骤全丢掉（2026-09-29 修）。
+    #
+    # 旧写法 `[s for s in PROGRAM if not only or (s.action == "shot" and s.key in only)]`
+    # 只保留目标 shot，把**导航步骤**（tab / text / desc / back）一起丢了。
+    # 于是 `python tools/app_screenshots.py --only today,stats` 实际是
+    # "在**当前停留的那一页**截 today 和 stats 两张图" ——
+    # 而当前页是上一次跑剩下的页面。清单还会写"全部导航断言通过"，
+    # 因为**根本没有断言被执行过**。
+    #
+    # 真实后果：截图拍的是错的页面，而报告说一切正常。
+    # 2026-09-29 亲眼看到 `--only ... progress,stats` 的 8 张图里
+    # 6 张内容完全一样（都是今日清单），`med_reminder` / `med_inventory`
+    # 明明写着自己的页名。
+    #
+    # 正确做法：保留**每一个 shot 之前的全部导航步骤**（它们是到达目标页的路径），
+    # 只丢掉其它页的 shot 本身。断言因此仍然真的跑了。
+    if only:
+        keep_shots = [s.key for s in PROGRAM if s.action == "shot" and s.key in only]
+        first_wanted = min(
+            (i for i, s in enumerate(PROGRAM) if s.action == "shot" and s.key in only),
+            default=0,
+        )
+        steps = [
+            s for i, s in enumerate(PROGRAM)
+            # 目标 shot 之前的导航全留（含其它页的导航，那是路径的一部分）
+            if i <= first_wanted or s.action != "shot" or s.key in keep_shots
+        ]
+    else:
+        steps = list(PROGRAM)
 
     if not keep and out.exists():
         for old in out.glob("*.png"):

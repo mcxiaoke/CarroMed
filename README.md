@@ -169,7 +169,7 @@ python tools/app_screenshots.py --clear --seed
 | 异步 | Coroutines + Flow |
 | 调度 | AlarmManager（`setExactAndAllowWhileIdle` / `setAlarmClock`） |
 | 构建 | AGP 8.11.1，Gradle Wrapper |
-| 测试 | JUnit4 + Robolectric 4.14.1 + Truth + room-testing（**71 项，全绿**） |
+| 测试 | JUnit4 + Robolectric 4.14.1 + Truth + room-testing（**377 项，全绿**） |
 | minSdk / targetSdk | 26 (Android 8.0) / 35 |
 
 **无任何第三方运行时依赖**，无网络库、无图片加载库、无 DI 框架。
@@ -240,7 +240,7 @@ adb shell am start -n com.mcxiaoke.carromed/.MainActivity
 ./gradlew testDebugUnitTest
 ```
 
-71 项单元测试，全部基于**真实的内存 SQLite 数据库**（Robolectric），
+377 项单元测试，全部基于**真实的内存 SQLite 数据库**（Robolectric），
 不使用 mock 数据源 —— 领域层的数学守恒只有跑真库才验得出来。
 
 ---
@@ -259,7 +259,7 @@ CarroMed/
 │       ├── debug/kotlin/.../DevSampleDataSeeder.kt   # 仅 debug：演示数据播种
 │       ├── debug/kotlin/.../DevDataReceiver.kt       # 仅 debug：adb 遥控播种/清库
 │       ├── debug/AndroidManifest.xml                 # 仅 debug：注册上面那个 receiver
-│       └── test/kotlin/.../                          # 71 项单元测试
+│       └── test/kotlin/.../                          # 377 项单元测试
 ├── tools/app_screenshots.py    # 全屏页面自动走查截图
 ├── docs/                       # 设计与变更文档
 ├── temp/                       # 临时产物（git 忽略）：截图、数据库快照、脚本
@@ -305,7 +305,7 @@ CarroMed/
 
 - 13 个全屏页面全部实现并实测通过
 - 12 个 P0 缺陷全部修复（详见审查报告）
-- 71 项单元测试全绿；`assembleDebug` / `compileReleaseKotlin` / `testDebugUnitTest` 通过
+- 377 项单元测试全绿；`assembleDebug` / `compileReleaseKotlin` / `testDebugUnitTest` 通过
 - 模拟器（Android 15 / API 35）逐页实测通过
 
 ### 明确未做

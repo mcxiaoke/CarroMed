@@ -100,6 +100,18 @@ object SlotProjectionEngine {
                     if (suppressUntil != null && !current.isAfter(suppressUntil)) continue
                     val localTime = runCatching { LocalTime.parse(time.timeOfDay, TIME_FORMATTER) }
                         .getOrDefault(LocalTime.of(8, 0))
+                    // ⚠️ `scheduledTime` 必须用**归一化后**的值（C-40）。
+                    //
+                    // 坏时点串（导入的备份、手改的库）解析失败会回退到 08:00，
+                    // 旧代码 `scheduledTs` 用了回退值、`scheduledTime` 却原样留着坏串 ——
+                    // 于是**同一个槽位自称两个时间**：时间戳说 08:00，
+                    // 而 `scheduledTime`（今日页显示的文案 + 闹钟 Uri 身份寻址的键）说别的。
+                    //
+                    // 后果不只是"显示难看"：闹钟按 `(medId, date, time, kind)` 内容寻址，
+                    // 坏串进 Uri 之后，`scheduledTime` 与实际触发时刻对不上，
+                    // 排查时看到的是"闹钟在 08:00 响，但槽位写的是 25:99"。
+                    // 这里让两个字段说同一句话，坏数据也只坏在一处、可见。
+                    val normalizedTime = localTime.format(TIME_FORMATTER)
                     val dateTime = LocalDateTime.of(current, localTime)
                     val epochMilli = dateTime.atZone(zoneId).toInstant().toEpochMilli()
 
@@ -109,7 +121,7 @@ object SlotProjectionEngine {
                             medicationId = policy.medicationId,
                             policyId = policy.id,
                             scheduledDate = current.format(DATE_FORMATTER),
-                            scheduledTime = time.timeOfDay,
+                            scheduledTime = normalizedTime,
                             scheduledTs = epochMilli,
                             doseAmount = time.doseAmount,
                             status = SlotStatus.PENDING

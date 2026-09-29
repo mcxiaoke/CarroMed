@@ -97,6 +97,80 @@ class AddEditLogicTest {
         assertThat(AddEditMedicationViewModel.TIME_ERROR).isEqualTo("请至少设置一个提醒时点")
     }
 
+    // ==================== PRN 口径必须与提醒页一致（M7-9） ====================
+
+    /**
+     * 「按需服用」不要求提醒时点 —— 两个保存入口必须给同一个答案。
+     *
+     * 领域层 `SlotProjectionEngine` 对 PRN 直接 `return emptyList()`，
+     * 也就是说 PRN 压根不产生槽位，提醒页 `ReminderSettingsViewModel`
+     * 用的判据是 `policyType != PRN && times.isEmpty()`。
+     * 本文件曾经的判据多了一个 `PRN` 分支（与上一行体完全相同），
+     * 于是同一份 PRN 配置**换个入口就换一套校验规则**。
+     *
+     * 断言 `error == null`：本测试只关心校验口径，不碰落库。
+     * 真正写库的路径由字段保留不变量测试守。
+     */
+    @Test
+    fun prn_doesNotRequireTimeSlots() {
+        val vm = newVm()
+        vm.onNameChange("止痛药")
+        vm.onPolicyTypeChange(PolicyType.PRN)
+        // 清空时点：PRN 下应当放行
+        vm.updateTimeSlot(0, time = "")
+        assertThat(vm.uiState.value.timeSlots.single().time).isEmpty()
+
+        vm.save(onSuccess = {})
+        assertThat(vm.uiState.value.error).isNull()
+    }
+
+    /** 反例：非 PRN 空时点**必须**被拦下，否则上一条测试就没有区分力 */
+    @Test
+    fun daily_stillRejectsEmptyTimeSlots() {
+        val vm = newVm()
+        vm.onNameChange("降压药")
+        vm.updateTimeSlot(0, time = "")
+        assertThat(vm.uiState.value.timeSlots.single().time).isEmpty()
+
+        vm.save(onSuccess = {})
+        assertThat(vm.uiState.value.error).isEqualTo(AddEditMedicationViewModel.TIME_ERROR)
+    }
+
+    /**
+     * 槽位**存在但时点为空**必须被拦下 —— 这是 `isEmpty()` 判据漏掉的洞。
+     *
+     * 列表里有一条 `time = ""` 时 `timeSlots.isEmpty()` 返回 false，
+     * 旧校验放行，空时点写进 `policy_times`，随后被投影层回退成 08:00。
+     * 用户清空时间框、App 安静地排了每天 08:00 的闹钟。
+     */
+    @Test
+    fun daily_rejectsSingleSlotWithBlankTime() {
+        val vm = newVm()
+        vm.onNameChange("降压药")
+        vm.updateTimeSlot(0, time = "")
+        assertThat(vm.uiState.value.timeSlots).hasSize(1)   // 列表非空
+
+        vm.save(onSuccess = {})
+        // 一条都没填 ⇒ 与"列表为空"是同一种处境（用户还没开始配提醒），
+        // 所以给的是概括台词 `TIME_ERROR`，而不是逐条点名。
+        assertThat(vm.uiState.value.error).isEqualTo(AddEditMedicationViewModel.TIME_ERROR)
+    }
+
+    /** 半截输入（"08:"）同样非法，且要指出是哪一格 */
+    @Test
+    fun daily_rejectsPartialTimeAndNamesTheSlot() {
+        val vm = newVm()
+        vm.onNameChange("降压药")
+        vm.addTimeSlot()
+        vm.updateTimeSlot(0, time = "08:00")
+        vm.updateTimeSlot(1, time = "19:")
+        assertThat(vm.uiState.value.timeSlots).hasSize(2)
+
+        vm.save(onSuccess = {})
+        assertThat(vm.uiState.value.error).contains("第 2 个")
+        assertThat(vm.uiState.value.error).contains("19:")
+    }
+
     @Test
     fun formOptions_coverRequiredDimensions() {
         // 单位：此前全库写死"片"，导致 ml/滴 一律显示错误

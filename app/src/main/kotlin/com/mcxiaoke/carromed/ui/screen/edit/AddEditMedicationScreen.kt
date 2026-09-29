@@ -60,6 +60,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -328,7 +329,20 @@ fun AddEditMedicationScreen(
 
                     Spacer(Modifier.height(12.dp))
 
-                    var customTag by remember { mutableStateOf("") }
+                    // ⚠️ `rememberSaveable` 而不是 `remember`（M7-6）。
+                    //
+                    // 这一行写在 `LazyColumn` 的 `item { }` **内部** ——
+                    // 而 `item` 的内容是**滚出视口就被销毁、滚回来就重建**的。
+                    // `remember` 的存储跟着组合走，于是用户往下滚一点再滚回来，
+                    // 敲了一半的「自定义注意事项」**凭空消失**。
+                    //
+                    // 而且它消失得很隐蔽：用户已经看到自己打的字，
+                    // 滚一下就没了，只能理解成"App 把我的输入吃了"。
+                    //
+                    // `rememberSaveable` 额外扛得住配置变更（旋转屏幕）与
+                    // 进程被系统回收后的重建 —— 后者对"新建药品"表单尤其致命：
+                    // 填了 5 分钟的表单，回收一次全没。
+                    var customTag by rememberSaveable { mutableStateOf("") }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
                             value = customTag,
@@ -469,7 +483,11 @@ private fun OptionDropdown(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier.fillMaxWidth()
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    // ⚠️ `rememberSaveable`（M7-6）。下拉的展开态写在 `LazyColumn` 的 `item {}` 内，
+    // 而 `item` 滚出视口就被销毁、滚回来重建 ⇒ `remember` 跟着组合走，
+    // 下拉会**自己合上**。用户刚点开、往下滑一点再回来，发现菜单没了。
+    // `rememberSaveable` 由 `SaveableStateHolder` 按 item key 保管，滚出去再回来仍在。
+    var expanded by rememberSaveable { mutableStateOf(false) }
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { expanded = it },

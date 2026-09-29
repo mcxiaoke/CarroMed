@@ -214,9 +214,9 @@ class ReconcileScheduleTest {
         val slots = slotsOf(medId)
 
         val skipped = slots[0]
-        db.doseSlotDao().updateStatus(skipped.id, SlotStatus.SKIPPED, System.currentTimeMillis())
+        db.doseSlotDao().forceStatusForTest(skipped.id, SlotStatus.SKIPPED, System.currentTimeMillis())
         val expired = slots[1]
-        db.doseSlotDao().updateStatus(expired.id, SlotStatus.EXPIRED, null)
+        db.doseSlotDao().forceStatusForTest(expired.id, SlotStatus.EXPIRED, null)
 
         service.reconcileSchedule(medId, today.plusDays(2), today.plusDays(5))
 

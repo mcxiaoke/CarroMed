@@ -557,5 +557,8 @@ class DoseTrackingService(private val db: AppDatabase) {
 
     // ==================== 工具 ====================
 
-    private fun fmtQty(v: Float): String = if (v % 1f == 0f) v.toInt().toString() else v.toString()
+    // ⚠️ `private fun fmtQty` 已删除（M8-1）：零调用方，且与
+    // `com.mcxiaoke.carromed.ui.component.Quantity.fmt` 是**同一件事的第二份实现**。
+    // 两份格式化规则必然漂移（`%.2f` vs 去掉尾零），而"同一个数字在四页显示成四种样子"
+    // 正是当初抽出 `Quantity` 的原因 —— 留着一个私有的影子副本等于把问题放回去。
 }

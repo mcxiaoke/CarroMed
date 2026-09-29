@@ -24,8 +24,16 @@ interface SchedulePolicyDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTimes(times: List<PolicyTimeEntity>): List<Long>
 
-    @Update
-    suspend fun updatePolicy(policy: SchedulePolicyEntity)
+    /**
+     * ⚠️ 已删除（M8-1）：`@Update updatePolicy(policy)`。
+     *
+     * 零生产调用方。它是**整行覆盖**命令：调用方必须重传全部列，
+     * 漏传任何一列就把用户的配置抹掉 —— 而"改计划"的正确路径是
+     * [savePolicyWithTimes]（它会递增 `version` 并在事务里 deactivate 旧计划）。
+     *
+     * 留着一个看起来更省事的整行覆盖入口，就是在给 P0-5「漏传型」 defect 开门。
+     * `MedicationAdminServiceTest` 曾直接调它，测试改走 [savePolicyWithTimes]。
+     */
 
     /**
      * 取该药品的活跃计划。

@@ -248,7 +248,13 @@ fun InventoryScreen(
                     if (d != null) {
                         Spacer(Modifier.height(10.dp))
                         when {
-                            d < 0 -> NoticeBar("已于 ${-d} 天前过期，请勿继续服用", NoticeTone.ERROR)
+                            // ⚠️ `d == -1` 说"昨天"，不说"1 天前"（M7-9）。
+                            // "已于 1 天前过期"是机器腔的中文：用户脑子里的时间是
+                            // 「昨天买的 / 昨天就该扔了」，"1 天前"要求他先做一次减法。
+                            // 1 天是绝大多数情况，2 天以上才退回计数。
+                            d == -1 -> NoticeBar("昨天已过期，请勿继续服用", NoticeTone.ERROR)
+                            d < 0 -> NoticeBar("已过期 ${-d} 天，请勿继续服用", NoticeTone.ERROR)
+                            d == 0 -> NoticeBar("今天到期，请尽快用完或更换", NoticeTone.WARN)
                             d <= 30 -> NoticeBar("还有 $d 天到期，注意用完并及时更换", NoticeTone.WARN)
                             else -> Text(
                                 "距离到期还有 $d 天",

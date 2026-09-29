@@ -80,7 +80,6 @@ class BackupFieldPreservationTest {
                 form = "胶囊",
                 unit = "粒",
                 colorHex = "#FF00AA",
-                iconName = "capsule",
                 defaultDose = 2500,            // 非默认 1000
                 description = "每日空腹",
                 precautions = listOf("忌葡萄柚", "监测血药浓度"),
@@ -140,7 +139,7 @@ class BackupFieldPreservationTest {
 
         // 槽位：由投影引擎生成，保证与生产路径一致
         service.reconcileSchedule(medId, today, today.plusDays(1))
-        db.doseSlotDao().updateStatus(
+        db.doseSlotDao().forceStatusForTest(
             db.doseSlotDao().getSlotsForDate(today.toString()).first().id,
             SlotStatus.SNOOZED,
             1_790_000_000_000L
@@ -193,7 +192,6 @@ class BackupFieldPreservationTest {
                     form = "胶囊",
                     unit = "粒",
                     colorHex = "#FF00AA",
-                    iconName = "capsule",
                     defaultDose = 2500,
                     description = "每日空腹",
                     precautions = listOf("忌葡萄柚", "监测血药浓度"),

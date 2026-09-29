@@ -225,6 +225,29 @@ class MedicationAdminService(private val db: AppDatabase) {
                 "同一计划内存在重复的服药时点：${timeKeys.distinct()}"
             }
 
+            // ⭐ 时点必须是合法 `HH:mm`（M7-9，第三层防线，与剂量校验并列）。
+            //
+            // 坏串不会在这里报错，而是**一路活到投影层**：`SlotProjectionEngine`
+            // 对解析失败的时点回退到 08:00。于是备份里一条被截断的
+            // `time_of_day`（"08:" / "8点" / 空串）会让这味药每天 08:00 响，
+            // 而用户从没设过这个时间，且**全程无任何提示**。
+            //
+            // 与上面两处同理：前两层（表单校验）只保护本 App 的两个入口，
+            // 这一层保护**所有**调用方（备份导入、未来 Widget / 手表 / 快捷指令）。
+            // 判据直接用 `SlotProjectionEngine.TIME_FORMATTER`，
+            // 保证与投影层的"什么算坏串"永远一致，不留两套定义。
+            val badTime = draft.times.firstOrNull {
+                runCatching {
+                    java.time.LocalTime.parse(
+                        it.time.trim(),
+                        com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine.TIME_FORMATTER
+                    )
+                }.isFailure
+            }
+            require(badTime == null) {
+                "服药时点「${badTime?.time}」不是有效时间，请按 HH:mm 格式（例如 08:00）填写"
+            }
+
             // ⭐ 剂量必须严格为正（M2-1，第三层防线）。
             //
             // 0 剂量是一条完整的数据损坏路径，且**全程静默**：
@@ -277,33 +300,21 @@ class MedicationAdminService(private val db: AppDatabase) {
             policyDao.savePolicyWithTimes(policy, times)
         }
 
-    /**
-     * 首次录入库存时写入一条建档流水，保证
-     * `SUM(inventory_transactions.change_amount) == medications.current_stock` 守恒。
-     * 已有流水的药品不会被重复记账。
-     */
-    suspend fun ensureInitialStockLedger(medicationId: Long, stock: Float) = db.withTransaction {
-        if (stock <= 0f) return@withTransaction
-        if (inventoryDao.getSumOfChanges(medicationId) != null) return@withTransaction
-        inventoryDao.insert(
-            InventoryTransactionEntity(
-                medicationId = medicationId,
-                changeAmount = Dose.of(stock).milli,
-                balanceAfter = Dose.of(stock).milli,
-                txType = TransactionType.CALIBRATION_ADJUST,
-                note = "初始录入建档"
-            )
-        )
-    }
-
-    /**
-     * 首次录入库存时同步打开库存追踪开关。
-     * 走 `updateStockTracking` 而不是整行覆盖，保证其他字段安全。
-     */
-    suspend fun enableStockTrackingIfNeeded(medicationId: Long, stock: Float) = db.withTransaction {
-        val med = medDao.getMedicationById(medicationId) ?: return@withTransaction
-        if (!med.isStockTracked && stock > 0f) {
-            medDao.updateStockTracking(medicationId, true)
-        }
-    }
+    // ⚠️ 已删除两个库存建档辅助（M8-1）：
+    //   `ensureInitialStockLedger(medicationId, stock)` 与
+    //   `enableStockTrackingIfNeeded(medicationId, stock)`。
+    //
+    // 零生产调用方，且**调用即破坏不变量 I2**：
+    // `ensureInitialStockLedger` 把 `balanceAfter` 硬编码成 `stock`，
+    // 而权威值是 `SUM(change_amount)`。只要该药品在调用前已有过任何流水
+    // （哪怕是负的），写进去的 `balanceAfter` 就与真实余额分叉 ——
+    // 而 I2 的测试会持续校验"最后一条流水的 balanceAfter == SUM(change_amount)"，
+    // 于是这个方法**一旦被调用就必然让门禁变红**。
+    //
+    // 正确路径是 [com.mcxiaoke.carromed.core.domain.service.DoseTrackingService.setStockTracking]：
+    // 它区分"账面为 0 的首次建档"与"需要校准差额"两种情况，
+    // 并按实际余额算 `balanceAfter`。
+    //
+    // KDoc 旧版还写着 `== medications.current_stock` —— 那一列**早就被删了**
+    // （余额改成台账聚合值），文档比代码活得更久，是它误导了后来的读者。
 }

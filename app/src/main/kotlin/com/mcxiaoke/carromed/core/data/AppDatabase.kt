@@ -37,6 +37,7 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
  * | 3 | A1 | 删 `medications.current_stock`；6 列 `REAL` → 整数毫单位；`RecordStatus.RETROSPECTIVE` 改布尔列 |
  * | 4 | A2 | 新增 `reminder_settings` 表；`medications` 删 4 列 |
  * | 5 | A3 | `dose_slots` 的 `(medication_id, scheduled_date, scheduled_time)` 改 **UNIQUE 索引** |
+ * | 6 | M8-5 | 删 `medications.icon_name`（有列、有备份字段，但全链路**无写入、无消费**） |
  *
  * ⚠️ **A1 当时漏升了版本（3 → 3）**，靠 A2 的 3 → 4 顺带补救。
  * 这属于**运气**不是设计。核实依据（反编译 `room-runtime-2.6.1.aar` 的
@@ -65,7 +66,7 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
         AppSettingEntity::class,
         ReminderSettingsEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(AppConverters::class)

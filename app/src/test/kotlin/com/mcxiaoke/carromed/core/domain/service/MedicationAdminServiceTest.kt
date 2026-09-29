@@ -201,16 +201,113 @@ class MedicationAdminServiceTest {
         assertThat(policyDao.getActivePolicyForMedication(medId)?.id).isEqualTo(policy.id)
     }
 
+    // ==================== 时点格式守卫（M7-9） ====================
+
+    /**
+     * 坏时点串必须在**入口**被拒，不能指望投影层回退。
+     *
+     * 旧行为是放行 → 写进 `policy_times` → `SlotProjectionEngine` 解析失败
+     * 回退到 08:00。效果是：备份里一条被截断的 `time_of_day` 让这味药
+     * 每天 08:00 响，而用户从没设过这个时间，**全程零提示**。
+     *
+     * 事务必须整体回滚 —— 校验在 `withTransaction` 内，抛出后
+     * 连同 `deactivate` 旧策略一起撤销。
+     */
     @Test
-    fun ensureInitialStockLedger_isIdempotentAndKeepsInvariant() = runTest {
+    fun `坏时点串被拒且事务整体回滚`() = runTest {
+        val medId = medDao.insert(MedicationEntity(name = "坏时点药"))
+
+        val thrown = runCatching {
+            service.saveReminderPolicy(
+                medId,
+                MedicationAdminService.PolicyDraft(
+                    policyType = PolicyType.DAILY,
+                    times = listOf(MedicationAdminService.TimeDraft("08:", 1f, ""))
+                )
+            )
+        }.exceptionOrNull()
+
+        assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
+        // 一个策略都不该留下（回滚干净）
+        assertThat(policyDao.getAllPoliciesForMedication(medId)).isEmpty()
+    }
+
+    /** 空时点同样非法 —— 它正是"用户清空了时间框"落库后的样子 */
+    @Test
+    fun `空时点串被拒`() = runTest {
+        val medId = medDao.insert(MedicationEntity(name = "空时点药"))
+        val thrown = runCatching {
+            service.saveReminderPolicy(
+                medId,
+                MedicationAdminService.PolicyDraft(
+                    policyType = PolicyType.DAILY,
+                    times = listOf(MedicationAdminService.TimeDraft("", 1f, ""))
+                )
+            )
+        }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
+    }
+
+    /** 反例：正常时点不受影响，否则上面两条没有区分力 */
+    @Test
+    fun `合法时点照常保存`() = runTest {
+        val medId = medDao.insert(MedicationEntity(name = "正常药"))
+        service.saveReminderPolicy(
+            medId,
+            MedicationAdminService.PolicyDraft(
+                policyType = PolicyType.DAILY,
+                times = listOf(MedicationAdminService.TimeDraft("07:30", 1f, "早"))
+            )
+        )
+        val policy = policyDao.getActivePolicyForMedication(medId)!!
+        assertThat(policyDao.getTimesForPolicy(policy.id).map { it.timeOfDay })
+            .containsExactly("07:30")
+    }
+
+    /**
+     * 首次建档走 `setStockTracking`（`ensureInitialStockLedger` 已按 M8-1 删除）。
+     *
+     * 旧测试守的是那个方法，而它把 `balanceAfter` **硬编码**成 `stock` ——
+     * 只要调用前该药品有任何流水（包括负的），写进去的 `balanceAfter`
+     * 就与权威值 `SUM(change_amount)` 分叉，**必然打破不变量 I2**。
+     * 零生产调用方 + 调用即破坏门禁 = 必须删，而不是补测试。
+     *
+     * 本条改守真正的生产路径，并额外钉住那条 I2 分叉：
+     * 「账面已经是负数时开启追踪」必须走校准差额，不能走全额建档。
+     */
+    @Test
+    fun `首次建档走 setStockTracking 且余额守恒`() = runTest {
         val medId = medDao.insert(MedicationEntity(name = "建档药", unit = "片"))
 
-        service.ensureInitialStockLedger(medId, 30f)
+        DoseTrackingService(db).setStockTracking(medId, enabled = true, initialStock = 30f)
         db.assertLedgerBalance(medId, 30f)
+    }
 
-        // 重复调用不应重复记账
-        service.ensureInitialStockLedger(medId, 30f)
-        assertThat(db.inventoryTransactionDao().getTransactionsForMedication(medId)).hasSize(1)
+    @Test
+    fun `负余额时开启追踪 走校准差额而不是全额建档（I2 分叉的守门测试）`() = runTest {
+        val medId = medDao.insert(MedicationEntity(name = "透支药", unit = "片"))
+        // 先花掉 2 片（追踪尚未开启时也能记账 —— 补录路径不校验追踪开关）
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = medId,
+                changeAmount = -2000,
+                balanceAfter = -2000,
+                txType = TransactionType.TAKEN_DEDUCT
+            )
+        )
+        db.assertLedgerBalance(medId, -2f)
+
+        // 用户声明实物 30 片
+        DoseTrackingService(db).setStockTracking(medId, enabled = true, initialStock = 30f)
+
+        // ⭐ 必须是 30 而不是 32：旧 `ensureInitialStockLedger` 无条件写全额 `stock`，
+        // 结果 `current + target = -2 + 30 = 28 ≠ 30` —— 账面停在 28，
+        // 而流水注释写着"已调整到 30"。没有任何线索能解释这 2 片的差距。
+        db.assertLedgerBalance(medId, 30f)
+        // 流水净额与最后一条的 balanceAfter 一致（I1 / I2），这才是真正的守恒
+        assertThat(inventoryDao.getSumOfChanges(medId) ?: 0).isEqualTo(30000)
+        val last = inventoryDao.getLatestTransaction(medId)!!
+        assertThat(last.balanceAfter).isEqualTo(30000)
     }
 
     @Test

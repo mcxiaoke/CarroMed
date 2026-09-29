@@ -59,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -671,7 +672,9 @@ private fun LabelDropdown(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier.fillMaxWidth()
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    // ⚠️ `rememberSaveable`（M7-6）。本组件被用在 `LazyColumn` 的 `item {}` 内，
+    // `remember` 的存储随 item 滚出视口而销毁 ⇒ 下拉会自己合上。
+    var expanded by rememberSaveable { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         OutlinedTextField(
             value = value,

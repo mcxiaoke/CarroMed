@@ -48,7 +48,9 @@ import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
 import com.mcxiaoke.carromed.ui.component.Quantity
+import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
+import com.mcxiaoke.carromed.ui.theme.SuccessGreenContainer
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
 import java.util.Locale
 
@@ -260,9 +262,11 @@ private fun MedicationMatrixCard(item: MedMatrixItem) {
                         Text(
                             text = day.dayLabel,
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (day.dayLabel == "今日") MaterialTheme.colorScheme.primary
+                            // ⚠️ 判「是否今天」用 `day.isToday`，不用 `dayLabel == "今日"`（M7-9）。
+                            // 把判据挂在展示文案上，改一次文案高亮就静默失效。
+                            color = if (day.isToday) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = if (day.dayLabel == "今日") FontWeight.Bold else FontWeight.Normal
+                            fontWeight = if (day.isToday) FontWeight.Bold else FontWeight.Normal
                         )
                         Spacer(Modifier.height(6.dp))
                         DayDot(day)
@@ -295,11 +299,22 @@ private fun DayDot(day: DayAdherence) {
         }
 
         StatsEngine.DayAdherenceState.PARTIAL -> {
-            bg = SuccessGreen.copy(alpha = 0.45f)
+            // ⚠️ 配色不是随手挑的（M7-9）。旧实现是
+            // `bg = SuccessGreen.copy(alpha = 0.45f)` + **白字**，
+            // 合成后底色约 #96D6AE，白字对比度只有 **1.68:1** ——
+            // 而"1/2"是**文字**，适用 WCAG 1.4.3 的 4.5:1（大字豁免要 18.66sp，
+            // 这里只有 9sp，够不着）。也就是说这一格几乎读不出来，
+            // 而它恰恰是"部分完成"这个最需要看清的状态。
+            //
+            // 改成"浅底 + 深字"（`SuccessGreenContainer` 配 `OnSuccessGreenContainer`），
+            // 实测 **8.30:1**。顺带保留了"部分完成比全部完成浅一档"的视觉分级：
+            // 之前靠调 alpha 表达的语义，现在由底色本身承担，
+            // 不再依赖"半透明叠白"这种算出来的近似。
+            bg = SuccessGreenContainer
             icon = {
                 Text(
                     text = "${day.completed}/${day.total}",
-                    color = Color.White,
+                    color = OnSuccessGreenContainer,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold
                 )

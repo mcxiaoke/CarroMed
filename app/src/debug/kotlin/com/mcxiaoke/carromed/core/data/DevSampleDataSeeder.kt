@@ -61,7 +61,6 @@ object DevSampleDataSeeder {
                 form = "软胶囊",
                 unit = "片",
                 colorHex = "#8B5CF6",
-                iconName = "pill",
                 defaultDose = 1000,
                 description = "预防和治疗同种异体器官移植后的排斥反应。建议每天固定时间整粒温水吞服，切勿与葡萄柚同服。",
                 precautions = listOf("整粒吞服禁嚼碎", "严禁与葡萄柚同食", "固定早晚时点", "定期复查血药浓度"),
@@ -109,7 +108,6 @@ object DevSampleDataSeeder {
                 form = "片剂",
                 unit = "片",
                 colorHex = "#3B82F6",
-                iconName = "pill",
                 defaultDose = 1000,
                 description = "免疫调节药物，随餐或温牛奶送服，定期检查眼底。",
                 precautions = listOf("随餐温水送服", "定期检查眼底"),
@@ -147,7 +145,6 @@ object DevSampleDataSeeder {
                 form = "片剂",
                 unit = "片",
                 colorHex = "#10B981",
-                iconName = "pill",
                 defaultDose = 1000,
                 description = "糖皮质激素，建议早晨早餐后一次性服用，不可自行突然停药。",
                 precautions = listOf("早晨早餐后服用", "切勿突然擅自停药"),
@@ -186,7 +183,6 @@ object DevSampleDataSeeder {
                 form = "片剂",
                 unit = "片",
                 colorHex = "#F59E0B",
-                iconName = "pill",
                 defaultDose = 1000,
                 description = "促进骨骼钙质吸收，午餐后温水吞服。",
                 precautions = listOf("午餐后温水送服"),
@@ -240,6 +236,21 @@ object DevSampleDataSeeder {
                 note = "早饭后准时服用"
             )
         )
+        // ⚠️ 打卡事实必须配一条台账流水（M8-6）。
+        // 少了它，演示数据就制造了一个**假的矛盾**：今日页说"已服 1 片"，
+        // 而库存页的余额仍是建档时的 121.5 片 —— 演示时看起来像"打完卡库存不减"，
+        // 让人以为扣减功能坏了。真实路径 `DoseTrackingService.takeDose` 是
+        // 一次事务里同时写事实行与流水的，演示数据也该守同一条不变量 I2。
+        // 121500（建档） - 1000（本次） = 120500
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = med3Id,
+                changeAmount = -1000,
+                balanceAfter = 120500,
+                txType = TransactionType.TAKEN_DEDUCT,
+                note = "今日 08:00 打卡扣减"
+            )
+        )
 
         // b. 羟氯喹 09:00 -> 已打卡完成
         val slot2Ts = today.atTime(LocalTime.of(9, 0)).atZone(zoneId).toInstant().toEpochMilli()
@@ -263,6 +274,16 @@ object DevSampleDataSeeder {
                 doseTaken = 1000,
                 status = RecordStatus.COMPLETED,
                 note = "随餐温水送服"
+            )
+        )
+        // ⚠️ 同上：打卡事实必须配台账流水（M8-6）。36000（建档） - 1000（本次） = 35000
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = med2Id,
+                changeAmount = -1000,
+                balanceAfter = 35000,
+                txType = TransactionType.TAKEN_DEDUCT,
+                note = "今日 09:00 打卡扣减"
             )
         )
 

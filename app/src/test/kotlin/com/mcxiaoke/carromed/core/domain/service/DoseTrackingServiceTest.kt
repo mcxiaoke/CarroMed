@@ -259,6 +259,14 @@ class DoseTrackingServiceTest {
         service.takeDose(501L, actualTs = oldSlotToday.scheduledTs + 60000L)
 
         // 中午时，医生突然改方案：改为每日 2 次 (08:00 1片, 18:00 1片)
+        //
+        // ⚠️ 走生产的 [SchedulePolicyDao.savePolicyWithTimes]，而不是被删除的
+        // `updatePolicy` + `insertTimes` 两条裸写（M8-1）。
+        //
+        // 差别不是形式：整行覆盖必须由调用方重传**全部**列，漏一列就抹掉用户配置
+        // （P0-5「漏传型」）。而真实改计划走的正是 `savePolicyWithTimes` ——
+        // 测试用裸写，等于验证一条**生产不会走**的路径，
+        // 它的绿灯对真实链路没有任何说服力。
         val newPolicy = SchedulePolicyEntity(
             id = policyId,
             medicationId = medId,
@@ -270,8 +278,7 @@ class DoseTrackingServiceTest {
             PolicyTimeEntity(policyId = policyId, timeOfDay = "08:00", doseAmount = 1000, sortOrder = 0),
             PolicyTimeEntity(policyId = policyId, timeOfDay = "18:00", doseAmount = 1000, sortOrder = 1)
         )
-        policyDao.updatePolicy(newPolicy)
-        policyDao.insertTimes(newTimes)
+        policyDao.savePolicyWithTimes(newPolicy, newTimes)
 
         // 执行计划变更调和 (Reconcile)
         service.reconcileSchedule(

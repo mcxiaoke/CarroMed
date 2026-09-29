@@ -49,6 +49,23 @@ val Typography = Typography(
         lineHeight = 18.sp,
         letterSpacing = 0.25.sp
     ),
+    titleSmall = TextStyle(
+        // ⚠️ 显式覆盖，尽管数值与 M3 默认值相同（M7-9）。
+        //
+        // 之前本项目的 Type 槽位"差一个" titleSmall：其余每一档都按本项目
+        // 收紧过的字号阶梯手调过（`bodyLarge` 16→15、`bodyMedium` 14→13），
+        // 只有 titleSmall 悄悄用着 M3 默认值。数值恰好落在合理位置（14sp，
+        // 比 `bodyMedium` 的 13sp 大，符合"标题 > 正文"），
+        // 但它是**默认值而不是决定** —— 将来有人整体调 `bodyMedium`，
+        // 标题与正文的层级关系会在无人察觉的情况下被改掉。
+        //
+        // 与 `titleMedium` 保持 2sp 落差（16 → 14），沿用 M3 的标题阶梯比例。
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Medium,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
+        letterSpacing = 0.1.sp
+    ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Medium,

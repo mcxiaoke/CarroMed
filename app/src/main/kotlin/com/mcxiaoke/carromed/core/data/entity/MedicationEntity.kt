@@ -31,8 +31,17 @@ data class MedicationEntity(
     @ColumnInfo(name = "color_hex")
     val colorHex: String = "#2563EB",
 
-    @ColumnInfo(name = "icon_name")
-    val iconName: String = "pill",
+    // ❗ `icon_name` 列已删除（M8-5，schema v6）。
+    //
+    // 它有列、有备份字段、有默认值，但**全链路既无写入也无消费**：
+    // 建档走默认值 `"pill"`，备份原样存回，UI 从不读它。
+    // 留着它的代价是：
+    // - 备份文件里每种药都多一个恒为 `"pill"` 的字段（用户改不了，看不见）；
+    // - 读代码的人会以为"药品图标"是个已实现的功能；
+    // - 想真正实现药品级图标时，得多做一次"这一列什么时候开始有意义"的考古。
+    //
+    // 真正的图标需求（按剂型区分药丸/胶囊/口服液）应该用 `form` 字段驱动渲染，
+    // 而不是让用户去选一个字符串。真要实现时按 §2 纪律重新加列并升版本。
 
     @ColumnInfo(name = "default_dose")
     /** 单次默认剂量，整数毫单位（1 片 = 1000）。见 core.domain.model.Dose */

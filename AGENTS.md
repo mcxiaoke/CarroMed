@@ -19,6 +19,21 @@
 - **不要 `git commit` / `git push`**，除非用户明确要求。不要碰 `.git`。
 - **不要用 PowerShell 重定向写二进制**（`adb ... > x.png` 会把 PNG 写坏）。
   走 `subprocess` 管道或 `cmd /c "adb ... > file"`。
+- **不要用 PowerShell 批量改源码**。`Set-Content` / `[IO.File]::WriteAllText` 会把
+  UTF-8 写成 ANSI（中文全变乱码）；`-replace` 又是**逐匹配**替换，一行里命中几次
+  就替换几次 —— 能把整份文件改烂（真实踩过：一次批量改 import 把 3 个文件
+  全部写成了只剩一行 `package`）。改文件用 `edit` 工具；确实要批量改时用
+  `temp/` 下的 python 脚本（`io.open(..., encoding='utf-8', newline='')`）。
+  改完先 `git diff --stat` 确认**没有意外的整文件重写** ——
+  LF↔CRLF 互换也会让 3 行改动显示成 800 行 diff。
+
+- **本仓库行尾是混存的**（无 `.gitattributes`，`core.autocrlf=false`，
+  所以索引里 CRLF 与 LF **按文件各一半**）。任何"统一行尾"的操作都会把
+  文件改成与索引相反的行尾，整文件变成 diff。
+  真实踩过：19 个文件被翻成相反行尾，`git diff --stat` 显示
+  **3791 增 / 3583 删**（几乎全仓重写），还原后只剩 **600 增 / 101 删**。
+  修法：`python temp\fixeol.py` 按 `git ls-files --eol` 的 `i/` 字段逐个还原。
+  **`git diff --stat` 出现几百上千行而你只改了几行，就是这个。**
 
 ---
 
@@ -49,9 +64,10 @@ python temp\dbdump.py
 | `core/domain/service/*` | 补事务守恒测试（`SUM(change_amount) == currentStock`） |
 | `core/alarm/*` | 模拟器实测闹钟是否真响；**闹钟身份必须走 `AlarmScheduler.alarmUri` 的内容寻址**，别退回 `requestCode` 算术编码 |
 | `ui/screen/*` | **必须跑一次 UI 走查截图并看图**（第 4 节） |
+| `ui/*ViewModel*` | **不要给构造器加参数**（§2 第 5 条坑） |
 | `ui/navigation/*` | 新路由要同步登记到 `tools/app_screenshots.py` 的 `PROGRAM` |
 
-### 四个最容易踩的架构坑
+### 七个最容易踩的架构坑
 
 1. **整行覆盖毁数据**。更新药品档案必须走局部 `UPDATE`
    （`MedicationDao.updateProfile` / `updateReminderBehavior` / `updateStockTracking`）。
@@ -78,6 +94,76 @@ python temp\dbdump.py
    `AlarmIdentityTest` 守这条，别为了让测试好写就在测试里重写一遍 Uri 构造
    —— 那样守的是测试里的影子。
 
+5. **不要给 `AndroidViewModel` 的构造器加参数**。`viewModel()` 走
+   `AndroidViewModelFactory`，它用 `getConstructor(Application::class.java)`
+   **反射**找构造器，而 Kotlin 的**默认参数不会生成单参 Java 构造器**
+   （除非标 `@JvmOverloads`）。加了参数的后果是：
+
+   | 环节 | 结果 |
+   | :--- | :--- |
+   | 编译 | ✅ 通过 |
+   | `testDebugUnitTest` | ✅ 全绿（测试直接 `new`，绕开了工厂） |
+   | 真机点开那一页 | 💥 崩 |
+
+   ```
+   Caused by: java.lang.NoSuchMethodException:
+     com.mcxiaoke...StatsViewModel.<init> [class android.app.Application]
+   ```
+
+   2026-09-29 真实踩过：给 `StatsViewModel` 加 `dbOverride: AppDatabase? = null`
+   好让测试能注入内存库，结果统计页一点就崩。
+   正确做法是**保持单参构造器**，把可测的部分抽成普通类
+   （当时抽成了 `StatsStateBuilder`，ViewModel 只留 `application`）。
+
+   推论：**"编译过 + 单测全绿" 覆盖不到 UI 接线** ——
+   所以 §4 的走查看图不是形式主义，它是唯一能发现这一类缺陷的手段。
+
+6. **静默降级 = 给用户虚假的保证**。精确闹钟权限没拿到时，
+   `setAndAllowWhileIdle` 在 Android 上带**最小 1 小时窗口**
+   （模拟器实测 `dumpsys alarm` 里 67 个闹钟全部 `window=3600000`）——
+   "到点提醒"这条第一承诺直接不成立，而用户毫无察觉。
+
+   复现方式很朴素：Manifest 声明**可撤销**的 `SCHEDULE_EXACT_ALARM`，
+   而 App 从不引导用户去授权 ⇒ `canScheduleExactAlarms()` 恒为 false
+   ⇒ 全部静默落到第三档（见 `docs/CODE-REVIEW-20260929-ds.md` P0-1）。
+
+   两条纪律：
+   - 声明 `USE_EXACT_ALARM`（闹钟类应用免授权），让第一档成为常态；
+   - 档位由 `AlarmScheduler.currentPrecision()` **可查**，
+     系统特权自检页**如实显示**，降级对用户可见。
+
+   **验收要量 `window`，不能数闹钟个数。** 改完在模拟器上量：
+
+   ```powershell
+   adb -s emulator-5554 shell "dumpsys alarm" > temp\alarm.txt
+   python temp\alarmcheck.py temp\alarm.txt   # 只认 window=0 为精确
+   ```
+
+   期望输出 `window=0 ... 67` / `VERDICT: PASS`。
+   ⚠️ 解析 `dumpsys alarm` 时，告警记录头是 `<TYPE> #<n>: Alarm{`，
+   **按 `RTC #N:` 切分会误判** —— 真实踩过：切分点选错导致几十条无关记录
+   被并成一条，报出 3 个假的"非精确闹钟"，差点当成修复失败去改正确代码。
+
+   同类缺陷还有已摘除的「灭屏全屏弹窗」开关：写库 ✓、读库 ✓、一路传进
+   `Behavior` ✓，然后**从不消费**，Manifest 里也没有 `USE_FULL_SCREEN_INTENT`。
+   共同点不是"没实现"，而是**给用户一个以为已经生效的开关** ——
+   诚实的空缺好过虚假的保证。
+
+7. **坏数据要"只坏在一处"，不能被兜底掩盖成用户没设置过的行为**。
+   同一类缺陷的三个变体，2026-09-29 一次修掉：
+
+   | 位置 | 旧行为 | 现在 |
+   | :--- | :--- | :--- |
+   | 坏时点串写库 | 入口不校验格式 → 投影层回退 08:00 → 闹钟每天 08:00 响，界面写空 | 入口拒绝（表单 + 领域层双重），事务回滚 |
+   | 坏时点串投影 | `scheduledTs` 用回退值、`scheduledTime` 留坏串 ⇒ **同一槽位自称两个时间** | 两字段说同一句话 |
+   | 演示数据打卡 | 事实行 COMPLETED 但无台账 ⇒「打卡了库存不减」 | 补 `TAKEN_DEDUCT`，守 I2 |
+
+   推论：**校验判据要和兜底判据同源。** 空时点能溜过去，
+   正是因为校验查的是 `timeSlots.isEmpty()`，而兜底查的是 `LocalTime.parse` ——
+   列表里有一条 `time = ""` 时前者返回 **false**、后者失败，
+   两边对"什么算坏数据"的理解不一致，坏值就穿过去了。
+   写任何"X 非法就拒绝"的校验时，先确认**兜底那层用的是不是同一个解析器**。
+
 ---
 
 ## 3. 单元测试流程
@@ -87,7 +173,7 @@ python temp\dbdump.py
 ```
 
 - **全绿是提交前的硬门槛，但门禁不是"项数"而是"不变量"。**
-  当前 184 项，覆盖 12 条不变量（见 `docs/REMINDER-DOMAIN-REDESIGN.md` §4）。
+  当前 377 项，覆盖 12 条不变量（见 `docs/REMINDER-DOMAIN-REDESIGN.md` §4）。
   新增测试会推高项数，删掉无用测试会降低项数 —— 两者都不该改变门禁强度。
   改动不变量时，**先确认守它的那条测试还在**。
 - 测试跑在 **Robolectric + 真实内存 SQLite** 上，不是 mock 数据源。
