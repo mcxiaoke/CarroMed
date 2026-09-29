@@ -220,6 +220,14 @@ fun SettingsScreen(
                             val snoozeOptions = listOf(5, 10, 15, 30, 60, 120)
                             var snoozeExpanded by remember { mutableStateOf(false) }
 
+                            // 下拉只能表示这 6 个档位，而库里可以是任意值
+                            // （药品级步进写到 25、或从备份导入 app_settings 带来 90）。
+                            // 旧实现直接把当前值塞进只读 TextField，于是 90 分钟这一档
+                            // **显示得出来却选不回去** —— 用户改了别的设置再回来，
+                            // 就再也回不到 90，只能被静默改成别的值。
+                            // 兜底补一个「自定义」项，保证"显示什么就能选回什么"。
+                            val hasCustom = uiState.snoozeMinutes !in snoozeOptions
+
                             ExposedDropdownMenuBox(
                                 expanded = snoozeExpanded,
                                 onExpandedChange = { snoozeExpanded = it },
@@ -237,6 +245,12 @@ fun SettingsScreen(
                                     expanded = snoozeExpanded,
                                     onDismissRequest = { snoozeExpanded = false }
                                 ) {
+                                    if (hasCustom) {
+                                        DropdownMenuItem(
+                                            text = { Text("${uiState.snoozeMinutes} 分钟 (自定义)") },
+                                            onClick = { snoozeExpanded = false }
+                                        )
+                                    }
                                     snoozeOptions.forEach { mins ->
                                         DropdownMenuItem(
                                             text = { Text("$mins 分钟") },
@@ -248,28 +262,6 @@ fun SettingsScreen(
                                     }
                                 }
                             }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        // 灭屏全屏弹窗提醒
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("灭屏全屏弹窗提醒", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    "锁屏亮屏时弹出全屏服药操作界面（需在系统设置中允许「全屏通知」）",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = uiState.fullScreenAlert,
-                                onCheckedChange = { viewModel.onFullScreenAlertChange(it) }
-                            )
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))

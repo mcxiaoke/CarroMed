@@ -17,6 +17,17 @@ import java.time.LocalDate
  * 2. 所有活跃药品的待服/推迟槽位均注册了精确闹钟
  * 3. 已停药/暂停/过期槽位的闹钟全部取消，杜绝幽灵唤醒
  * 4. 超过计划时间 2 小时仍 PENDING 的槽位标记 EXPIRED（不冤枉判漏服）
+ * 5. 仍在 2 小时宽限期内、但闹钟已丢失（关机/重启）的槽位**补响一次**
+ *
+ * ## 宽限期为什么必须补响（决策 C / M1-7）
+ *
+ * 第 1 步的结算 cutoff 是 `now - 2h`，第 4 步的注册条件是 `> now`。
+ * 于是 `(now-2h, now]` 这个区间**两边都不管**——旧实现里它是一个黑洞：
+ * 关机 30 分钟的闹钟在开机后既不结算、也不补排，用户什么都不知道。
+ * 现在第 4 步显式覆盖这个区间（见 `GRACE_CATCHUP_DELAY_MS`）。
+ *
+ * 注意这**不**与第 1 步冲突：cutoff 用的是严格小于，所以宽限期内的槽位
+ * 在同一次对账里既不会被结算，也会被补响。
  *
  * ## 窗口为什么是 14 天而不是 7 天（P0-2）
  *
@@ -51,6 +62,14 @@ object AlarmReconciler {
     private const val EXPIRE_WINDOW_MS = 2 * 60 * 60 * 1000L
 
     /**
+     * 宽限期内错过时的补响延迟。
+     *
+     * 为什么是"30 秒后"而不是"立刻"：对账是全量重排，一次可能同时补响很多条，
+     * 全部同一瞬间弹出会在锁屏上糊成一片。错开一点让用户还能看清是哪味药。
+     */
+    private const val GRACE_CATCHUP_DELAY_MS = 30_000L
+
+    /**
      * 闹钟视野天数。
      *
      * 7 → 14 天的意义不只是"多排一周"：它把"用户多久没打开 App"与"会漏几天提醒"解耦。
@@ -70,6 +89,41 @@ object AlarmReconciler {
     }
 
     private fun DoseSlotEntity.identity() = AlarmIdentity(id, medicationId, scheduledDate, scheduledTime)
+
+    /**
+     * 落在逾期宽限期内、但触发时刻已经过去的开放槽位。
+     *
+     * 与 `getStaleOpenSlots` 的 cutoff 是**同一条线**：结算用严格小于，
+     * 这里用大于等于，两边互补不重叠。
+     */
+    private fun DoseSlotEntity.isWithinGrace(now: Long, graceFloor: Long): Boolean {
+        val base = if (status == SlotStatus.SNOOZED) snoozeUntilTs else scheduledTs
+        return base != null && base <= now && base >= graceFloor
+    }
+
+    /**
+     * 撤掉该槽位**已经弹出**的托盘通知。
+     *
+     * ## 为什么这件事必须与撤闹钟同处一个决策点（B-05）
+     *
+     * 闹钟是"未来的意图"，托盘通知是"已经发生的陈述"。用户点完确认、
+     * 槽位被结算成 EXPIRED 之后，那条通知还在说「该吃药了：环孢素」，
+     * 底下还挂着三个可点的按钮 —— 而它们全部只会返回
+     * "该服药记录已处理过"。
+     *
+     * 更糟的是它会**一直**留在通知栏（`setAutoCancel(true)` 只在用户点它时失效），
+     * 于是状态与通知长期矛盾。
+     *
+     * 旧实现只在**用户主动操作**的 4 处撤通知（App 内打卡/跳过/推迟、通知栏 Action），
+     * 而结算、暂停、归档这些**系统自己**改变槽位状态的路径一处都不撤。
+     * 现在统一收敛到"任何使槽位不再开放的路径都撤"。
+     *
+     * 整个调用点都在 Robolectric/模拟器上跑，失败不应影响对账本身，故吞异常。
+     */
+    private fun cancelNotificationOf(context: Context, slotId: Long) {
+        runCatching { Notifications.cancelDoseNotification(context, slotId) }
+            .onFailure { Log.w(TAG, "cancel notification failed slot=$slotId", it) }
+    }
 
     suspend fun rescheduleAll(context: Context, db: AppDatabase) {
         val now = System.currentTimeMillis()
@@ -92,6 +146,8 @@ object AlarmReconciler {
             if (db.doseSlotDao().markExpired(stale.id) == 0) return@count false
             // 结算即不再需要闹钟；三种种类一次清干净
             stale.identity().cancelAll(context)
+            // ⭐ 托盘通知同样要撤（B-05）。见下方 [cancelNotificationOf] 的说明。
+            cancelNotificationOf(context, stale.id)
             true
         }
         if (expiredCount > 0) {
@@ -115,6 +171,9 @@ object AlarmReconciler {
         val today = LocalDate.now()
         val schedulableMeds = db.medicationDao().getActiveOverviews()
         val overviewByMed = schedulableMeds.associateBy { it.id }
+
+        // 宽限期内错过的槽位仍然算"待办"，因此它们既不能被结算，也不能被当成孤儿撤掉
+        val graceFloor = now - EXPIRE_WINDOW_MS
 
         /**
          * 某个槽位所在日期，该药是否处于暂停中。
@@ -171,13 +230,21 @@ object AlarmReconciler {
         var cancelled = 0
         for (id in snapshot) {
             val slot = stillOpen[id.slotId]
+            // 宽限期内错过的槽位仍算"待办"：第 1 步没结算它，第 4 步会补响它。
+            // 这里若判它不该留，就会先撤掉已弹出的托盘通知、再在 30 秒后重弹一条，
+            // 用户看到的是"通知自己闪了一下又冒出来"。判据与第 4 步必须一致。
+            val withinGrace = slot != null && slot.isWithinGrace(now, graceFloor)
             val shouldKeep = slot != null &&
                 slot.medicationId in activeIds &&
                 !isPausedOn(slot) &&
-                (slot.scheduledTs > now || slot.snoozeUntilTs?.let { it > now } == true)
+                (slot.scheduledTs > now || slot.snoozeUntilTs?.let { it > now } == true || withinGrace)
             if (!shouldKeep) {
                 runCatching { id.cancelAll(context) }
                     .onFailure { Log.e(TAG, "cancel failed slot=${id.slotId}", it) }
+                // 暂停 / 归档 / 改计划会走"删槽位"，删掉的那一刻托盘上那条提醒
+                // 就已经过期了（槽位不存在了，用户按「确认已吃」只会得到
+                // "该记录已处理过"）。一并撤掉。
+                cancelNotificationOf(context, id.slotId)
                 cancelled++
             }
         }
@@ -195,8 +262,12 @@ object AlarmReconciler {
 
             // 推迟中的槽位：主闹钟已无意义（用户主动改期），只排推迟唤醒
             if (slot.status == SlotStatus.SNOOZED) {
-                if (snoozeAt != null && snoozeAt > now) {
-                    runCatching { AlarmScheduler.schedule(context, slot, snoozeAt, AlarmScheduler.Kind.SNOOZE) }
+                if (snoozeAt != null && (snoozeAt > now || snoozeAt >= graceFloor)) {
+                    // 推迟目标时刻已过但仍在宽限期内 ⇒ 同样补响一次。
+                    // 判据用 `snoozeAt` 而不是 `mainAt`：SNOOZED 槽位的
+                    // `scheduled_ts` 是**原计划时间**，早就过去了，拿它判会误补响。
+                    val triggerAt = if (snoozeAt > now) snoozeAt else now + GRACE_CATCHUP_DELAY_MS
+                    runCatching { AlarmScheduler.schedule(context, slot, triggerAt, AlarmScheduler.Kind.SNOOZE) }
                         .onFailure { Log.e(TAG, "snooze schedule failed slot=${slot.id}", it) }
                     scheduled++
                 }
@@ -216,6 +287,23 @@ object AlarmReconciler {
             if (mainAt > now) {
                 runCatching { AlarmScheduler.schedule(context, slot, mainAt, AlarmScheduler.Kind.MAIN) }
                     .onFailure { Log.e(TAG, "schedule failed slot=${slot.id}", it) }
+                scheduled++
+            } else if (mainAt >= graceFloor) {
+                // 宽限期内错过的补响（决策 C / M1-7）。
+                //
+                // 落在 `(now - EXPIRE_WINDOW_MS, now]` 的 PENDING 槽位**既不结算也不注册**：
+                // 过期结算只管 cutoff 之前，而"给未来槽位排闹钟"只管 `> now`。
+                // 于是这 2 小时是一个**黑洞**——关机 / 重启 / 长时间后台导致闹钟丢失时，
+                // 用户在这段时间内的服药既不会被提醒，也看不到任何解释。
+                //
+                // 补响一次是这里唯一说得通的处理：提醒不漏是产品的第一承诺，
+                // 而"已经过了 2 小时"这条规则本来就是为"别冤枉人判漏服"设的，
+                // 它**不该**被用来顺带吞掉一次提醒。补响后仍由用户决定打卡与否。
+                runCatching {
+                    AlarmScheduler.schedule(context, slot, now + GRACE_CATCHUP_DELAY_MS, AlarmScheduler.Kind.MAIN)
+                }
+                    .onFailure { Log.e(TAG, "grace catch-up schedule failed slot=${slot.id}", it) }
+                Log.i(TAG, "grace catch-up: missed slot=${slot.id} at=$mainAt (now=$now)")
                 scheduled++
             }
         }

@@ -122,8 +122,12 @@ class ReconcileWorker(
          * 3. `MainActivity` 启动 —— 兜底
          *
          * @param replace 用 `REPLACE` 强制重排。WorkManager 的周期任务本身会跨重启存活，
-         *   但**系统升级 App 或用户清数据**后既有任务会被丢弃，此时必须重排；
-         *   `KEEP` 在这种情况下拿不到任务，而 `REPLACE` 幂等且能自愈。
+         *   但**系统升级 App** 后既有任务会被丢弃，此时必须重排。
+         *
+         *   ⚠️ **不要在 `Application.onCreate` 里传 `true`**（N4）：WorkManager 冷启动
+         *   进程执行本任务时，`onCreate` 先跑，`REPLACE` 会把"正要执行的那次任务"
+         *   取消掉并重置 15 分钟计时 —— 第三层兜底在最需要它的场景里自己饿死自己。
+         *   `CarroMedApp` 走 `KEEP`；只有 `BootReceiver` 有理由用 `REPLACE`。
          */
         fun enqueue(context: Context, replace: Boolean = false) {
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(

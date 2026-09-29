@@ -18,8 +18,6 @@ import kotlinx.coroutines.withContext
 
 data class SettingsUiState(
     val snoozeMinutes: Int = 30,
-    val soundMode: String = "温和药铃 (推荐)",
-    val fullScreenAlert: Boolean = true,
     val nightDnd: Boolean = true,
     val isExporting: Boolean = false,
     /** 正在解析所选备份文件（此时尚未碰数据库） */
@@ -56,16 +54,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val snooze = settingDao.getValue("snooze_minutes")?.toIntOrNull() ?: 30
-            val sound = settingDao.getValue("sound_mode") ?: "温和药铃 (推荐)"
-            val fullScreen = settingDao.getValue("full_screen_alert")?.toBoolean() ?: true
             val dnd = settingDao.getValue("night_dnd")?.toBoolean() ?: true
 
             _uiState.value = SettingsUiState(
                 snoozeMinutes = snooze,
-                soundMode = sound,
-                fullScreenAlert = fullScreen,
                 nightDnd = dnd
             )
         }
@@ -75,20 +69,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _uiState.value = _uiState.value.copy(snoozeMinutes = minutes)
         viewModelScope.launch {
             settingDao.setSetting(AppSettingEntity("snooze_minutes", minutes.toString()))
-        }
-    }
-
-    fun onSoundModeChange(sound: String) {
-        _uiState.value = _uiState.value.copy(soundMode = sound)
-        viewModelScope.launch {
-            settingDao.setSetting(AppSettingEntity("sound_mode", sound))
-        }
-    }
-
-    fun onFullScreenAlertChange(enabled: Boolean) {
-        _uiState.value = _uiState.value.copy(fullScreenAlert = enabled)
-        viewModelScope.launch {
-            settingDao.setSetting(AppSettingEntity("full_screen_alert", enabled.toString()))
         }
     }
 

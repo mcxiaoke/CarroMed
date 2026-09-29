@@ -35,9 +35,20 @@ class CarroMedApp : Application() {
         // 若首次弹通知时渠道还不存在，HIGH 这一档就永远生效了。
         Notifications.ensureChannel(this)
 
-        // 兜底重排：系统升级 App / 用户清数据后，WorkManager 里的既有周期任务会被丢弃。
-        // 用 REPLACE 幂等重排，避免"任务已丢失却没人发现"。
-        runCatching { ReconcileWorker.enqueue(this, replace = true) }
+        // 兜底重排：系统升级 App / 用户清数据后，WorkManager 里的既有周期任务会被丢弃，
+        // 这里确保它重新排上。
+        //
+        // ⚠️ 用 `KEEP` 而**不是** `REPLACE`（N4）。
+        // `REPLACE` 的语义是"取消并删除同名既有任务再入队"，而 WorkManager 冷启动进程
+        // 去执行本任务时，进程创建顺序固定为 `Application.onCreate` → 组件，
+        // 于是 `onCreate` 会把"正要执行的那次任务"取消掉，顺带把 15 分钟周期计时重置。
+        // 讽刺的是这个 Worker 的定位是「前两层都失效时的最终兜底」，
+        // 它最需要生效的场景恰是"进程已死"——而那正是冷启动。
+        //
+        // `KEEP` 同样能自愈那两种情况：清数据会把 WorkManager 自己的库一起清掉，
+        // 此时根本没有既有任务，`KEEP` 等价于首次入队；升级/换包由
+        // `BootReceiver`（收 `MY_PACKAGE_REPLACED`）用 `REPLACE` 显式重排。
+        runCatching { ReconcileWorker.enqueue(this, replace = false) }
             .onFailure { Log.e("CarroMedApp", "enqueue periodic reconcile failed", it) }
     }
 }

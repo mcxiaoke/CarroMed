@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.core.alarm
 
 import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -10,9 +11,21 @@ import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 
 /**
  * 精确闹钟调度器（三档降级链路）
- * 1. Android 12+ 且已授予精确闹钟权限 → setExactAndAllowWhileIdle
- * 2. 未授权精确闹钟 → setAlarmClock（系统闹钟通道，不受 Doze 限制）
- * 3. 都不行 → setAndAllowWhileIdle（Doze 下仍允许唤醒，误差通常 < 15 分钟）
+ * 1. 已授予精确闹钟权限 → setExactAndAllowWhileIdle
+ * 2. 未授权 → setAlarmClock（系统闹钟通道，不受 Doze 限制）
+ * 3. 都不行 → setAndAllowWhileIdle（**系统可对齐到窗口边界，可能晚约 1 小时**）
+ *
+ * ## 第 3 档不是"误差通常 < 15 分钟"（P0-1，旧注释的说法是错的）
+ *
+ * `setAndAllowWhileIdle` 在 Android 上会带**最小 1 小时的窗口**（`window=3600000`）。
+ * 旧实现在 `canScheduleExactAlarms() == false` 时**静默**落到这一档，
+ * 而 Manifest 声明的是可被撤销的 `SCHEDULE_EXACT_ALARM`、App 又从不引导用户授权，
+ * 于是这个分支是**常态**而不是兜底。模拟器实测 67 个闹钟全部带 +1h 窗口。
+ *
+ * 两处修复：
+ * 1. Manifest 改声明 `USE_EXACT_ALARM`（闹钟类应用免授权），让第 1 档成为常态；
+ * 2. 当前档位由 [currentPrecision] **可查询**，系统特权自检页如实显示，
+ *    降级对用户可见（见 `docs/CODE-REVIEW-20260929-ds.md` P0-1）。
  *
  * ## 闹钟身份：内容寻址而非算术编码（P0-1）
  *
@@ -127,25 +140,37 @@ object AlarmScheduler {
         // extras 不参与判重，仅供 Receiver 快速取用（仍以 slotId 为准并做存在性校验）
         .putExtra(EXTRA_SLOT_ID, slotId)
 
+    /**
+     * 闹钟的 [PendingIntent]。**生产与测试共用这一份构造**。
+     *
+     * @param forCancel 取消路径用 `FLAG_NO_CREATE`。
+     *
+     *   `FLAG_UPDATE_CURRENT` 在**没有**匹配项时也会**创建一个** PendingIntent ——
+     *   于是"取消一个从未排过的闹钟"会凭空留下一条系统记录（不影响投递，
+     *   但会让 `dumpsys` 与后续任何"按 PendingIntent 存在性"的判断失真）。
+     *   取消时正确的 flag 是 `FLAG_NO_CREATE`：匹配不到就返回 null，不留痕。
+     *   匹配到时 `FLAG_NO_CREATE` 不带 `UPDATE_CURRENT` 语义，但 `cancel()`
+     *   本来就不需要它 —— 取消是丢弃而不是更新。
+     */
     private fun pendingIntent(
         context: Context,
         medicationId: Long,
         date: String,
         time: String,
         slotId: Long,
-        kind: Kind
-    ): PendingIntentWrapper = PendingIntentWrapper(
-        android.app.PendingIntent.getBroadcast(
-            context,
-            0,                                   // requestCode 恒为 0，身份完全由 Intent 内容决定
-            alarmIntent(context, medicationId, date, time, slotId, kind),
+        kind: Kind,
+        forCancel: Boolean = false
+    ): PendingIntent? = android.app.PendingIntent.getBroadcast(
+        context,
+        0,                                   // requestCode 恒为 0，身份完全由 Intent 内容决定
+        alarmIntent(context, medicationId, date, time, slotId, kind),
+        if (forCancel) {
+            android.app.PendingIntent.FLAG_NO_CREATE or android.app.PendingIntent.FLAG_IMMUTABLE
+        } else {
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or
                 android.app.PendingIntent.FLAG_IMMUTABLE
-        )
+        }
     )
-
-    /** 薄包装，让下面的降级链读起来不必反复写全限定名 */
-    private data class PendingIntentWrapper(val value: android.app.PendingIntent)
 
     /**
      * 排一个闹钟。
@@ -161,22 +186,28 @@ object AlarmScheduler {
         val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
         val pi = pendingIntent(
             context, slot.medicationId, slot.scheduledDate, slot.scheduledTime, slot.id, kind
-        ).value
+        ) ?: return
 
-        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            alarmManager.canScheduleExactAlarms()
-
-        if (canExact) {
-            try {
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi)
-                return
-            } catch (e: SecurityException) {
-                // 权限被运行时回收（用户刚在系统设置里关掉），落入下方兜底
-                Log.w(TAG, "exact alarm denied, falling back: ${e.message}")
+        when (currentPrecision(alarmManager)) {
+            Precision.EXACT -> {
+                try {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi)
+                    return
+                } catch (e: SecurityException) {
+                    // 权限被运行时回收（用户刚在系统设置里关掉 / 某些 ROM 的额外限制），
+                    // 落入下方兜底
+                    Log.w(TAG, "exact alarm denied, falling back: ${e.message}")
+                }
             }
+            else -> Unit
         }
         try {
-            alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAtMillis, null), pi)
+            // `AlarmClockInfo` 带 showIntent 时，系统状态栏会显示闹钟图标；
+            // 传 null 会让这条路径在部分 ROM 上退化为普通闹钟，甚至被拒绝。
+            alarmManager.setAlarmClock(
+                AlarmManager.AlarmClockInfo(triggerAtMillis, showIntent(context)),
+                pi
+            )
             return
         } catch (e: SecurityException) {
             // 部分 ROM 上 setAlarmClock 同样要求精确闹钟权限
@@ -184,6 +215,55 @@ object AlarmScheduler {
         }
         alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi)
     }
+
+    /** 状态栏闹钟图标的落点：点开直接进 App，不做任何业务动作 */
+    private fun showIntent(context: Context): android.app.PendingIntent =
+        android.app.PendingIntent.getActivity(
+            context,
+            0,
+            Intent(context, com.mcxiaoke.carromed.MainActivity::class.java)
+                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+
+    /**
+     * 当前**实际生效**的投递精度档位。
+     *
+     * 存在的理由：降级链路（[schedule] 里三级 try）此前是**静默**的 ——
+     * 系统未授予精确闹钟时全部落到 `setAndAllowWhileIdle`，而实测该路径在
+     * Android 上带 **+1 小时窗口**，用户却仍被告知"到点提醒"正常。
+     * 这是"产品第一承诺在目标系统上不成立"而 App 自己毫无察觉的典型。
+     *
+     * 现在它是一个**可查询的事实**，供系统特权自检页如实显示。
+     * 任何降级都必须对用户可见 —— 见 `docs/CODE-REVIEW-20260929-ds.md` P0-1。
+     */
+    enum class Precision(val label: String) {
+        /** 精确闹钟：到点必响，Doze 下也不延迟 */
+        EXACT("精确闹钟（到点必响）"),
+
+        /** 闹钟应用通道：走系统闹钟通道，仍是准点的 */
+        ALARM_CLOCK("闹钟应用通道（准点）"),
+
+        /** 不精确：系统可对齐到窗口边界，**可能晚约 1 小时** */
+        INEXACT("不精确提醒（可能延迟约 1 小时）");
+
+        val isDegraded: Boolean get() = this != EXACT
+    }
+
+    /**
+     * 查询当前档位。**只读探测，不排任何闹钟**。
+     *
+     * Android 12 以下恒为 [Precision.EXACT]（系统没有精确闹钟授权模型）。
+     */
+    fun currentPrecision(alarmManager: AlarmManager? = null): Precision {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return Precision.EXACT
+        val am = alarmManager ?: return Precision.INEXACT
+        return if (am.canScheduleExactAlarms()) Precision.EXACT else Precision.ALARM_CLOCK
+    }
+
+    /** 便捷重载：给需要 `Context` 的调用方（自检页、Worker） */
+    fun currentPrecision(context: Context): Precision =
+        currentPrecision(context.getSystemService(AlarmManager::class.java))
 
     /**
      * 取消该槽位的闹钟。
@@ -205,9 +285,12 @@ object AlarmScheduler {
     ) {
         val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
         kinds.forEach { kind ->
-            alarmManager.cancel(
-                pendingIntent(context, medicationId, date, time, slotId, kind).value
-            )
+            // 取消用 FLAG_NO_CREATE：匹配不到就返回 null，**不凭空造一条 PendingIntent**。
+            // 旧实现用 FLAG_UPDATE_CURRENT，cancel 一个从未排过的闹钟会在系统里
+            // 留下一条无主记录（不投递，但让"存在性"这件事不再可信）。
+            pendingIntent(
+                context, medicationId, date, time, slotId, kind, forCancel = true
+            )?.let { alarmManager.cancel(it) }
         }
     }
 }

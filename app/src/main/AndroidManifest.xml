@@ -3,8 +3,17 @@
 
     <!-- 服药提醒通知 (Android 13+ 运行时申请) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- 精确闹钟 (Android 12+，未授权自动降级 setAlarmClock，无需强制) -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!--
+      精确闹钟。用药提醒是《Android 闹钟类应用》标准场景，声明 USE_EXACT_ALARM
+      由系统直接授予，不受 SCHEDULE_EXACT_ALARM 的"可被用户随时收回"影响。
+
+      旧实现声明的是 SCHEDULE_EXACT_ALARM（可撤销授权），而 App 从不引导用户去授权，
+      于是 canScheduleExactAlarms() 恒为 false，全部闹钟降级为
+      setAndAllowWhileIdle —— 模拟器实测 67 个闹钟全部带 +1h 窗口，
+      "到点提醒"这条产品第一承诺在 Android 12+ 上整体失效。
+      详见 docs/CODE-REVIEW-20260929-ds.md P0-1。
+    -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- 开机自启恢复闹钟 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />

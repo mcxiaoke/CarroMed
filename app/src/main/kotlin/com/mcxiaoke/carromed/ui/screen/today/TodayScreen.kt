@@ -47,11 +47,14 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -99,7 +102,22 @@ fun TodayScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var actionTarget by remember { mutableStateOf<DoseSlotItem?>(null) }
 
+    // 一次性提示：VM 的 6 处失败分支全靠这条通道上报。
+    //
+    // 旧实现**全工程零 collect** —— 事件被 `trySend` 进缓冲区后无人消费，
+    // 于是"打卡失败""无法推迟"这类提示**永远静默**：卡片不动、没红字、
+    // 也没 toast，用户只能理解为"App 卡了"。哑渠道比没有渠道更糟，
+    // 因为它让失败与"成功但界面没刷新"变得不可区分。
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { message ->
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(message)
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onNavigateToManualDose,

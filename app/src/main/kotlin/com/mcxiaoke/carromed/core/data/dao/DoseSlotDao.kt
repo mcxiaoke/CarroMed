@@ -316,9 +316,31 @@ interface DoseSlotDao {
      * 顺带清 `snooze_until_ts` 是为了不留脏值：`SNOOZED` 的槽位带着
      * 一个早已过期的推迟时刻，读代码的人会以为它还生效。
      *
-     * @return 受影响行数；0 表示已被别的路径结算过（天然幂等）
+     * ## `status` 守卫为什么必须有（与 [snoozeSlot] 同一条纪律）
+     *
+     * 旧实现只有 `WHERE id = :slotId`。于是"结算"与"打卡"并发交错时，
+     * 结算会把一个**已 COMPLETED、事实已入库、库存已扣减**的槽位覆写成 EXPIRED：
+     *
+     * | 交错 | 结局 |
+     * | :--- | :--- |
+     * | `getStaleOpenSlots` 读出 PENDING → 用户打卡 → `markExpired` | 槽位变 EXPIRED，而台账里那条 COMPLETED 事实与扣减还在 |
+     *
+     * 后果是二阶的：`EXPIRED` 在今日页被渲染成待办（徽标「已逾期…尚未确认」），
+     * 用户点一次确认就产生**第二条**服药事实并**二次扣库存**；
+     * 而 `takeDose` 的撤销路径此时也已失效——用户想纠错都纠不回来。
+     *
+     * 守卫下沉到 SQL 后，结算与打卡成为同一条原子判据上的互斥操作，
+     * 谁先落地谁生效，后到者拿到 0 行并放弃。调用方不必、也不能绕过。
+     *
+     * @return 受影响行数；0 表示该槽位已不再开放（已被打卡/跳过/结算）
      */
-    @Query("UPDATE dose_slots SET status = 'EXPIRED', actual_taken_ts = NULL, snooze_until_ts = NULL WHERE id = :slotId")
+    @Query(
+        """
+        UPDATE dose_slots
+        SET status = 'EXPIRED', actual_taken_ts = NULL, snooze_until_ts = NULL
+        WHERE id = :slotId AND status IN ('PENDING', 'SNOOZED')
+        """
+    )
     suspend fun markExpired(slotId: Long): Int
 
     @Query("DELETE FROM dose_slots")
