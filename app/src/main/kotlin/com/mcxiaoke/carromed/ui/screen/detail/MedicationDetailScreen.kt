@@ -270,6 +270,9 @@ fun MedicationDetailScreen(
                         icon = Icons.Default.Schedule,
                         title = "提醒设置",
                         subtitle = buildReminderSummary(uiState),
+                        // ⚠️ 没有计划时高亮。理由见 buildReminderSummary：
+                        // 这一行不能长得和"已配置"一样，否则用户以为设好了而药永远不响。
+                        highlight = uiState.policy == null,
                         onClick = { onNavigateToReminder(med.id) }
                     )
                     DetailEntryRow(
@@ -676,7 +679,19 @@ private fun buildProfileSummary(s: MedDetailUiState): String {
 }
 
 private fun buildReminderSummary(s: MedDetailUiState): String {
-    val policy = s.policy ?: return "未设置提醒计划 · 不会自动提醒"
+    // ⚠️ 没有计划时**必须显眼地**说出来（2026-09-29 UX 改造）。
+    //
+    // 新建药品页不再强制配提醒（用户可以从这里点进「提醒设置」自己配），
+    // 于是"没配计划"从一个**正常状态**变成了**新建后的默认状态**。
+    // 如果这一行长得跟已配置的一样，用户会以为"设好了"，
+    // 然后这味药永远不响 —— 而他完全不知道原因。
+    //
+    // 这与本项目 §2 第 6 条「静默降级 = 给用户虚假的保证」同源：
+    // 诚实的空缺好过虚假的完成感。
+    if (s.policy == null) {
+        return "尚未设置服药计划 · 这味药不会自动提醒 → 点击设置"
+    }
+    val policy = s.policy ?: return ""
     val freq = when (policy.policyType) {
         PolicyType.DAILY -> "每天 ${s.times.size} 次"
         PolicyType.INTERVAL -> if (policy.intervalDays <= 2) "隔天" else "每隔 ${policy.intervalDays - 1} 天"

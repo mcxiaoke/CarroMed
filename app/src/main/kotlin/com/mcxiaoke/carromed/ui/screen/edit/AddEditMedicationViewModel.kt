@@ -465,31 +465,24 @@ class AddEditMedicationViewModel(
                 )
             )
 
-            // 2) 提醒计划 (仅新增模式写；编辑模式由"提醒设置"页负责，避免两个入口互相覆盖)
-            if (policyRequired) {
-                adminService.saveReminderPolicy(
-                    medicationId = medId,
-                    draft = MedicationAdminService.PolicyDraft(
-                        policyType = s.policyType,
-                        intervalDays = s.intervalDays,
-                        daysOfWeek = s.daysOfWeek,
-                        cycleOnDays = s.cycleOnDays,
-                        cycleOffDays = s.cycleOffDays,
-                        startDate = effectiveStartDate,
-                        endDate = s.endDate,
-                        times = s.timeSlots.map {
-                            // `!!` 安全：save() 已在进入协程之前逐条校验过 parsedDose() != null。
-                            // 用 require 而不是 ?: 1f 兜底 —— 兜底会让"剂量丢了"变成
-                            // "剂量变成 1"，那是一次静默的数据错误。
-                            MedicationAdminService.TimeDraft(
-                                it.time,
-                                requireNotNull(it.parsedDose()) { "剂量无效：${it.time}" },
-                                it.label
-                            )
-                        }
-                    )
-                )
-            }
+            // 2) 提醒计划 —— ⚠️ **新建时不再写**（2026-09-29 UX 改造）。
+            //
+            // 旧实现在这里无条件 `saveReminderPolicy`，用的是表单默认值
+            // （DAILY + 08:30 + 1 片）。表单里那段 UI 拿掉之后，这个默认值
+            // 就变成了**用户从没选过、却已经生效**的计划：
+            // 药箱和详情页都显示"每天 08:30"，而他根本不知道。
+            //
+            // 这比"没有计划"更糟 —— 因为它在**看起来一切正常**的前提下说谎。
+            // 正确做法是不写：新药没有 active policy，
+            // 详情页的「提醒设置」行会显式提示"尚未设置服药计划"，
+            // 用户从那里点进去自己配（`ReminderSettingsScreen` 一直都在）。
+            //
+            // 编辑模式本来就不写计划（由"提醒设置"页负责，避免两个入口互相覆盖），
+            // 所以这里两条路径统一：**本类不负责写计划**。
+            //
+            // 相应地，`effectiveStartDate` 与 `s.timeSlots` 在新建路径上
+            // 也不再参与任何计算，一并留在这里是为了提醒：
+            // 将来若恢复"新建页可配计划"，需要把这段一起恢复。
 
             // 3) 初始库存建档 —— **仅新增时**。
             // 编辑路径绝不碰库存：账面是台账聚合值，改它必须走盘点校准或补药入库。
@@ -500,6 +493,9 @@ class AddEditMedicationViewModel(
             }
 
             // 4) 平滑重排未来排班 (历史事实不可变)
+            //
+            // 新建的药此刻**还没有任何计划**，所以这里实际是空操作。
+            // 保留调用是为了编辑路径：改档案后重排一次，保证与现有计划一致。
             trackingService.reconcileSchedule(medId)
 
             // 5) 按最新计划重排全部精确闹钟

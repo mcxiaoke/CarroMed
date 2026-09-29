@@ -29,6 +29,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
@@ -57,6 +59,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -96,6 +99,22 @@ fun AddEditMedicationScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val isInfoOnly = uiState.mode == AddEditMode.INFO_ONLY
+
+    /**
+     * 「注意事项」是否展开。
+     *
+     * ⚠️ `rememberSaveable` 而不是 `remember`（与 M7-6 同一纪律）：
+     * 这一段写在 `LazyColumn` 的 `item {}` 内，item 滚出视口会被销毁。
+     * 用 `remember` 的话，用户展开后往下滑两屏再回来，
+     * 折叠状态会**自己合上**——他刚展开的东西凭空消失。
+     *
+     * 已经有内容时默认展开：折叠是为了"别占版面"，
+     * 而**已经填过的用户是来找这些内容的**，不该再让他多点一次。
+     */
+    var precautionsExpanded by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(uiState.precautions) {
+        if (uiState.precautions.isNotEmpty() && !precautionsExpanded) precautionsExpanded = true
+    }
 
     Scaffold(
         topBar = {
@@ -274,10 +293,62 @@ fun AddEditMedicationScreen(
                 }
             }
 
-            // ============ 2. 注意事项与医嘱 ============
+            // ============ 2. 初始库存 (选填) ============
+            //
+            // 放在"注意事项"**之前**：库存是常用操作（买药顺手记一下），
+            // 注意事项是低频且可选的。段位也因此连号 1→2→3，
+            // 中间跳过 2 会让人以为漏了一屏。
+            if (!isInfoOnly) {
+                item { InitialStockCard(viewModel, uiState) }
+            }
+
+            // ============ 3. 注意事项与医嘱 (默认折叠) ============
+            //
+            // ⚠️ 折叠而非删除（2026-09-29 UX 改造）：注意事项对慢病用药是**安全相关**的
+            // （"整粒吞服禁嚼碎"、"严禁与葡萄柚同食"），删掉是错的。
+            // 但它是**低频**操作，而它原来占掉整页一大半 ——
+            // 用户为了一句话得滚过十几行点选区。
+            //
+            // 折叠时显示"已填 N 条"，这样已经填过的用户仍能一眼看到自己填了东西，
+            // 不会以为折叠把内容弄丢了。
             item {
-                SectionCard(index = 2, title = "注意事项 / 禁忌 (选填)")
-                {
+                val filledCount = uiState.precautions.size
+                val expanded = precautionsExpanded
+                SectionCard(
+                    index = 3,
+                    title = "注意事项 / 医嘱 (选填)",
+                    trailing = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            if (filledCount > 0) {
+                                Text(
+                                    text = "已填 $filledCount 条",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(Modifier.width(2.dp))
+                            }
+                            Icon(
+                                imageVector = if (expanded) Icons.Default.ExpandLess
+                                else Icons.Default.ExpandMore,
+                                contentDescription = if (expanded) "收起注意事项" else "展开注意事项",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    onHeaderClick = { precautionsExpanded = !expanded }
+                ) {
+                    if (!expanded) {
+                        Text(
+                            text = if (filledCount > 0) "点击展开查看与修改"
+                            else "禁忌、饭后服用等医嘱建议写在这里，会在详情页高亮显示",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        return@SectionCard
+                    }
                     Text(
                         text = "常用标签 (点击增删，会在详情页以醒目样式高亮)",
                         style = MaterialTheme.typography.bodySmall,
@@ -398,11 +469,22 @@ fun AddEditMedicationScreen(
                 }
             }
 
-            // ============ 3. 提醒计划 (仅新增模式) ============
-            if (!isInfoOnly) {
-                item { ReminderPolicyCard(viewModel, uiState) }
-                item { InitialStockCard(viewModel, uiState) }
-            } else {
+            // ============ 提醒计划 (已移出新建页) ============
+            //
+            // ⚠️ 2026-09-29 UX 改造：**新建页不再要求配提醒**。
+            //
+            // 旧实现把「药品信息 + 提醒计划 + 初始库存」合成一次录入，
+            // 而用户的真实心智是"我今天要吃这个药"，不是"我要配置一个排班系统"。
+            // 三件事互相独立，合成一屏的后果是：想改个药名也得滚过一整套闹钟计划。
+            //
+            // 现在：建完药**直接进详情页**，用户从已有的「提醒设置」入口自己配。
+            // 这与 `ReminderSettingsScreen` 早就独立存在的事实一致 ——
+            // 之前只是入口被塞在了新建表单里。
+            //
+            // 配套的诚实提示在药品详情页：`getActivePolicyForMedication == null`
+            // 时提醒卡片会显式写「尚未设置服药计划」，
+            // 而不是让它长得和已配置的一样（见 MedicationDetailScreen）。
+            if (isInfoOnly) {
                 item {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -440,7 +522,13 @@ private fun LowFrictionTipCard() {
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
     ) {
         Text(
-            text = "✨ 低门槛录入：只需填写【药品名称】并选择【提醒频次/时间】，其余均为可选扩展项。",
+            // ⚠️ 2026-09-29：这句原先写"只需填写【药品名称】并选择【提醒频次/时间】"，
+            // 而提醒段已经整个移出这一页。留着不改就是**当场说谎** ——
+            // 用户照着这句话找"提醒频次"，找不到，而文案还在让他找。
+            // 同理，"保存后进入详情页设置提醒"必须写出来，否则用户以为存完就完事了，
+            // 然后这味药永远不响而他毫不知情（AGENTS §2 第 6 条）。
+            text = "✨ 只需填写【药品名称】即可保存。保存后进入药品详情页，" +
+                "在那里可以单独设置【提醒计划】与【库存】。",
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -450,10 +538,19 @@ private fun LowFrictionTipCard() {
 }
 
 @Composable
+/**
+ * 表单分节卡。
+ *
+ * @param trailing 标题右侧的附加内容（折叠箭头、"已填 N 条"之类）。
+ * @param onHeaderClick 标题行的点击回调。**只给标题行加点击**，
+ *   不给整卡加 —— 否则内容区的输入框会被整卡的点击抢走焦点。
+ */
 private fun SectionCard(
     index: Int,
     title: String,
     required: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null,
+    onHeaderClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     ElevatedCard(
@@ -462,12 +559,25 @@ private fun SectionCard(
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text(
-                text = "$index. $title" + if (required) " *" else "",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(
+                modifier = if (onHeaderClick != null) {
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onHeaderClick)
+                } else {
+                    Modifier.fillMaxWidth()
+                },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "$index. $title" + if (required) " *" else "",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                trailing?.invoke()
+            }
             Spacer(Modifier.height(12.dp))
             content()
         }
@@ -591,310 +701,12 @@ fun ReadOnlyDateField(
         singleLine = true
     )
 }
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-private fun ReminderPolicyCard(
-    viewModel: AddEditMedicationViewModel,
-    uiState: AddEditUiState
-) {
-    val context = LocalContext.current
-    SectionCard(index = 3, title = "提醒频次与时间", required = true) {
-        val policyTypes = listOf(
-            PolicyType.DAILY to "每天",
-            PolicyType.INTERVAL to "隔 N 天",
-            PolicyType.DAYS_OF_WEEK to "每周",
-            PolicyType.CYCLE to "周期",
-            PolicyType.PRN to "按需"
-        )
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            policyTypes.forEachIndexed { index, (type, label) ->
-                SegmentedButton(
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = policyTypes.size),
-                    onClick = { viewModel.onPolicyTypeChange(type) },
-                    selected = uiState.policyType == type,
-                    icon = {}
-                ) { Text(label, fontSize = 11.sp) }
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        when (uiState.policyType) {
-            PolicyType.INTERVAL -> {
-                StepperRow(
-                    label = "服药间隔",
-                    value = uiState.intervalDays,
-                    onDecrement = { viewModel.onIntervalDaysChange(uiState.intervalDays - 1) },
-                    onIncrement = { viewModel.onIntervalDaysChange(uiState.intervalDays + 1) },
-                    canDecrement = uiState.intervalDays > 2,
-                    canIncrement = uiState.intervalDays < 30,
-                    hint = if (uiState.intervalDays == 2) "隔天一次" else "每隔 ${uiState.intervalDays - 1} 天一次"
-                )
-            }
-
-            PolicyType.CYCLE -> {
-                Text(
-                    text = "周期轮换：连续服用若干天后停药若干天（如避孕药 21 天服 / 7 天停）",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(10.dp))
-                StepperRow(
-                    label = "连续服药天数",
-                    value = uiState.cycleOnDays,
-                    onDecrement = { viewModel.onCycleDaysChange(uiState.cycleOnDays - 1) },
-                    onIncrement = { viewModel.onCycleDaysChange(uiState.cycleOnDays + 1) },
-                    canDecrement = uiState.cycleOnDays > 1,
-                    canIncrement = uiState.cycleOnDays < 90,
-                    hint = "服 ${uiState.cycleOnDays} 天"
-                )
-                Spacer(Modifier.height(10.dp))
-                StepperRow(
-                    label = "停药天数",
-                    value = uiState.cycleOffDays,
-                    onDecrement = { viewModel.onCycleOffDaysChange(uiState.cycleOffDays - 1) },
-                    onIncrement = { viewModel.onCycleOffDaysChange(uiState.cycleOffDays + 1) },
-                    canDecrement = uiState.cycleOffDays > 0,
-                    canIncrement = uiState.cycleOffDays < 30,
-                    hint = if (uiState.cycleOffDays == 0) "不设停药期" else "停 ${uiState.cycleOffDays} 天"
-                )
-            }
-
-            PolicyType.DAYS_OF_WEEK -> {
-                Text(
-                    text = "每周哪几天服药 (至少选一天)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(8.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    val labels = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-                    (1..7).forEach { day ->
-                        FilterChip(
-                            selected = day in uiState.daysOfWeek,
-                            onClick = { viewModel.onToggleDayOfWeek(day) },
-                            label = {
-                                Text(
-                                    labels[day - 1],
-                                    fontWeight = if (day in uiState.daysOfWeek) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        )
-                    }
-                }
-            }
-
-            PolicyType.PRN -> {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
-                ) {
-                    Text(
-                        text = "按需服用：不设定时闹钟，不会产生任何排班。适合止痛药、晕车药等" +
-                            "临时用药，用药时在今日清单或「手动补录」中记录即可。下方仍可设置单次剂量与服药时段。",
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        lineHeight = 18.sp
-                    )
-                }
-            }
-
-            else -> Unit
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        Text(
-            text = "提醒时点",
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "常见频次可直接一键铺排 07:00–21:00 之间的均分时间，再单独微调即可。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(8.dp))
-
-        val quickCounts = listOf(1, 2, 3, 4)
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            quickCounts.forEach { n ->
-                OutlinedButton(
-                    onClick = { viewModel.spreadTimes(n) },
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(vertical = 6.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("每天 $n 次", fontSize = 12.sp)
-                }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-
-        uiState.timeSlots.forEachIndexed { index, slot ->
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedButton(
-                            onClick = {
-                                val parts = slot.time.split(":")
-                                TimePickerDialog(
-                                    context,
-                                    { _, h, m ->
-                                        viewModel.updateTimeSlot(
-                                            index,
-                                            time = String.format(Locale.getDefault(), "%02d:%02d", h, m)
-                                        )
-                                    },
-                                    parts.getOrNull(0)?.toIntOrNull() ?: 8,
-                                    parts.getOrNull(1)?.toIntOrNull() ?: 30,
-                                    true
-                                ).show()
-                            },
-                                    modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(slot.time, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        }
-                        if (uiState.timeSlots.size > 1) {
-                            IconButton(onClick = { viewModel.removeTimeSlot(index) }) {
-                                Icon(
-                                    Icons.Default.DeleteOutline,
-                                    contentDescription = "删除该时段",
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = slot.dose,
-                            onValueChange = { viewModel.updateTimeSlot(index, doseText = it) },
-                            label = { Text("剂量") },
-                            modifier = Modifier.width(96.dp),
-                            singleLine = true,
-                            // ⭐ `Decimal` 而不是 `Number`（M2-1）。
-                            // `Number` 键盘在多数 ROM 上**没有小数点键**，
-                            // 于是 0.5 片这类"半片"根本不可录入 —— 用户只能填整数，
-                            // 随后我们还在别处支持 `Dose` 的毫单位精度，自相矛盾。
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            isError = slot.parsedDose() == null
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        OptionDropdown(
-                            label = "时段",
-                            value = slot.label,
-                            options = MedicationFormOptions.TIME_LABELS,
-                            onSelect = { viewModel.updateTimeSlot(index, label = it) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-
-        // 若有落在过去的时点，明确告知"今天这一剂会直接算逾期"，
-        // 避免用户保存后在今日清单看到刺眼的红色"已逾期"却不知原因。
-        //
-        // ⚠️ `nowMinutes` **不能** `remember` 住（M7-4）。它是"现在几点"，不是"组合时的几点"：
-        // 表单开着不动，跨过某个时点后判据就该变，而 `remember` 把值冻结在首次组合的那一刻，
-        // 于是提示在用户眼里凭空过期/永不出现。同理 `all { isBeforeNow() }` 的
-        // 顺延判定在 VM 里每次现算，两边口径必须一致。
-        val nowMinutes = currentMinuteOfDay()
-        val pastSlots = uiState.timeSlots.filter {
-            val p = it.time.split(":")
-            val m = (p.getOrNull(0)?.toIntOrNull() ?: 0) * 60 + (p.getOrNull(1)?.toIntOrNull() ?: 0)
-            m < nowMinutes
-        }
-        if (pastSlots.isNotEmpty()) {
-            // ⭐ 判据必须与 VM 的顺延规则**逐字对齐**（M7-4）。
-            // VM 是 `timeSlots.all { isBeforeNow() }` 才顺延明天 ——
-            // **任一**时点未过就照常排进今天。
-            // 旧文案只说"这些时点会记为逾期"，可当六个时点里只过了三个时，
-            // 实际行为是**不**顺延、那三个确实逾期；文案让人以为整单被推迟。
-            // 现在按同一个 `all` 判据分成两种说法，用户看到的就是将要发生的事。
-            val allPast = pastSlots.size == uiState.timeSlots.size
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = WarningAmberContainer
-            ) {
-                Text(
-                    text = if (allPast) {
-                        "⏰ 所有时点（${pastSlots.joinToString("、") { it.time }}）都已早于当前时间，" +
-                            "保存后起始日会自动顺延到明天，今天这一剂不算逾期。"
-                    } else {
-                        "⏰ ${pastSlots.joinToString("、") { it.time }} 已早于当前时间，" +
-                            "保存后这些时点今天这一剂会直接记为逾期。若只想从明天开始提醒，" +
-                            "可把时点改到当前时间之后。"
-                    },
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = OnWarningAmberContainer,
-                    lineHeight = 18.sp
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-        }
-
-        OutlinedButton(
-            onClick = { viewModel.addTimeSlot() },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(8.dp)
-        ) {
-            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(4.dp))
-            Text("添加一个提醒时点", fontSize = 13.sp)
-        }
-
-        Spacer(Modifier.height(16.dp))
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        Spacer(Modifier.height(16.dp))
-
-        Text(
-            text = "低库存预警",
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = uiState.minStockAlert,
-            onValueChange = { viewModel.onMinStockAlertChange(it) },
-            label = { Text("库存预警阈值") },
-            placeholder = { Text("如 10") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-        )
-    }
-}
-
 @Composable
 private fun InitialStockCard(
     viewModel: AddEditMedicationViewModel,
     uiState: AddEditUiState
 ) {
-    SectionCard(index = 4, title = "初始库存 (选填)") {
+    SectionCard(index = 2, title = "初始库存 (选填)") {
         Text(
             text = "填写后系统会记录一条建档流水，之后每次服药自动扣减，可随时在「库存管理」中盘点校准。",
             style = MaterialTheme.typography.bodySmall,

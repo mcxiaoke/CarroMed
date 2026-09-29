@@ -47,6 +47,7 @@ import com.mcxiaoke.carromed.ui.screen.inventory.InventoryScreen
 import com.mcxiaoke.carromed.ui.screen.inventory.InventoryViewModel
 import com.mcxiaoke.carromed.ui.screen.manual.ManualDoseScreen
 import com.mcxiaoke.carromed.ui.screen.manual.ManualDoseViewModel
+import com.mcxiaoke.carromed.ui.screen.progress.MedHistoryScreen
 import com.mcxiaoke.carromed.ui.screen.record.DoseRecordEditScreen
 import com.mcxiaoke.carromed.ui.screen.progress.ProgressScreen
 import com.mcxiaoke.carromed.ui.screen.progress.ProgressViewModel
@@ -157,6 +158,9 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                     viewModel = vm,
                     onNavigateToRecord = { recordId ->
                         navController.navigate(Screen.DoseRecordEdit.createRoute(recordId))
+                    },
+                    onNavigateToMedHistory = { medId ->
+                        navController.navigate(Screen.MedHistory.createRoute(medId))
                     }
                 )
             }
@@ -261,7 +265,18 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 AddEditMedicationScreen(
                     viewModel = vm,
                     onNavigateBack = { navController.popBackStack() },
-                    onSavedSuccess = { navController.popBackStack() }
+                    onSavedSuccess = { newMedId ->
+                        // ⚠️ 新建后**直接进药品详情页**（2026-09-29 UX 改造）。
+                        //
+                        // 旧行为是 `popBackStack()` 退回药箱。现在新建页不再配提醒，
+                        // 用户存完就"消失"了 —— 他还没设提醒，而这味药从此不响。
+                        //
+                        // 进详情页之后，「提醒设置」入口就在眼前（详情页本来就有），
+                        // 顺手的事；而且详情页会在没有计划时显式提示
+                        // 「尚未设置服药计划」——**诚实的空缺好过虚假的完成感**。
+                        navController.popBackStack()
+                        navController.navigate(Screen.MedicationDetail.createRoute(newMedId))
+                    }
                 )
             }
 
@@ -298,6 +313,20 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 DoseRecordEditScreen(
                     recordId = it.arguments?.getLong("recordId") ?: 0L,
                     onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            // 7c. 单个药品的服药历史 (二级全屏)
+            composable(
+                route = Screen.MedHistory.route,
+                arguments = listOf(navArgument("medId") { type = NavType.LongType })
+            ) {
+                MedHistoryScreen(
+                    medId = it.arguments?.getLong("medId") ?: 0L,
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToRecord = { recordId ->
+                        navController.navigate(Screen.DoseRecordEdit.createRoute(recordId))
+                    }
                 )
             }
 

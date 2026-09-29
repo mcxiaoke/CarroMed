@@ -40,6 +40,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,6 +63,7 @@ import java.util.Locale
 fun ProgressScreen(
     viewModel: ProgressViewModel,
     onNavigateToRecord: (Long) -> Unit = {},
+    onNavigateToMedHistory: (Long) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
@@ -123,7 +126,9 @@ fun ProgressScreen(
                 items(
                     count = uiState.matrixItems.size,
                     key = { "m-${uiState.matrixItems[it].medication.id}" }
-                ) { idx -> MedicationMatrixCard(uiState.matrixItems[idx]) }
+                ) { idx ->
+                    MedicationMatrixCard(uiState.matrixItems[idx], onNavigateToMedHistory)
+                }
             }
         } else {
             if (uiState.timelineDays.isEmpty()) {
@@ -244,9 +249,26 @@ private fun OverallAdherenceCard(rate: Float, uiState: ProgressUiState) {
 }
 
 @Composable
-private fun MedicationMatrixCard(item: MedMatrixItem) {
+private fun MedicationMatrixCard(item: MedMatrixItem, onNavigateToHistory: (Long) -> Unit) {
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            // 点整卡进「该药的历史」（对标 MyTherapy 的进展页每行右侧 `>`）
+            .clickable { onNavigateToHistory(item.medication.id) }
+            // 整卡读成一个节点：TalkBack 否则会逐个念出 7 个星期标签 + 7 个状态点，
+            // 用户听到的是"周三 全部完成 周四 全部完成 …"却不知道这是哪个药。
+            .semantics(mergeDescendants = true) {
+                contentDescription = buildString {
+                    append(item.medication.name)
+                    if (item.decidedCount > 0) {
+                        append("，近 7 天按时服药 ")
+                        append("${item.completedCount}/${item.decidedCount} 次")
+                    } else {
+                        append("，暂无到期任务")
+                    }
+                    append("，查看详情")
+                }
+            },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
@@ -324,10 +346,44 @@ private fun MedicationMatrixCard(item: MedMatrixItem) {
                             fontWeight = if (day.isToday) FontWeight.Bold else FontWeight.Normal
                         )
                         Spacer(Modifier.height(6.dp))
-                        DayDot(day)
+                        // ⭐ 多次服用的药一天要画多个点（对标 MyTherapy）。
+                        //
+                        // 单圆点无法区分「1 次全服」与「2 次全服」——
+                        // 环孢素每天两次，用户看到的却是和每天一次完全相同的绿勾，
+                        // 而卡片右侧写着 100%、2/2 次。**数字与图形自相矛盾**。
+                        if (day.total > 1) MultiDayDots(day, item.medication.colorHex)
+                        else DayDot(day)
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * 一天内多次服药时，按「每次一个点」纵向排列（对标 MyTherapy 的双点画法）。
+ *
+ * 判据是 `day.total > 1` 而不是 `completed > 1`：
+ * 半天只吃了一次（completed=1, total=2）恰恰是最需要看出"少了一剂"的形态，
+ * 而它按 `completed` 判断的话仍会退化成单点，缺陷照旧。
+ *
+ * 已服 / 未服各占一格，已服用实心色、未服用淡色，
+ * 于是 `2/2` 是两个实心点、`1/2` 是一个实心一个淡 —— 一眼可分。
+ */
+@Composable
+private fun MultiDayDots(day: DayAdherence, colorHex: String) {
+    val base = runCatching { Color(android.graphics.Color.parseColor(colorHex)) }
+        .getOrDefault(MaterialTheme.colorScheme.primary)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        repeat(day.total) { i ->
+            val taken = i < day.completed
+            Box(
+                Modifier
+                    .size(15.dp)
+                    .clip(CircleShape)
+                    .background(if (taken) SuccessGreen else base.copy(alpha = 0.18f))
+            )
+            if (i != day.total - 1) Spacer(Modifier.height(3.dp))
         }
     }
 }

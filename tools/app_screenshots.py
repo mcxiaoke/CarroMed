@@ -169,7 +169,18 @@ PROGRAM: list[Step] = [
 
     # ---- 11. 进展追踪 ------------------------------------------------------ #
     Step("tab", "进展", expect="进展追踪"),
-    Step("shot", key="progress", shots=2, note="7 天打卡矩阵 + 今日服药流水"),
+    Step("shot", key="progress", shots=2, note="7 天打卡矩阵（多次服药画多个点）"),
+
+    # 服药流水是**第二个 tab**，要点进去才截得到 —— 只截 progress 永远拍的是矩阵
+    Step("text", "服药流水", note="进展页第二个 tab", expect="服药流水", index=-1),
+    Step("shot", key="progress_timeline", shots=2, note="服药流水：按日分组 / 倒序 / 触底加载"),
+
+    # 单个药品的历史：点第一张矩阵卡进详情
+    Step("text", "7 天打卡矩阵", note="切回矩阵 tab", expect="7 天打卡矩阵", index=0),
+    Step("desc", "查看详情", note="矩阵卡可点进单药历史", expect="服药历史",
+         contains=True, requires_data=True),
+    Step("shot", key="med_history", shots=2, note="单药历史：按月分组 / 每行可进详情", requires_data=True),
+    Step("back", note="返回进展页", expect="进展追踪"),
 
     # ---- 12. 统计报表 ------------------------------------------------------ #
     Step("tab", "统计", expect="统计报表"),
@@ -398,8 +409,24 @@ def find_by_text(root: ET.Element, value: str, index: int = 0, contains: bool = 
     return hits[index]
 
 
-def find_by_desc(root: ET.Element, value: str, index: int = 0) -> ET.Element | None:
-    hits = [n for n in iter_nodes(root) if node_desc(n) == value and center(n)]
+def find_by_desc(
+    root: ET.Element, value: str, index: int = 0, contains: bool = False
+) -> ET.Element | None:
+    """按 content-desc 定位节点。
+
+    `contains=True` 时做**子串**匹配。
+
+    为什么需要它：可访问性节点上写的 desc 往往是一整句
+    （"环孢素，近 7 天按时服药 2/2 次，查看详情"），
+    精确匹配会让走查脚本永远找不到它 —— 于是该页面的断言被跳过，
+    截图拍到哪一页都没人管。
+    """
+    def match(d: str) -> bool:
+        if not d:
+            return False
+        return value in d if contains else d == value
+
+    hits = [n for n in iter_nodes(root) if match(node_desc(n)) and center(n)]
     if not hits:
         return None
     if index:
@@ -504,7 +531,7 @@ def run(driver: Driver, out: Path, only: set[str], dump_ui: bool,
                 elif step.action == "text":
                     target = find_by_text(root, step.arg, step.index, step.contains)
                 elif step.action == "desc":
-                    target = find_by_desc(root, step.arg, step.index)
+                    target = find_by_desc(root, step.arg, step.index, step.contains)
                 else:  # wait
                     target = True
                 if target is not None:
