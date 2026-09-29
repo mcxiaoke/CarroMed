@@ -50,6 +50,38 @@ interface DoseRecordDao {
     @Query("UPDATE dose_records SET status = 'REVERTED' WHERE id = :recordId AND status != 'REVERTED'")
     suspend fun markReverted(recordId: Long): Int
 
+    /**
+     * 改剂量。**只动这一列**。
+     *
+     * 条件里的 `status != 'REVERTED'` 是幂等锚点：已撤销的记录不允许再被改回来
+     * （撤销是既成事实，补偿记录，不是草稿）。
+     * 返回受影响行数，0 表示"没这条 / 已撤销 / 值没变"。
+     */
+    @Query(
+        """
+        UPDATE dose_records SET dose_taken = :doseMilli
+        WHERE id = :recordId AND status != 'REVERTED'
+        """
+    )
+    suspend fun updateDose(recordId: Long, doseMilli: Int): Int
+
+    /**
+     * 改备注。**只动这一列**，且同样拒绝已撤销的记录。
+     *
+     * 备注不产生任何台账流水 —— 它不改变"吃了多少"，只改变"怎么描述的"。
+     */
+    @Query("UPDATE dose_records SET note = :note WHERE id = :recordId AND status != 'REVERTED'")
+    suspend fun updateNote(recordId: Long, note: String?): Int
+
+    /**
+     * 改实际服药时刻。**只动这一列**，同样拒绝已撤销的记录。
+     *
+     * 改时间**不产生台账流水** —— 时间不影响"吃了多少"，只影响"什么时候吃的"，
+     * 而库存台账记的是数量。
+     */
+    @Query("UPDATE dose_records SET actual_ts = :actualTs WHERE id = :recordId AND status != 'REVERTED'")
+    suspend fun updateActualTs(recordId: Long, actualTs: Long): Int
+
     @Query("SELECT * FROM dose_records WHERE id = :id")
     suspend fun getRecordById(id: Long): DoseRecordEntity?
 

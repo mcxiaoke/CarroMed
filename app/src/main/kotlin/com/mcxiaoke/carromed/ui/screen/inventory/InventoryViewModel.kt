@@ -352,5 +352,6 @@ class InventoryViewModel(
         TransactionType.REFILL -> "购药入库"
         TransactionType.REVERT_ROLLBACK -> "撤销冲正"
         TransactionType.CALIBRATION_ADJUST -> "盘点调整"
+        TransactionType.DOSE_EDIT_ADJUST -> "改剂量调整"
     }
 }

@@ -60,5 +60,14 @@ enum class TransactionType {
     TAKEN_DEDUCT,       // 打卡服药自动扣减 (负数)
     REFILL,             // 购药补给入库 (正数)
     REVERT_ROLLBACK,    // 误触打卡撤销退回 (正数冲正)
-    CALIBRATION_ADJUST  // 盘点人工校准 (正数或负数)
+    CALIBRATION_ADJUST, // 盘点人工校准 (正数或负数)
+
+    /**
+     * 修改服药剂量产生的差额调整（正数或负数，取决于新剂量比原剂量大还是小）。
+     *
+     * ⚠️ **绝不允许 UPDATE 原来的流水行**。台账只增不改是硬规矩（I1/I2），
+     * 所以改剂量必须补一条差额流水，而不是"把 -1 改成 -2"。
+     * 理由与撤销冲正是同一条：改过的账要能看出改了多少、什么时候改的。
+     */
+    DOSE_EDIT_ADJUST
 }

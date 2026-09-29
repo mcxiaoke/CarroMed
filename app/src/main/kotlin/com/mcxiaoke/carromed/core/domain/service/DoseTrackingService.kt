@@ -236,6 +236,155 @@ class DoseTrackingService(private val db: AppDatabase) {
         return@withTransaction true
     }
 
+    // ==================== 4b. 无排班记录的撤销 / 修改 ====================
+
+    /**
+     * 撤销一条**没有槽位**的服药记录（手动补录 / 按需临时用药，`slot_id == null`）。
+     *
+     * ## 为什么 [undoDose] 覆盖不到这里
+     *
+     * [undoDose] 靠 `slotId` 定位槽位（要把槽位退回 PENDING），
+     * 而补录的记录**根本没有槽位**——于是这类记录此前**没有任何撤销路径**。
+     * 用户补录错了时间就只能留着，或者去数据库里手改。
+     *
+     * ## 语义与 [undoDose] 一致
+     *
+     * - 事实**不删除**，只标 `REVERTED`（产品第二承诺 + 台账 `record_id` 不能悬空）
+     * - 按该事实的**台账净额**补等额冲正，天然幂等（冲正后净额变 0）
+     * - 幂等锚点：只接受 `COMPLETED` / `SKIPPED`，已 `REVERTED` 的返回 false
+     */
+    suspend fun undoManualDose(recordId: Long): Boolean = db.withTransaction {
+        val record = recordDao.getRecordById(recordId) ?: return@withTransaction false
+        // 幂等锚点：只有"已产生结论"的事实才可撤销
+        if (record.status == RecordStatus.REVERTED) return@withTransaction false
+        if (record.slotId != null) {
+            // 有槽位的走 undoDose：它还要把槽位退回 PENDING，
+            // 否则下一次打卡会因为槽位已是 COMPLETED 而被幂等拦掉。
+            return@withTransaction undoDose(record.slotId)
+        }
+
+        val net = inventoryDao.getSumOfChangeByRecordId(recordId) ?: 0
+        if (recordDao.markReverted(recordId) == 0) return@withTransaction false
+
+        if (net < 0) {
+            appendLedger(
+                medicationId = record.medicationId,
+                recordId = recordId,
+                changeAmount = Dose(-net),
+                txType = TransactionType.REVERT_ROLLBACK,
+                note = "临时服药记录撤销冲正"
+            )
+        }
+        true
+    }
+
+    /**
+     * 修改一条服药记录的时间 / 剂量 / 备注。
+     *
+     * @param newDoseAmount null = 不改剂量；否则必须为正（同 M2-2 的符号防御）。
+     * @param newActualTs null = 不改时间；否则必须是**已发生**的时刻。
+     * @return true 表示确实改动了什么；false 表示参数非法、无此记录、已撤销，
+     *         或试图改动槽位来源记录的时间 / 剂量。
+     *
+     * ## 剂量变更必须动台账
+     *
+     * 只改 `dose_records.dose_taken` 而不补流水，会让
+     * `SUM(change_amount)` 与"记录上写的剂量"**永久分叉** ——
+     * 用户看到"这剂吃了 2 片"、账上只扣了 1 片，库存页永远对不上。
+     *
+     * 做法是**补一条差额流水**而不是 UPDATE 原行（台账只增不改，I1/I2）：
+     * 旧剂量 1 片改成 2 片 ⇒ 补 `changeAmount = -1000`；
+     * 改小则补正数。冲正依据取 `getSumOfChangeByRecordId` 的**净额**，
+     * 与撤销同一口径 —— 该记录若当初"没扣库存"（未开追踪 / 补录时关掉联动），
+     * 净额就是 0，此时改剂量**不产生流水**，也就不会凭空造账。
+     *
+     * ## 槽位来源的记录不许改时间 / 剂量（UX 方案 §3.3）
+     *
+     * 定时提醒产生的记录，事实时间与槽位的 `scheduled_time`、事实剂量与槽位的
+     * `doseAmount` 本来就是配对的。单独改事实会让两处各说一套 —— 与 C-40 同类。
+     * 正确做法是撤销后重新打卡。
+     */
+    suspend fun editDose(
+        recordId: Long,
+        newDoseAmount: Float? = null,
+        newNote: String? = null,
+        newActualTs: Long? = null
+    ): Boolean = db.withTransaction {
+        require(newDoseAmount == null || (newDoseAmount > 0f && newDoseAmount.isFinite())) {
+            "服药剂量必须大于 0，当前 $newDoseAmount"
+        }
+        val record = recordDao.getRecordById(recordId) ?: return@withTransaction false
+        if (record.status == RecordStatus.REVERTED) return@withTransaction false
+
+        // 时间不允许改到未来：服药是**已发生**的事实，
+        // 记一条"未来吃过"会让依从率统计凭空多出一次。
+        require(newActualTs == null || newActualTs <= System.currentTimeMillis()) {
+            "服药时间不能晚于当前时刻"
+        }
+
+        val fromSlot = record.slotId != null
+        // 槽位来源的记录：时间与剂量都拒改（理由见 KDoc）
+        if (fromSlot && newActualTs != null && newActualTs != record.actualTs) {
+            return@withTransaction false
+        }
+        if (fromSlot && newDoseAmount != null && Dose.of(newDoseAmount).milli != record.doseTaken) {
+            return@withTransaction false
+        }
+
+        var changed = false
+
+        // ---- 时间：纯事实修正，不动台账 ----
+        if (newActualTs != null && newActualTs != record.actualTs) {
+            if (recordDao.updateActualTs(recordId, newActualTs) == 0) {
+                return@withTransaction false
+            }
+            changed = true
+        }
+
+        // ---- 剂量：先算差额，再补流水 ----
+        if (newDoseAmount != null) {
+            val newDose = Dose.of(newDoseAmount)
+            if (newDose.milli != record.doseTaken) {
+                val net = inventoryDao.getSumOfChangeByRecordId(recordId) ?: 0
+                if (recordDao.updateDose(recordId, newDose.milli) == 0) {
+                    return@withTransaction false
+                }
+                // 目标是把该记录的净额从 `-旧剂量` 挪到 `-新剂量`，
+                // 所以补记的差额 = `旧 - 新`：改大 ⇒ 负数（再扣），改小 ⇒ 正数（退回多扣的）。
+                //
+                // ⚠️ 这里**不能**用 `net` 参与运算：`net` 是负数（`-旧剂量`），
+                // 写成 `net - 新剂量` 等于"再扣一遍新剂量" ——
+                // 1 片改成 2 片会共扣 3 片，账实从此分叉。
+                // 这个错误是写测试时真踩出来的，见 DoseRecordEditTest。
+                //
+                // 顺带注意 `net != 0` 这个前提：该记录当初若没扣库存
+                // （未开追踪 / 补录时关掉了联动），净额为 0，
+                // 此时改剂量**不产生流水** —— 不能凭空给账面减药。
+                if (net != 0) {
+                    val delta = Dose(record.doseTaken - newDose.milli)
+                    if (!delta.isZero) {
+                        appendLedger(
+                            medicationId = record.medicationId,
+                            recordId = recordId,
+                            changeAmount = delta,
+                            txType = TransactionType.DOSE_EDIT_ADJUST,
+                            note = "修改服药剂量：${Dose(record.doseTaken).asFloat} → ${newDose.asFloat}"
+                        )
+                    }
+                }
+                changed = true
+            }
+        }
+
+        // ---- 备注：纯文本，不产生流水 ----
+        if (newNote != null && newNote != record.note) {
+            recordDao.updateNote(recordId, newNote.ifBlank { null })
+            changed = true
+        }
+
+        changed
+    }
+
     // ==================== 5. 补充录入 / 临时按需服药 ====================
 
     /**

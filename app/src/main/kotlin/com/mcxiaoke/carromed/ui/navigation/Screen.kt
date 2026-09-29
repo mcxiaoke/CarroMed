@@ -46,6 +46,16 @@ sealed class Screen(val route: String) {
         fun createRoute(medId: Long? = null) = if (medId != null) "manual_dose?medId=$medId" else "manual_dose"
     }
 
+    /**
+     * 服药记录详情：查看 / 改剂量备注 / 撤销跳过。
+     *
+     * 独立页面而非弹菜单 —— 低频操作有四个（撤销、跳过、确认、改剂量），
+     * 弹菜单只给操作不给上下文，而"我记错了"恰恰发生在已经忘了当时填了什么的时候。
+     */
+    data object DoseRecordEdit : Screen("dose_record/{recordId}") {
+        fun createRoute(recordId: Long) = "dose_record/$recordId"
+    }
+
     /** 补药入库 */
     data object Refill : Screen("refill/{medId}") {
         fun createRoute(medId: Long) = "refill/$medId"

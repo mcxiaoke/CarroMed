@@ -173,7 +173,7 @@ python temp\dbdump.py
 ```
 
 - **全绿是提交前的硬门槛，但门禁不是"项数"而是"不变量"。**
-  当前 384 项，覆盖 12 条不变量（见 `docs/REMINDER-DOMAIN-REDESIGN.md` §4）。
+  当前 410 项，覆盖 12 条不变量（见 `docs/REMINDER-DOMAIN-REDESIGN.md` §4）。
   新增测试会推高项数，删掉无用测试会降低项数 —— 两者都不该改变门禁强度。
   改动不变量时，**先确认守它的那条测试还在**。
 - 测试跑在 **Robolectric + 真实内存 SQLite** 上，不是 mock 数据源。

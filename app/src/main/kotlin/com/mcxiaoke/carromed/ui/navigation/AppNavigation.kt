@@ -47,6 +47,7 @@ import com.mcxiaoke.carromed.ui.screen.inventory.InventoryScreen
 import com.mcxiaoke.carromed.ui.screen.inventory.InventoryViewModel
 import com.mcxiaoke.carromed.ui.screen.manual.ManualDoseScreen
 import com.mcxiaoke.carromed.ui.screen.manual.ManualDoseViewModel
+import com.mcxiaoke.carromed.ui.screen.record.DoseRecordEditScreen
 import com.mcxiaoke.carromed.ui.screen.progress.ProgressScreen
 import com.mcxiaoke.carromed.ui.screen.progress.ProgressViewModel
 import com.mcxiaoke.carromed.ui.screen.refill.RefillScreen
@@ -152,7 +153,12 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             // 3. 进展追踪
             composable(Screen.Progress.route) {
                 val vm: ProgressViewModel = viewModel()
-                ProgressScreen(viewModel = vm)
+                ProgressScreen(
+                    viewModel = vm,
+                    onNavigateToRecord = { recordId ->
+                        navController.navigate(Screen.DoseRecordEdit.createRoute(recordId))
+                    }
+                )
             }
 
             // 4. 统计报表
@@ -280,6 +286,17 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 )
                 ManualDoseScreen(
                     viewModel = vm,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            // 7b. 服药记录详情 (二级全屏)
+            composable(
+                route = Screen.DoseRecordEdit.route,
+                arguments = listOf(navArgument("recordId") { type = NavType.LongType })
+            ) {
+                DoseRecordEditScreen(
+                    recordId = it.arguments?.getLong("recordId") ?: 0L,
                     onNavigateBack = { navController.popBackStack() }
                 )
             }

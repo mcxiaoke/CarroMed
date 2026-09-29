@@ -317,11 +317,14 @@ class AppendOnlyFactTableTest {
      * - 整表清空：只在恢复备份前调用（`DataExporter.restoreBackup`）
      * - 撤销打卡：只翻 `status` 一列，且 WHERE 卡死 `status != 'REVERTED'`
      *
-     * 2026-09-29 新增 [DoseRecordDao.markReverted]：与 [DoseRecordDao.markRevertedBySlot]
-     * **语义完全相同**，只是寻址键从 `slot_id` 换成记录 `id`。
-     * 新增它的理由是后者对手动补录的服药（`slot_id == null`）**完全无效** ——
-     * 那类记录没有槽位，用户因此没有任何撤销路径。
-     * 下面 [DoseRecordDao.markReverted] 的专属用例把它的语义钉死。
+     * 2026-09-29 新增三条，语义见各自的 KDoc：
+     * - [DoseRecordDao.markReverted]：与 [DoseRecordDao.markRevertedBySlot] 相同，
+     *   只是寻址键从 `slot_id` 换成记录 `id`（补录的服药没有槽位，旧入口对它无效）；
+     * - [DoseRecordDao.updateDose] / [DoseRecordDao.updateNote] /
+     *   [DoseRecordDao.updateActualTs]：改剂量 / 改备注 / 改服药时刻，
+     *   都只翻**一列**，且都带 `status != 'REVERTED'` 幂等锚点。
+     *
+     * 三条都有专属用例把"只翻一列 + 幂等"钉死，见本类其余测试。
      */
     @Test
     fun `事实表上的改写型 Query 全部落在显式白名单内`() {
@@ -329,6 +332,9 @@ class AppendOnlyFactTableTest {
             DoseRecordDao::class.java to setOf(
                 "markRevertedBySlot",
                 "markReverted",
+                "updateDose",
+                "updateNote",
+                "updateActualTs",
                 "deleteAllRecords"
             ),
             InventoryTransactionDao::class.java to setOf("deleteAllTransactions")
@@ -398,6 +404,52 @@ class AppendOnlyFactTableTest {
 
         // 幂等：第二次受影响行数为 0
         assertThat(db.doseRecordDao().markReverted(recordId)).isEqualTo(0)
+    }
+
+    /**
+     * 改剂量 / 改备注各自**只翻一列**，且都拒绝已撤销的记录。
+     *
+     * 白名单只保证"允许存在"，管不了"翻了几列"。而"改备注顺手把状态也改了"
+     * 这类实现是可以悄悄写出来的 —— 所以逐列比一次。
+     */
+    @Test
+    fun `改剂量与改备注各只翻一列且拒绝已撤销的记录`() = runTest {
+        val medId = newDailyMedication()
+        val recordId = tracking.logManualDose(
+            medicationId = medId,
+            actualTs = tsOf(today, 12),
+            doseAmount = 1f,
+            note = "原文备注",
+            deductStock = false
+        )
+        val original = db.doseRecordDao().getRecordById(recordId)!!
+
+        // ---- 改剂量：只有 dose_taken 变 ----
+        assertThat(db.doseRecordDao().updateDose(recordId, 2500)).isEqualTo(1)
+        val afterDose = db.doseRecordDao().getRecordById(recordId)!!
+        assertThat(afterDose.doseTaken).isEqualTo(2500)
+        assertThat(afterDose.copy(doseTaken = original.doseTaken)).isEqualTo(original)
+
+        // ---- 改备注：只有 note 变（status 保持 REVERTED 之前的原值）----
+        assertThat(db.doseRecordDao().updateNote(recordId, "新备注")).isEqualTo(1)
+        val afterNote = db.doseRecordDao().getRecordById(recordId)!!
+        assertThat(afterNote.note).isEqualTo("新备注")
+        assertThat(afterNote.copy(note = original.note)).isEqualTo(afterDose)
+
+        // ---- 改时刻：只有 actual_ts 变 ----
+        val newTs = original.actualTs - 3_600_000L
+        assertThat(db.doseRecordDao().updateActualTs(recordId, newTs)).isEqualTo(1)
+        val afterTs = db.doseRecordDao().getRecordById(recordId)!!
+        assertThat(afterTs.actualTs).isEqualTo(newTs)
+        assertThat(afterTs.copy(actualTs = afterNote.actualTs)).isEqualTo(afterNote)
+
+        // ---- 已撤销的记录一律拒绝修改 ----
+        assertThat(db.doseRecordDao().markReverted(recordId)).isEqualTo(1)
+        val reverted = db.doseRecordDao().getRecordById(recordId)!!
+        assertThat(db.doseRecordDao().updateDose(recordId, 9999)).isEqualTo(0)
+        assertThat(db.doseRecordDao().updateNote(recordId, "试图改回去")).isEqualTo(0)
+        assertThat(db.doseRecordDao().updateActualTs(recordId, 0L)).isEqualTo(0)
+        assertThat(db.doseRecordDao().getRecordById(recordId)).isEqualTo(reverted)
     }
 
     // ==================================================================

@@ -272,6 +272,7 @@ object DataExporter {
                 com.mcxiaoke.carromed.core.data.model.TransactionType.REFILL -> "购药入库"
                 com.mcxiaoke.carromed.core.data.model.TransactionType.REVERT_ROLLBACK -> "撤销冲正"
                 com.mcxiaoke.carromed.core.data.model.TransactionType.CALIBRATION_ADJUST -> "盘点调整"
+                com.mcxiaoke.carromed.core.data.model.TransactionType.DOSE_EDIT_ADJUST -> "改剂量调整"
             }
             sb.append(escapeCsv(fmt.format(Date(t.createdAt)))).append(',')
             sb.append(escapeCsv(med?.name ?: "未知药品")).append(',')

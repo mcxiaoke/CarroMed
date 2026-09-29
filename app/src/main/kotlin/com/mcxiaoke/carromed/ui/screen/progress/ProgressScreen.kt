@@ -59,7 +59,8 @@ import java.util.Locale
 
 @Composable
 fun ProgressScreen(
-    viewModel: ProgressViewModel
+    viewModel: ProgressViewModel,
+    onNavigateToRecord: (Long) -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
@@ -138,7 +139,7 @@ fun ProgressScreen(
                     items(
                         count = day.items.size,
                         key = { "rec-${day.items[it].record.id}" }
-                    ) { idx -> TimelineRow(day.items[idx]) }
+                    ) { idx -> TimelineRow(day.items[idx], onNavigateToRecord) }
                 }
                 item(key = "timeline-tail") {
                     TimelineFooter(
@@ -464,14 +465,19 @@ private fun TimelineDayHeader(day: TimelineDay) {
 }
 
 @Composable
-private fun TimelineRow(item: TimelineItem) {
+private fun TimelineRow(item: TimelineItem, onNavigateToRecord: (Long) -> Unit) {
     val unit = item.medication?.unit ?: "片"
     // doseTaken 是整数毫单位（D-7）。此处**不能**写 `doseTaken % 1f == 0f` 那类判断：
     // 它能编译（Kotlin 允许 Int % Float）却恒为真，会把 1 片显示成「1000 片」。
     val dose = Dose(item.record.doseTaken).asFloat
     val reverted = item.record.status == RecordStatus.REVERTED
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            // 整行可点进详情（UX 方案 §3）。已撤销的记录**仍然可点** ——
+            // 用户翻到几个月前就是想看"这条到底怎么回事"，
+            // 把它做成不可点等于让最需要解释的记录最没地方问。
+            .clickable { onNavigateToRecord(item.record.id) },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (reverted) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
