@@ -5,6 +5,7 @@ import android.app.TimePickerDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -682,44 +683,62 @@ fun ReadOnlyDateField(
         ).show()
     }
 
-    OutlinedTextField(
-        value = dateStr.ifBlank { placeholder },
-        onValueChange = {},
-        readOnly = true,
-        label = { Text(label) },
-        placeholder = { if (dateStr.isBlank()) Text(placeholder) },
-        textStyle = if (dateStr.isBlank()) {
-            MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            MaterialTheme.typography.bodyLarge
-        },
-        trailingIcon = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // 纯视觉图标：说明这是一个可点的日期字段，实际点击由整框 clickable 承担，
-                // 避免"图标有自己的 clickable 抢走事件"导致点图标无反应。
-                Icon(
-                    Icons.Default.CalendarToday,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                if (dateStr.isNotBlank() && onClear != null) {
-                    Spacer(Modifier.width(4.dp))
+    Box(modifier = modifier) {
+        OutlinedTextField(
+            value = dateStr.ifBlank { placeholder },
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            placeholder = { if (dateStr.isBlank()) Text(placeholder) },
+            textStyle = if (dateStr.isBlank()) {
+                MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                MaterialTheme.typography.bodyLarge
+            },
+            trailingIcon = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
-                        onClick = onClear,
-                        modifier = Modifier.size(32.dp)
+                        onClick = openPicker,
+                        modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
-                            Icons.Default.DeleteOutline,
-                            contentDescription = stringResource(R.string.medit_cd_clear_field, label),
-                            modifier = Modifier.size(16.dp)
+                            Icons.Default.CalendarToday,
+                            contentDescription = stringResource(R.string.medit_cd_pick_date),
+                            modifier = Modifier.size(18.dp)
                         )
                     }
+                    if (dateStr.isNotBlank() && onClear != null) {
+                        IconButton(
+                            onClick = onClear,
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.DeleteOutline,
+                                contentDescription = stringResource(R.string.medit_cd_clear_field, label),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 }
-            }
-        },
-        modifier = modifier.clickable { openPicker() },
-        singleLine = true
-    )
+            },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        // 点击覆盖层：覆盖在输入框主区域，保证点击文本框任何位置均能呼起 DatePickerDialog；
+        // 右侧留出尾部图标按钮区域（删除按钮 / 日历按钮），避免遮挡按钮点击
+        val trailingPadding = if (dateStr.isNotBlank() && onClear != null) 72.dp else 40.dp
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(end = trailingPadding)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = openPicker
+                )
+        )
+    }
 }
 @Composable
 private fun InitialStockCard(

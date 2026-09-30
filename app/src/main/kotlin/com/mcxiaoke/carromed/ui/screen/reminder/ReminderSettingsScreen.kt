@@ -1,5 +1,6 @@
 package com.mcxiaoke.carromed.ui.screen.reminder
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -115,7 +116,14 @@ fun ReminderSettingsScreen(
                 },
                 actions = {
                     Button(
-                        onClick = { viewModel.save() },
+                        onClick = {
+                            viewModel.save(
+                                onSuccess = {
+                                    Toast.makeText(context, R.string.rem_saved, Toast.LENGTH_SHORT).show()
+                                    onNavigateBack()
+                                }
+                            )
+                        },
                         enabled = !uiState.isSaving && !uiState.isLoading,
                         modifier = Modifier.padding(end = 8.dp),
                         shape = RoundedCornerShape(8.dp)

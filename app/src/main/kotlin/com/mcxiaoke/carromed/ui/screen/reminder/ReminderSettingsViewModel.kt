@@ -337,7 +337,7 @@ class ReminderSettingsViewModel(
 
     // ---------------- 保存 ----------------
 
-    fun save() {
+    fun save(onSuccess: () -> Unit = {}) {
         val s = _uiState.value
         val app = getApplication<Application>()
 
@@ -465,6 +465,7 @@ class ReminderSettingsViewModel(
             }
 
             _uiState.value = _uiState.value.copy(isSaving = false, savedAt = System.currentTimeMillis())
+            onSuccess()
             load()
         }
     }

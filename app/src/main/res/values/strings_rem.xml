@@ -3,6 +3,7 @@
     <!-- ReminderSettingsScreen（提醒设置页）-->
     <string name="rem_title">提醒设置</string>
     <string name="rem_save">保存</string>
+    <string name="rem_saved">提醒设置已保存</string>
     <string name="rem_cd_back">返回</string>
     <string name="rem_error_with_icon">⚠️ %1$s</string>
 
