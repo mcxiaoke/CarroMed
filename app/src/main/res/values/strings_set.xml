@@ -63,7 +63,7 @@
     <string name="set_export_failed">导出失败: %1$s</string>
     <string name="set_export_log_button">导出日志</string>
 
-    <!-- 4. 关于 CarroMed -->
-    <string name="set_section_about">关于 CarroMed</string>
-    <string name="set_about_text">CarroMed v%1$s (Native Compose)\n• 100%% 纯本地离线单机运行，零网络权限申请\n• 免账号登录、无后台云端追踪、无广告干扰\n• 数据完全受控于您本人的手机私有沙箱存储</string>
+    <!-- 4. 版本号 -->
+    <string name="set_version_format">版本 %1$s</string>
+    <string name="set_about_text">版本 %1$s</string>
 </resources>

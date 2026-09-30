@@ -3,10 +3,16 @@ package com.mcxiaoke.carromed.ui.navigation
 import android.app.Application
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.BarChart
@@ -91,7 +97,10 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
 
     val isTopLevel = BottomNavItems.any { it.route == currentRoute }
 
-    Scaffold(
+    val navBarBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val navBarHeight = 80.dp + navBarBottomInset
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             // 语义标识（PLAN-UI-TEST-20260929.md §1）：Compose 测试默认找不到
@@ -103,109 +112,69 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 } else {
                     Modifier
                 }
-            ),
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        bottomBar = {
-            if (isTopLevel) {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface
-                ) {
-                    BottomNavItems.forEach { item ->
-                        val selected = currentRoute == item.route
-                        val tabTag = when (item.route) {
-                            Screen.Today.route -> TestTags.TAB_TODAY
-                            Screen.Cabinet.route -> TestTags.TAB_CABINET
-                            Screen.Progress.route -> TestTags.TAB_PROGRESS
-                            Screen.Stats.route -> TestTags.TAB_STATS
-                            else -> null
-                        }
-                        NavigationBarItem(
-                            modifier = if (tabTag != null) Modifier.testTag(tabTag) else Modifier,
-                            selected = selected,
-                            onClick = {
-                                if (currentRoute != item.route) {
-                                    navController.navigate(item.route) {
-                                        popUpTo(navController.graph.findStartDestination().id) {
-                                            saveState = true
-                                        }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
-                                }
-                            },
-                            icon = { Icon(item.icon, contentDescription = stringResource(item.titleRes)) },
-                            label = { Text(stringResource(item.titleRes), fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                            )
-                        )
-                    }
-                }
-            }
-        }
-    ) { innerPadding ->
+            )
+    ) {
         NavHost(
             navController = navController,
             startDestination = Screen.Today.route,
-            // 根 Scaffold 只管底部导航栏（顶栏归各页自己的 Scaffold.topBar，
-            // 见 PLAN-TITLEBAR-STANDARDIZATION-20260930.md），所以这里只要 bottom padding。
-            //
-            // consumeWindowInsets 必须补上：它把"根已经扣掉的量"告诉子树。
-            // 少了它，子页自带的 Scaffold 看不到底部 inset 已被消费，
-            // 会把导航栏高度再算一次（与 `Scaffold` 文档里那句
-            // "Scaffold 不会将边衬区应用于内容"是同一条因果）。
-            modifier = Modifier
-                .padding(bottom = innerPadding.calculateBottomPadding())
-                .consumeWindowInsets(innerPadding),
+            modifier = Modifier.fillMaxSize(),
             enterTransition = { EnterTransition.None },
             exitTransition = { ExitTransition.None }
         ) {
             // 1. 今日清单
             composable(Screen.Today.route) {
                 val vm: TodayViewModel = viewModel()
-                TodayScreen(
-                    viewModel = vm,
-                    onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
-                    onNavigateToAddMedication = { navController.navigate(Screen.AddEditMedication.createRoute()) },
-                    onNavigateToManualDose = { navController.navigate(Screen.ManualDose.createRoute()) },
-                    onNavigateToRefill = { medId -> navController.navigate(Screen.Refill.createRoute(medId)) },
-                    onNavigateToInventory = { medId -> navController.navigate(Screen.Inventory.createRoute(medId)) },
-                    // 今日清单的 item 一律进记录详情页（不再跳药品详情）
-                    onOpenDose = { slotId -> navController.navigate(Screen.DoseDetail.forSlot(slotId)) }
-                )
+                MainTabContent(navBarHeight) {
+                    TodayScreen(
+                        viewModel = vm,
+                        onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
+                        onNavigateToAddMedication = { navController.navigate(Screen.AddEditMedication.createRoute()) },
+                        onNavigateToManualDose = { navController.navigate(Screen.ManualDose.createRoute()) },
+                        onNavigateToRefill = { medId -> navController.navigate(Screen.Refill.createRoute(medId)) },
+                        onNavigateToInventory = { medId -> navController.navigate(Screen.Inventory.createRoute(medId)) },
+                        // 今日清单的 item 一律进记录详情页（不再跳药品详情）
+                        onOpenDose = { slotId -> navController.navigate(Screen.DoseDetail.forSlot(slotId)) }
+                    )
+                }
             }
 
             // 2. 我的药箱
             composable(Screen.Cabinet.route) {
                 val vm: CabinetViewModel = viewModel()
-                CabinetScreen(
-                    viewModel = vm,
-                    onNavigateToAddMedication = { navController.navigate(Screen.AddEditMedication.createRoute()) },
-                    onNavigateToMedDetail = { medId -> navController.navigate(Screen.MedicationDetail.createRoute(medId)) }
-                )
+                MainTabContent(navBarHeight) {
+                    CabinetScreen(
+                        viewModel = vm,
+                        onNavigateToAddMedication = { navController.navigate(Screen.AddEditMedication.createRoute()) },
+                        onNavigateToMedDetail = { medId -> navController.navigate(Screen.MedicationDetail.createRoute(medId)) }
+                    )
+                }
             }
 
             // 3. 进展追踪
             composable(Screen.Progress.route) {
                 val vm: ProgressViewModel = viewModel()
-                ProgressScreen(
-                    viewModel = vm,
-                    onOpenDose = { slotId, recordId ->
-                        navController.navigate(doseDetailRoute(slotId, recordId))
-                    },
-                    onNavigateToMedHistory = { medId ->
-                        navController.navigate(Screen.MedHistory.createRoute(medId))
-                    }
-                )
+                MainTabContent(navBarHeight) {
+                    ProgressScreen(
+                        viewModel = vm,
+                        onOpenDose = { slotId, recordId ->
+                            navController.navigate(doseDetailRoute(slotId, recordId))
+                        },
+                        onNavigateToMedHistory = { medId ->
+                            navController.navigate(Screen.MedHistory.createRoute(medId))
+                        }
+                    )
+                }
             }
 
             // 4. 统计报表
             composable(Screen.Stats.route) {
                 val vm: StatsViewModel = viewModel()
-                StatsScreen(viewModel = vm)
+                MainTabContent(navBarHeight) {
+                    StatsScreen(
+                        viewModel = vm,
+                        onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
+                    )
+                }
             }
 
             // 5. 药品专属详情页 (二级全屏)
@@ -418,6 +387,62 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 )
             }
         }
+
+        if (isTopLevel) {
+            NavigationBar(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ) {
+                BottomNavItems.forEach { item ->
+                    val selected = currentRoute == item.route
+                    val tabTag = when (item.route) {
+                        Screen.Today.route -> TestTags.TAB_TODAY
+                        Screen.Cabinet.route -> TestTags.TAB_CABINET
+                        Screen.Progress.route -> TestTags.TAB_PROGRESS
+                        Screen.Stats.route -> TestTags.TAB_STATS
+                        else -> null
+                    }
+                    NavigationBarItem(
+                        modifier = if (tabTag != null) Modifier.testTag(tabTag) else Modifier,
+                        selected = selected,
+                        onClick = {
+                            if (currentRoute != item.route) {
+                                navController.navigate(item.route) {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        },
+                        icon = { Icon(item.icon, contentDescription = stringResource(item.titleRes)) },
+                        label = { Text(stringResource(item.titleRes), fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MainTabContent(
+    navBarHeight: Dp,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(bottom = navBarHeight)
+            .consumeWindowInsets(WindowInsets.navigationBars)
+    ) {
+        content()
     }
 }
 

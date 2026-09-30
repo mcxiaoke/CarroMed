@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -56,7 +57,8 @@ import java.util.Locale
 
 @Composable
 fun StatsScreen(
-    viewModel: StatsViewModel
+    viewModel: StatsViewModel,
+    onNavigateToSettings: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -64,9 +66,9 @@ fun StatsScreen(
         topBar = {
             CarroMedTopAppBar(
                 title = stringResource(R.string.stats_title),
-                actionIcon = Icons.Default.FileDownload,
-                actionContentDescription = stringResource(R.string.stats_export_report),
-                onActionClick = { viewModel.exportReport() }
+                actionIcon = Icons.Outlined.Settings,
+                actionContentDescription = stringResource(R.string.stats_cd_settings),
+                onActionClick = onNavigateToSettings
             )
         }
     ) { innerPadding ->

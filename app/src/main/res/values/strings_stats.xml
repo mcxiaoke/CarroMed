@@ -2,6 +2,7 @@
 <resources>
     <!-- 统计报表页 -->
     <string name="stats_title">统计报表</string>
+    <string name="stats_cd_settings">系统设置</string>
     <string name="stats_export_report">导出报告</string>
     <string name="stats_period_total">%1$s累计用药统计</string>
     <string name="stats_mixed_units">多种单位</string>

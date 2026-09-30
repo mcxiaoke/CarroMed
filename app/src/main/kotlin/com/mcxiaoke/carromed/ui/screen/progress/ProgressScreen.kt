@@ -94,10 +94,7 @@ fun ProgressScreen(
     Scaffold(
         topBar = {
             CarroMedTopAppBar(
-                title = stringResource(R.string.prog_title),
-                actionIcon = Icons.Default.FileDownload,
-                actionContentDescription = stringResource(R.string.prog_export_report),
-                onActionClick = { viewModel.exportReport() }
+                title = stringResource(R.string.prog_title)
             )
         }
     ) { innerPadding ->

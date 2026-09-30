@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="today_cd_manual_log">补录</string>
-    <string name="today_manual_log">手动补录</string>
+    <string name="today_cd_manual_log">添加</string>
+    <string name="today_manual_log">添加</string>
     <string name="today_title">今日清单</string>
     <string name="today_cd_settings">系统设置</string>
     <string name="today_cd_stock_alert">库存告警</string>

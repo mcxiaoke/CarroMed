@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.ui.screen.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -503,38 +504,19 @@ fun SettingsScreen(
                 }
             }
 
-            // 4. 关于 CarroMed
+            // 4. 版本号
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp, bottom = 24.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = stringResource(R.string.set_section_about),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            // 版本号读 BuildConfig 而不是硬编码：升版忘改文案
-                            // 比"没写版本"更糟（对不上实际安装的包）
-                            text = stringResource(R.string.set_about_text, com.mcxiaoke.carromed.BuildConfig.VERSION_NAME),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 20.sp
-                        )
-                    }
+                    Text(
+                        text = stringResource(R.string.set_version_format, com.mcxiaoke.carromed.BuildConfig.VERSION_NAME),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

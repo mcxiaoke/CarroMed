@@ -126,10 +126,7 @@ fun TodayScreen(
         // 进了 topBar 槽位后 TopAppBar 自己吃掉状态栏，innerPadding.top 归零。
         topBar = {
             CarroMedTopAppBar(
-                title = stringResource(R.string.today_title),
-                actionIcon = Icons.Outlined.Settings,
-                actionContentDescription = stringResource(R.string.today_cd_settings),
-                onActionClick = onNavigateToSettings
+                title = stringResource(R.string.today_title)
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
