@@ -9,6 +9,8 @@ import com.mcxiaoke.carromed.core.testing.assertBalanceAfter
 import com.mcxiaoke.carromed.core.testing.assertDoseValue
 import com.mcxiaoke.carromed.core.testing.assertLedgerBalance
 import com.mcxiaoke.carromed.core.domain.model.Dose
+import com.mcxiaoke.carromed.core.domain.model.MedicationCategory
+import com.mcxiaoke.carromed.core.domain.model.MedicationForm
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
@@ -108,8 +110,8 @@ class MedicationAdminServiceTest {
             MedicationAdminService.ProfileDraft(
                 medId = id,
                 name = "环孢素 缓释",
-                category = "处方药 · 免疫",
-                form = "软胶囊",
+                category = MedicationCategory.RX_IMMUNE.name,
+                form = MedicationForm.SOFTGEL.name,
                 unit = "粒",
                 colorHex = "#8B5CF6",
                 defaultDose = 2f,
@@ -123,7 +125,7 @@ class MedicationAdminServiceTest {
         val after = medDao.getMedicationById(id)!!
         // 可编辑字段应更新
         assertThat(after.name).isEqualTo("环孢素 缓释")
-        assertThat(after.category).isEqualTo("处方药 · 免疫")
+        assertThat(after.category).isEqualTo(MedicationCategory.RX_IMMUNE.name)
         assertThat(after.unit).isEqualTo("粒")
         assertDoseValue(after.defaultDose, 2f)
         assertThat(after.precautions).containsExactly("仅保留一条")

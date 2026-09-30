@@ -10,6 +10,9 @@ import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
+import com.mcxiaoke.carromed.core.domain.model.MedicationCategory
+import com.mcxiaoke.carromed.core.domain.model.MedicationForm
+import com.mcxiaoke.carromed.core.domain.model.SlotLabel
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService
 import com.mcxiaoke.carromed.ui.component.DecimalInput
@@ -50,7 +53,7 @@ enum class AddEditMode { FULL, INFO_ONLY }
 data class TimeSlotDraft(
     val time: String = "08:30",
     val dose: String = "1",
-    val label: String = "服药时段"
+    val label: String = SlotLabel.GENERIC.name
 ) {
     /** 合法剂量；null 表示"空 / 0 / 无法解析"，保存前必须拦下 */
     fun parsedDose(): Float? = DecimalInput.parsePositive(dose)
@@ -84,10 +87,12 @@ data class AddEditUiState(
     val isLoading: Boolean = false,
 
     // ---- 药品信息维度 ----
+    // category / form 存词表 key（枚举 name，B3），显示时经 MedVocab 解析；
+    // unit 是用户内容（显示文本），保持中文默认值不动。
     val name: String = "",
     val alias: String = "",
-    val category: String = "常备药",
-    val form: String = "片剂",
+    val category: String = MedicationCategory.COMMON.name,
+    val form: String = MedicationForm.TABLET.name,
     val unit: String = "片",
     val colorHex: String = "#2563EB",
     val defaultDose: String = "1",
@@ -104,7 +109,7 @@ data class AddEditUiState(
     val cycleOffDays: Int = 7,
     val startDate: String = LocalDate.now().format(SlotProjectionEngine.DATE_FORMATTER),
     val endDate: String? = null,
-    val timeSlots: List<TimeSlotDraft> = listOf(TimeSlotDraft("08:30", "1", "服药时段")),
+    val timeSlots: List<TimeSlotDraft> = listOf(TimeSlotDraft("08:30", "1", SlotLabel.GENERIC.name)),
 
     // ---- 库存维度 (仅 FULL 模式) ----
     val currentStock: String = "",
@@ -134,32 +139,65 @@ data class AddEditUiState(
         }
 }
 
-/** 表单可选枚举值 (集中一处，避免 UI 里散落硬编码) */
+/**
+ * 表单可选枚举值 (集中一处，避免 UI 里散落硬编码)
+ *
+ * ## B3 词表 key 化后的口径
+ *
+ * - [CATEGORIES] / [FORMS] / [TIME_LABELS]：存库值 = 枚举 name（稳定 key），
+ *   显示时由 UI 经 `MedVocab` 解析成当前 locale 的资源文案；未知 key（自由文本）
+ *   由调用方原样显示。
+ * - [UNITS] / [PRECAUTION_PRESETS]：**用户内容**，选中后存的是显示文本而非 key ——
+ *   这里只提供预设的 `@StringRes`，渲染时 `stringResource` 解析。
+ */
 object MedicationFormOptions {
-    val CATEGORIES = listOf("常备药", "慢病处方", "处方药 · 免疫", "抗生素", "激素类", "营养保健", "其他")
-    val FORMS = listOf("片剂", "胶囊", "软胶囊", "颗粒剂", "口服液", "外用", "滴剂", "喷雾剂", "贴剂")
-    val UNITS = listOf("片", "粒", "袋", "包", "支", "丸", "贴", "滴", "ml", "支装")
+    val CATEGORIES = MedicationCategory.entries.map { it.name }
+    val FORMS = MedicationForm.entries.map { it.name }
+
+    /** 单位预设（资源 ID）。"ml" 是纯符号不进词表，由 Screen 侧原样追加。 */
+    val UNITS: List<Int> = listOf(
+        R.string.vocab_unit_tablet,
+        R.string.vocab_unit_capsule,
+        R.string.vocab_unit_sachet,
+        R.string.vocab_unit_packet,
+        R.string.vocab_unit_ampoule,
+        R.string.vocab_unit_pill,
+        R.string.vocab_unit_patch,
+        R.string.vocab_unit_drop,
+        R.string.vocab_unit_bottle
+    )
+
+    /** 不进词表的自由单位（保持原样，用户内容） */
+    val UNITS_RAW = listOf("ml")
+
     val COLORS = listOf(
         "#2563EB", "#10B981", "#F59E0B",
         "#8B5CF6", "#EF4444", "#0EA5E9"
     )
-    val PRECAUTION_PRESETS = listOf(
-        "饭后服用", "饭前服用", "随餐服用", "空腹服用",
-        "整粒吞服禁嚼碎", "严禁与葡萄柚同食", "避免与牛奶同服",
-        "需冷藏保存", "避光保存", "服后勿驾车",
-        "不可与含铝抗酸药同服", "肝肾功能不全慎用"
+
+    /** 注意事项预设（资源 ID）。选中后把显示文本存进档案（用户内容）。 */
+    val PRECAUTION_PRESETS: List<Int> = listOf(
+        R.string.precaution_after_meal,
+        R.string.precaution_before_meal,
+        R.string.precaution_with_meal,
+        R.string.precaution_fasting,
+        R.string.precaution_swallow_whole,
+        R.string.precaution_no_grapefruit,
+        R.string.precaution_no_milk,
+        R.string.precaution_refrigerate,
+        R.string.precaution_keep_from_light,
+        R.string.precaution_no_driving,
+        R.string.precaution_no_aluminum_antacid,
+        R.string.precaution_caution_liver_kidney
     )
     /**
      * 服药与用餐关系。
      *
      * 这是主流吃药 App 的核心枚举（MyTherapy / Medisafe / 药准时都有），
      * 会显示在通知正文与今日清单上 —— 告诉用户"这顿该饭前还是饭后吃"，
-     * 比单纯一个时间点有用得多。
+     * 比单纯一个时间点有用得多。存库值 = [SlotLabel] 的 name。
      */
-    val TIME_LABELS = listOf(
-        "服药时段",
-        "空腹服用", "饭前服用", "随餐服用", "餐后服用", "睡前"
-    )
+    val TIME_LABELS = SlotLabel.entries.map { it.name }
 }
 
 class AddEditMedicationViewModel(
@@ -284,7 +322,7 @@ class AddEditMedicationViewModel(
 
     fun addTimeSlot() = mutate { s ->
         val last = s.timeSlots.maxByOrNull { it.time }?.time ?: "08:30"
-        s.copy(timeSlots = s.timeSlots + TimeSlotDraft(nextSlotTime(last), s.defaultDose, "服药时段"))
+        s.copy(timeSlots = s.timeSlots + TimeSlotDraft(nextSlotTime(last), s.defaultDose, SlotLabel.GENERIC.name))
     }
 
     /**
@@ -554,16 +592,16 @@ class AddEditMedicationViewModel(
     }
 
     /** 按时刻猜一个粗粒度时段标签，用户可再改 */
-    /** 按时刻猜一个粗粒度"服药与用餐关系"，用户可再改 */
+    /** 按时刻猜一个粗粒度"服药与用餐关系"（存 [SlotLabel] key），用户可再改 */
     private fun guessLabel(minutesOfDay: Int): String = when (minutesOfDay) {
-        in 5 * 60 until 6 * 60 -> "空腹服用"
-        in 6 * 60 until 9 * 60 -> "饭前服用"
-        in 9 * 60 until 10 * 60 -> "随餐服用"
-        in 10 * 60 until 13 * 60 -> "饭前服用"
-        in 13 * 60 until 15 * 60 -> "随餐服用"
-        in 15 * 60 until 18 * 60 -> "饭前服用"
-        in 18 * 60 until 21 * 60 -> "餐后服用"
-        else -> "睡前"
+        in 5 * 60 until 6 * 60 -> SlotLabel.FASTING.name
+        in 6 * 60 until 9 * 60 -> SlotLabel.BEFORE_MEAL.name
+        in 9 * 60 until 10 * 60 -> SlotLabel.WITH_MEAL.name
+        in 10 * 60 until 13 * 60 -> SlotLabel.BEFORE_MEAL.name
+        in 13 * 60 until 15 * 60 -> SlotLabel.WITH_MEAL.name
+        in 15 * 60 until 18 * 60 -> SlotLabel.BEFORE_MEAL.name
+        in 18 * 60 until 21 * 60 -> SlotLabel.AFTER_MEAL.name
+        else -> SlotLabel.BEDTIME.name
     }
 
     companion object {

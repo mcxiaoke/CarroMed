@@ -75,6 +75,7 @@ import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
+import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
@@ -206,10 +207,12 @@ fun MedicationDetailScreen(
                             }
                             Spacer(Modifier.height(6.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                TagChip(med.category)
+                                // category/form 存的是稳定 key（B3 key 化），显示时映射成
+                                // 本地化名；未知 key（自由文本/旧数据）原样回显。
+                                TagChip(MedVocab.categoryRes(med.category)?.let { stringResource(it) } ?: med.category)
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    text = "${med.form} · ${med.unit}",
+                                    text = "${MedVocab.formRes(med.form)?.let { stringResource(it) } ?: med.form} · ${med.unit}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -681,12 +684,14 @@ private fun buildProfileSummary(s: MedDetailUiState): String {
     if (med.precautions.isNotEmpty()) parts += stringResource(R.string.mdetail_sum_precautions, med.precautions.size)
     if (med.expiryDate.isNotBlank()) parts += stringResource(R.string.mdetail_sum_expiry, med.expiryDate)
     if (med.noticeShort.isNotBlank()) parts += stringResource(R.string.mdetail_sum_notice_short_set)
+    // form 存的是稳定 key，摘要里也要给本地化显示名；未知 key 原样回显。
+    val formText = MedVocab.formRes(med.form)?.let { stringResource(it) } ?: med.form
     return if (parts.isEmpty()) {
         stringResource(
             R.string.mdetail_sum_defaults,
-            med.form, med.unit, Quantity.fmt(Dose(med.defaultDose).asFloat), med.unit
+            formText, med.unit, Quantity.fmt(Dose(med.defaultDose).asFloat), med.unit
         )
-    } else "${med.form} · ${med.unit} · $parts"
+    } else "$formText · ${med.unit} · $parts"
 }
 
 @Composable

@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.PolicyType
+import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 import java.util.Calendar
@@ -228,7 +229,9 @@ fun AddEditMedicationScreen(
                             value = uiState.category,
                             options = MedicationFormOptions.CATEGORIES,
                             onSelect = { viewModel.onCategoryChange(it) },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            // 选项存词表 key（枚举 name），显示经 MedVocab 解析；未知 key 原样显示
+                            displayOf = { MedVocab.categoryRes(it)?.let { res -> stringResource(res) } ?: it }
                         )
                         Spacer(Modifier.width(10.dp))
                         OptionDropdown(
@@ -236,17 +239,22 @@ fun AddEditMedicationScreen(
                             value = uiState.form,
                             options = MedicationFormOptions.FORMS,
                             onSelect = { viewModel.onFormChange(it) },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            displayOf = { MedVocab.formRes(it)?.let { res -> stringResource(res) } ?: it }
                         )
                     }
 
                     Spacer(Modifier.height(12.dp))
 
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        // 单位是用户内容（选中后存显示文本）：预设经资源渲染，"ml" 保持原样
+                        val unitOptions =
+                            MedicationFormOptions.UNITS.map { stringResource(it) } +
+                                MedicationFormOptions.UNITS_RAW
                         OptionDropdown(
                             label = stringResource(R.string.medit_label_unit),
                             value = uiState.unit,
-                            options = MedicationFormOptions.UNITS,
+                            options = unitOptions,
                             onSelect = { viewModel.onUnitChange(it) },
                             modifier = Modifier.weight(1f)
                         )
@@ -359,11 +367,14 @@ fun AddEditMedicationScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(8.dp))
+                    // 预设是资源 ID，渲染时解析成显示文本；**选中后存的是显示文本**
+                    // （注意事项是用户内容），所以勾选判定与 toggle 都按显示文本比对。
+                    val presetTags = MedicationFormOptions.PRECAUTION_PRESETS.map { stringResource(it) }
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        MedicationFormOptions.PRECAUTION_PRESETS.forEach { tag ->
+                        presetTags.forEach { tag ->
                             FilterChip(
                                 selected = tag in uiState.precautions,
                                 onClick = { viewModel.onPrecautionToggle(tag) },
@@ -377,14 +388,14 @@ fun AddEditMedicationScreen(
                         }
                     }
 
-                    if (uiState.precautions.any { it !in MedicationFormOptions.PRECAUTION_PRESETS }) {
+                    if (uiState.precautions.any { it !in presetTags }) {
                         Spacer(Modifier.height(8.dp))
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             uiState.precautions
-                                .filter { it !in MedicationFormOptions.PRECAUTION_PRESETS }
+                                .filter { it !in presetTags }
                                 .forEach { tag ->
                                     FilterChip(
                                         selected = true,
@@ -594,7 +605,13 @@ private fun OptionDropdown(
     value: String,
     options: List<String>,
     onSelect: (String) -> Unit,
-    modifier: Modifier = Modifier.fillMaxWidth()
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    /**
+     * 选项值 → 显示文案。词表 key 化（B3）后选项存的是枚举 name，
+     * 渲染前经 [MedVocab] 解析；未知 key（自由文本/旧数据）原样显示。
+     * 必须是 `@Composable` 的：解析要走 `stringResource`。
+     */
+    displayOf: @Composable (String) -> String = { it }
 ) {
     // ⚠️ `rememberSaveable`（M7-6）。下拉的展开态写在 `LazyColumn` 的 `item {}` 内，
     // 而 `item` 滚出视口就被销毁、滚回来重建 ⇒ `remember` 跟着组合走，
@@ -607,7 +624,7 @@ private fun OptionDropdown(
         modifier = modifier
     ) {
         OutlinedTextField(
-            value = value,
+            value = displayOf(value),
             onValueChange = {},
             readOnly = true,
             label = { Text(label) },
@@ -620,7 +637,7 @@ private fun OptionDropdown(
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { opt ->
                 DropdownMenuItem(
-                    text = { Text(opt) },
+                    text = { Text(displayOf(opt)) },
                     onClick = {
                         onSelect(opt)
                         expanded = false

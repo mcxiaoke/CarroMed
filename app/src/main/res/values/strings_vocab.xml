@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- B3 词表显示名：存库值为 MedicationVocab 枚举 key，这里负责 key → 显示文案 -->
+<resources>
+    <!-- 药品类别 MedicationCategory -->
+    <string name="category_common">常备药</string>
+    <string name="category_chronic">慢病处方</string>
+    <string name="category_rx_immune">处方药 · 免疫</string>
+    <string name="category_antibiotic">抗生素</string>
+    <string name="category_hormone">激素类</string>
+    <string name="category_supplement">营养保健</string>
+    <string name="category_other">其他</string>
+
+    <!-- 剂型 MedicationForm -->
+    <string name="form_tablet">片剂</string>
+    <string name="form_capsule">胶囊</string>
+    <string name="form_softgel">软胶囊</string>
+    <string name="form_granule">颗粒剂</string>
+    <string name="form_oral_liquid">口服液</string>
+    <string name="form_topical">外用</string>
+    <string name="form_drops">滴剂</string>
+    <string name="form_spray">喷雾剂</string>
+    <string name="form_patch">贴剂</string>
+
+    <!-- 服药时段 SlotLabel -->
+    <string name="slot_generic">服药时段</string>
+    <string name="slot_fasting">空腹服用</string>
+    <string name="slot_before_meal">饭前服用</string>
+    <string name="slot_with_meal">随餐服用</string>
+    <string name="slot_after_meal">餐后服用</string>
+    <string name="slot_bedtime">睡前</string>
+
+    <!-- 单位预设（用户内容，选中后存显示文本；"ml" 保持原样不进词表） -->
+    <string name="vocab_unit_tablet">片</string>
+    <string name="vocab_unit_capsule">粒</string>
+    <string name="vocab_unit_sachet">袋</string>
+    <string name="vocab_unit_packet">包</string>
+    <string name="vocab_unit_ampoule">支</string>
+    <string name="vocab_unit_pill">丸</string>
+    <string name="vocab_unit_patch">贴</string>
+    <string name="vocab_unit_drop">滴</string>
+    <string name="vocab_unit_bottle">支装</string>
+
+    <!-- 注意事项预设（用户内容，选中后存显示文本） -->
+    <string name="precaution_after_meal">饭后服用</string>
+    <string name="precaution_before_meal">饭前服用</string>
+    <string name="precaution_with_meal">随餐服用</string>
+    <string name="precaution_fasting">空腹服用</string>
+    <string name="precaution_swallow_whole">整粒吞服禁嚼碎</string>
+    <string name="precaution_no_grapefruit">严禁与葡萄柚同食</string>
+    <string name="precaution_no_milk">避免与牛奶同服</string>
+    <string name="precaution_refrigerate">需冷藏保存</string>
+    <string name="precaution_keep_from_light">避光保存</string>
+    <string name="precaution_no_driving">服后勿驾车</string>
+    <string name="precaution_no_aluminum_antacid">不可与含铝抗酸药同服</string>
+    <string name="precaution_caution_liver_kidney">肝肾功能不全慎用</string>
+</resources>

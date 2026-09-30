@@ -6,6 +6,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.PolicyType
+import com.mcxiaoke.carromed.core.domain.model.MedicationCategory
+import com.mcxiaoke.carromed.core.domain.model.MedicationForm
+import com.mcxiaoke.carromed.core.domain.model.SlotLabel
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
@@ -42,6 +45,10 @@ class AddEditLogicTest {
         assertThat(s.timeSlots).hasSize(1)
         assertThat(s.isEdit).isFalse()
         assertThat(s.titleRes).isEqualTo(R.string.medit_title_add_medication)
+        // B3 词表 key 化：category / form / 时段标签默认存 key（枚举 name），不再是中文词表值
+        assertThat(s.category).isEqualTo(MedicationCategory.COMMON.name)
+        assertThat(s.form).isEqualTo(MedicationForm.TABLET.name)
+        assertThat(s.timeSlots.single().label).isEqualTo(SlotLabel.GENERIC.name)
     }
 
     @Test
@@ -178,16 +185,25 @@ class AddEditLogicTest {
 
     @Test
     fun formOptions_coverRequiredDimensions() {
-        // 单位：此前全库写死"片"，导致 ml/滴 一律显示错误
-        assertThat(MedicationFormOptions.UNITS).containsAtLeast("片", "粒", "袋", "ml", "滴")
-        // 剂型
-        assertThat(MedicationFormOptions.FORMS).containsAtLeast("片剂", "胶囊", "口服液", "外用")
-        // 类别
-        assertThat(MedicationFormOptions.CATEGORIES).containsAtLeast("常备药", "慢病处方")
-        // 服药与用餐关系：主流 App 的核心枚举，CarroMed 此前完全没有
-        assertThat(MedicationFormOptions.TIME_LABELS).containsAtLeast(
-            "空腹服用", "饭前服用", "随餐服用", "睡前"
+        // B3 词表 key 化：类别 / 剂型 / 时段标签存 key（枚举 name），显示时经 MedVocab 解析
+        assertThat(MedicationFormOptions.CATEGORIES).containsAtLeast(
+            MedicationCategory.COMMON.name, MedicationCategory.CHRONIC.name
         )
+        assertThat(MedicationFormOptions.FORMS).containsAtLeast(
+            MedicationForm.TABLET.name, MedicationForm.CAPSULE.name,
+            MedicationForm.ORAL_LIQUID.name, MedicationForm.TOPICAL.name
+        )
+        assertThat(MedicationFormOptions.TIME_LABELS).containsAtLeast(
+            SlotLabel.FASTING.name, SlotLabel.BEFORE_MEAL.name,
+            SlotLabel.WITH_MEAL.name, SlotLabel.BEDTIME.name
+        )
+        // 单位预设是资源 ID（此前全库写死"片"，导致 ml/滴 一律显示错误）；
+        // "ml" 是纯符号，保持原样不进词表
+        assertThat(MedicationFormOptions.UNITS).containsAtLeast(
+            R.string.vocab_unit_tablet, R.string.vocab_unit_capsule,
+            R.string.vocab_unit_sachet, R.string.vocab_unit_drop
+        )
+        assertThat(MedicationFormOptions.UNITS_RAW).containsExactly("ml")
     }
 
     /** 五种频次都必须能通过真实 `onPolicyTypeChange` 设上去（此前只断言了枚举自身） */

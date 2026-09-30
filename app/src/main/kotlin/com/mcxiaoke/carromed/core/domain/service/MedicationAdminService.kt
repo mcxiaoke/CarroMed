@@ -10,6 +10,9 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.TransactionType
 import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.model.Dose
+import com.mcxiaoke.carromed.core.domain.model.MedicationCategory
+import com.mcxiaoke.carromed.core.domain.model.MedicationForm
+import com.mcxiaoke.carromed.core.domain.model.SlotLabel
 import java.time.LocalDate
 
 /**
@@ -50,8 +53,8 @@ class MedicationAdminService(private val db: AppDatabase) {
         val medId: Long = 0L,
         val name: String,
         val alias: String? = null,
-        val category: String = "常备药",
-        val form: String = "片剂",
+        val category: String = MedicationCategory.COMMON.name,
+        val form: String = MedicationForm.TABLET.name,
         val unit: String = "片",
         val colorHex: String = "#2563EB",
         val defaultDose: Float = 1.0f,  // 展示值，落库时转毫单位
@@ -74,7 +77,7 @@ class MedicationAdminService(private val db: AppDatabase) {
     data class TimeDraft(
         val time: String,
         val dose: Float,
-        val label: String = "服药时段"
+        val label: String = SlotLabel.GENERIC.name
     )
 
     /** 提醒计划草稿 (对应"提醒设置"这一独立维度) */
@@ -316,7 +319,7 @@ class MedicationAdminService(private val db: AppDatabase) {
                         policyId = 0,
                         timeOfDay = t.time,
                         doseAmount = Dose.of(t.dose).milli,
-                        label = t.label.ifBlank { "服药时段" },
+                        label = t.label.ifBlank { SlotLabel.GENERIC.name },
                         sortOrder = index
                     )
                 }

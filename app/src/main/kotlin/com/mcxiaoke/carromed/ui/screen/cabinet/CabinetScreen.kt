@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
+import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
 import java.time.LocalDate
@@ -340,7 +341,9 @@ fun CabinetMedCard(
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
                         Text(
-                            text = med.category,
+                            // 类别存的是稳定 key（B3 key 化），显示时映射成本地化名；
+                            // 未知 key（自由文本/旧数据）原样回显。
+                            text = MedVocab.categoryRes(med.category)?.let { stringResource(it) } ?: med.category,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

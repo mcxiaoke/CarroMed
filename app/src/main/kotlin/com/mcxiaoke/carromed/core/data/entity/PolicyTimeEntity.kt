@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.mcxiaoke.carromed.core.domain.model.SlotLabel
 
 /**
  * 排班策略的具体时段与单次剂量表 (PolicyTime)
@@ -38,7 +39,7 @@ data class PolicyTimeEntity(
     val doseAmount: Int = 1000, // 单次剂量，整数毫单位
 
     @ColumnInfo(name = "label")
-    val label: String = "服药时段", // 标签: "早餐前", "随早餐", "睡前"
+    val label: String = SlotLabel.GENERIC.name, // 标签稳定 key（SlotLabel），显示走 strings_vocab
 
     @ColumnInfo(name = "sort_order")
     val sortOrder: Int = 0

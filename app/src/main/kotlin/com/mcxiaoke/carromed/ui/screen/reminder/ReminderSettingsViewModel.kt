@@ -12,10 +12,12 @@ import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
+import com.mcxiaoke.carromed.core.domain.model.SlotLabel
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.core.alarm.ReminderSettings
 import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService
 import com.mcxiaoke.carromed.ui.component.DecimalInput
+import com.mcxiaoke.carromed.ui.component.MedVocab
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -471,6 +473,7 @@ class ReminderSettingsViewModel(
 
     private fun refreshPreview() {
         val s = _uiState.value
+        val app = getApplication<Application>()
         val start = LocalDate.now()
         val days = (0L..6L).map { start.plusDays(it) }
         val preview = days.map { d ->
@@ -503,7 +506,14 @@ class ReminderSettingsViewModel(
                 dayLabel = dayLabel(d),
                 scheduled = scheduled && !pastEnd,
                 timeTexts = s.times.map { t ->
-                    if (t.label == "服药时段") t.time else "${t.time} ${t.label}"
+                    // label 存词表 key（B3）：GENERIC 哨兵只显示时刻；已知 key 经
+                    // MedVocab 解析成当前 locale 文案；未知 key（自由文本）原样显示。
+                    if (t.label == SlotLabel.GENERIC.name) {
+                        t.time
+                    } else {
+                        val label = MedVocab.slotLabelRes(t.label)?.let { app.getString(it) } ?: t.label
+                        "${t.time} $label"
+                    }
                 }
             )
         }
@@ -549,14 +559,14 @@ class ReminderSettingsViewModel(
         val p = time.split(":")
         val m = (p.getOrNull(0)?.toIntOrNull() ?: 8) * 60 + (p.getOrNull(1)?.toIntOrNull() ?: 0)
         return when (m) {
-            in 5 * 60 until 6 * 60 -> "空腹服用"
-            in 6 * 60 until 9 * 60 -> "饭前服用"
-            in 9 * 60 until 10 * 60 -> "随餐服用"
-            in 10 * 60 until 13 * 60 -> "饭前服用"
-            in 13 * 60 until 15 * 60 -> "随餐服用"
-            in 15 * 60 until 18 * 60 -> "饭前服用"
-            in 18 * 60 until 21 * 60 -> "餐后服用"
-            else -> "睡前"
+            in 5 * 60 until 6 * 60 -> SlotLabel.FASTING.name
+            in 6 * 60 until 9 * 60 -> SlotLabel.BEFORE_MEAL.name
+            in 9 * 60 until 10 * 60 -> SlotLabel.WITH_MEAL.name
+            in 10 * 60 until 13 * 60 -> SlotLabel.BEFORE_MEAL.name
+            in 13 * 60 until 15 * 60 -> SlotLabel.WITH_MEAL.name
+            in 15 * 60 until 18 * 60 -> SlotLabel.BEFORE_MEAL.name
+            in 18 * 60 until 21 * 60 -> SlotLabel.AFTER_MEAL.name
+            else -> SlotLabel.BEDTIME.name
         }
     }
 

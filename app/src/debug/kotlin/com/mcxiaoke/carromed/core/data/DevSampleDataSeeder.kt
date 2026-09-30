@@ -11,6 +11,8 @@ import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
+import com.mcxiaoke.carromed.core.domain.model.MedicationCategory
+import com.mcxiaoke.carromed.core.domain.model.MedicationForm
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -57,8 +59,8 @@ object DevSampleDataSeeder {
             MedicationEntity(
                 name = "环孢素",
                 alias = "新赛斯平",
-                category = "处方药 · 免疫",
-                form = "软胶囊",
+                category = MedicationCategory.RX_IMMUNE.name,
+                form = MedicationForm.SOFTGEL.name,
                 unit = "片",
                 colorHex = "#8B5CF6",
                 defaultDose = 1000,
@@ -104,8 +106,8 @@ object DevSampleDataSeeder {
             MedicationEntity(
                 name = "羟氯喹",
                 alias = "赛妥",
-                category = "慢病处方",
-                form = "片剂",
+                category = MedicationCategory.CHRONIC.name,
+                form = MedicationForm.TABLET.name,
                 unit = "片",
                 colorHex = "#3B82F6",
                 defaultDose = 1000,
@@ -141,8 +143,8 @@ object DevSampleDataSeeder {
             MedicationEntity(
                 name = "醋酸泼尼松",
                 alias = "强的松",
-                category = "激素类",
-                form = "片剂",
+                category = MedicationCategory.HORMONE.name,
+                form = MedicationForm.TABLET.name,
                 unit = "片",
                 colorHex = "#10B981",
                 defaultDose = 1000,
@@ -179,8 +181,8 @@ object DevSampleDataSeeder {
             MedicationEntity(
                 name = "钙和维生素D",
                 alias = "钙尔奇",
-                category = "营养保健",
-                form = "片剂",
+                category = MedicationCategory.SUPPLEMENT.name,
+                form = MedicationForm.TABLET.name,
                 unit = "片",
                 colorHex = "#F59E0B",
                 defaultDose = 1000,

@@ -4,6 +4,9 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
+import com.mcxiaoke.carromed.core.domain.model.MedicationCategory
+import com.mcxiaoke.carromed.core.domain.model.MedicationForm
+import com.mcxiaoke.carromed.core.domain.model.SlotLabel
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -58,8 +61,8 @@ data class MedicationBackup(
     val id: Long,
     val name: String,
     val alias: String? = null,
-    val category: String = "常备药",
-    val form: String = "片剂",
+    val category: String = MedicationCategory.COMMON.name,
+    val form: String = MedicationForm.TABLET.name,
     val unit: String = "片",
     val colorHex: String = "#2563EB",
     @SerialName("defaultDoseMilli") val defaultDose: Int = 1000,
@@ -131,7 +134,7 @@ data class PolicyTimeBackup(
     /** "HH:mm"（24 小时制） */
     val timeOfDay: String,
     @SerialName("doseAmountMilli") val doseAmount: Int = 1000,
-    val label: String = "服药时段",
+    val label: String = SlotLabel.GENERIC.name,
     val sortOrder: Int = 0
 )
 

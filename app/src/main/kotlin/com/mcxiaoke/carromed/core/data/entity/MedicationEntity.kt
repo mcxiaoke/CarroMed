@@ -3,6 +3,8 @@ package com.mcxiaoke.carromed.core.data.entity
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.mcxiaoke.carromed.core.domain.model.MedicationCategory
+import com.mcxiaoke.carromed.core.domain.model.MedicationForm
 
 /**
  * 药品主体表 (Medication)
@@ -20,10 +22,10 @@ data class MedicationEntity(
     val alias: String? = null,
 
     @ColumnInfo(name = "category")
-    val category: String = "常备药",
+    val category: String = MedicationCategory.COMMON.name, // 稳定 key（MedicationVocab），显示走 strings_vocab
 
     @ColumnInfo(name = "form")
-    val form: String = "片剂", // 剂型: 片剂 / 胶囊 / 口服液 / 滴剂 / 外用
+    val form: String = MedicationForm.TABLET.name, // 剂型稳定 key（MedicationVocab）: TABLET / CAPSULE / ORAL_LIQUID / DROPS / TOPICAL
 
     @ColumnInfo(name = "unit")
     val unit: String = "片", // 单位: 片 / 粒 / 袋 / ml / 滴

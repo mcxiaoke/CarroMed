@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.PolicyType
+import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.screen.edit.MedicationFormOptions
 import com.mcxiaoke.carromed.ui.screen.edit.ReadOnlyDateField
 import java.util.Locale
@@ -695,9 +696,14 @@ private fun LabelDropdown(
     // ⚠️ `rememberSaveable`（M7-6）。本组件被用在 `LazyColumn` 的 `item {}` 内，
     // `remember` 的存储随 item 滚出视口而销毁 ⇒ 下拉会自己合上。
     var expanded by rememberSaveable { mutableStateOf(false) }
+    // 时段标签存词表 key（B3）：显示经 MedVocab 解析成当前 locale 文案，
+    // 未知 key（自由文本）原样显示。
+    val displayOf: @Composable (String) -> String = {
+        MedVocab.slotLabelRes(it)?.let { res -> stringResource(res) } ?: it
+    }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
         OutlinedTextField(
-            value = value,
+            value = displayOf(value),
             onValueChange = {},
             readOnly = true,
             label = { Text(stringResource(R.string.rem_dose_advice)) },
@@ -708,7 +714,7 @@ private fun LabelDropdown(
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             MedicationFormOptions.TIME_LABELS.forEach { opt ->
                 DropdownMenuItem(
-                    text = { Text(opt) },
+                    text = { Text(displayOf(opt)) },
                     onClick = {
                         onSelect(opt)
                         expanded = false

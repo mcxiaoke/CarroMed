@@ -9,6 +9,8 @@ import com.mcxiaoke.carromed.core.testing.assertBalanceAfter
 import com.mcxiaoke.carromed.core.testing.assertDoseValue
 import com.mcxiaoke.carromed.core.testing.assertLedgerBalance
 import com.mcxiaoke.carromed.core.domain.model.Dose
+import com.mcxiaoke.carromed.core.domain.model.MedicationCategory
+import com.mcxiaoke.carromed.core.domain.model.MedicationForm
 import com.mcxiaoke.carromed.core.data.dao.AppSettingDao
 import com.mcxiaoke.carromed.core.data.dao.DoseRecordDao
 import com.mcxiaoke.carromed.core.data.dao.DoseSlotDao
@@ -363,8 +365,8 @@ class AppDatabaseRealTest {
             id = medId,
             name = "环孢素 缓释",
             alias = "新赛斯平",
-            category = "处方药 · 免疫",
-            form = "软胶囊",
+            category = MedicationCategory.RX_IMMUNE.name,
+            form = MedicationForm.SOFTGEL.name,
             unit = "粒",
             colorHex = "#8B5CF6",
             defaultDose = 2000,

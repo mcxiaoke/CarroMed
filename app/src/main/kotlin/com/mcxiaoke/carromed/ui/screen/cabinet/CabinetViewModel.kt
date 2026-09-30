@@ -13,6 +13,7 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
+import com.mcxiaoke.carromed.ui.component.MedVocab
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,7 +26,10 @@ data class MedicationItemUi(
     val overview: MedicationOverview,
     val policy: SchedulePolicyEntity?,
     val times: List<PolicyTimeEntity>,
-    val frequencyDescription: String
+    val frequencyDescription: String,
+    /** 类别的本地化显示名（未知 key 原样）。搜索过滤要能命中中文关键词，
+     *  而存库值是稳定 key（如 `COMMON`），解析需要 Context，所以在建条目时一次算好。 */
+    val categoryDisplay: String
 ) {
     /** 代理到实体，避免调用方到处写 `.overview.medication.` */
     val medication: MedicationEntity get() = overview.medication
@@ -61,6 +65,9 @@ private fun List<MedicationItemUi>.filterBy(kw: String): List<MedicationItemUi> 
     return filter {
         it.medication.name.contains(k, ignoreCase = true) ||
             (it.medication.alias?.contains(k, ignoreCase = true) == true) ||
+            // 类别按本地化显示名匹配（搜"常备"能命中 COMMON），同时保留对原始
+            // key / 自由文本的匹配 —— 未知 key 时 categoryDisplay 就是原文。
+            it.categoryDisplay.contains(k, ignoreCase = true) ||
             it.medication.category.contains(k, ignoreCase = true)
     }
 }
@@ -196,7 +203,8 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
             overview = overview,
             policy = policy,
             times = times,
-            frequencyDescription = freqDesc
+            frequencyDescription = freqDesc,
+            categoryDisplay = MedVocab.categoryRes(med.category)?.let { app.getString(it) } ?: med.category
         )
     }
 }

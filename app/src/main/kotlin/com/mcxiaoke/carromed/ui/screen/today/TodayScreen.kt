@@ -66,6 +66,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
+import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
@@ -441,7 +442,8 @@ private fun PendingDoseCard(
                         Spacer(Modifier.width(8.dp))
                         Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                             Text(
-                                text = cat,
+                                // key → 本地化显示名；未知 key（自由文本/旧数据）原样回显。
+                                text = MedVocab.categoryRes(cat)?.let { stringResource(it) } ?: cat,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

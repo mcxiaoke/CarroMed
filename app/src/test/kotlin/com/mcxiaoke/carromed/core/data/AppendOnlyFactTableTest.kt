@@ -8,6 +8,8 @@ import com.google.common.truth.Truth.assertThat
 import com.mcxiaoke.carromed.core.data.dao.DoseRecordDao
 import com.mcxiaoke.carromed.core.data.dao.InventoryTransactionDao
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
+import com.mcxiaoke.carromed.core.domain.model.MedicationCategory
+import com.mcxiaoke.carromed.core.domain.model.MedicationForm
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService
 import kotlinx.coroutines.test.runTest
@@ -133,7 +135,7 @@ class AppendOnlyFactTableTest {
         admin.saveProfile(
             MedicationAdminService.ProfileDraft(
                 medId = medId, name = "改名了", unit = "粒", defaultDose = 2f,
-                category = "常备药", form = "片剂", colorHex = "#2563EB",
+                category = MedicationCategory.COMMON.name, form = MedicationForm.TABLET.name, colorHex = "#2563EB",
                 description = "", precautions = emptyList(), noticeShort = "",
                 expiryDate = "", minStockAlert = 5f
             )
