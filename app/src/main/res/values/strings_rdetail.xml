@@ -7,7 +7,7 @@
     <string name="rdetail_save_note">保存备注</string>
 
     <!-- 状态徽标 -->
-    <string name="rdetail_status_manual">手动补录</string>
+    <string name="rdetail_status_manual">手动添加</string>
     <string name="rdetail_status_completed">已服</string>
     <string name="rdetail_status_skipped">已跳过</string>
     <string name="rdetail_status_snoozed">已推迟</string>
@@ -27,7 +27,7 @@
     <!-- 服药时间卡 -->
     <string name="rdetail_time_title">服药时间</string>
     <string name="rdetail_edit">修改</string>
-    <string name="rdetail_time_manual_hint">这是一条手动补录的记录，时间可以自由修改，但不能选到未来。</string>
+    <string name="rdetail_time_manual_hint">这是一条手动添加的记录，时间可以自由修改，但不能选到未来。</string>
 
     <!-- 服用剂量卡 -->
     <string name="rdetail_dose_title">服用剂量</string>

@@ -12,7 +12,7 @@
     <string name="stats_missed_label">跳过 / 漏服</string>
     <string name="stats_consumption_title">各药品累计消耗</string>
     <string name="stats_by_actual">按实际服药量</string>
-    <string name="stats_empty_rankings">该周期内暂无服药记录。确认服药或通过「补录」记录后，此处将呈现药品消耗统计。</string>
+    <string name="stats_empty_rankings">该周期内暂无服药记录。确认服药或通过「添加」记录后，此处将呈现药品消耗统计。</string>
     <string name="stats_export_csv">导出服药明细为 CSV</string>
     <string name="stats_breakdown_title">依从率构成</string>
     <string name="stats_legend_taken">已服</string>

@@ -72,6 +72,6 @@
     <string name="note_record_notification_take">通知栏快捷确认</string>
     <string name="note_record_notification_skip">通知栏快捷跳过</string>
     <string name="note_record_skip">跳过本次服药</string>
-    <string name="note_record_manual_backfill">补录服药</string>
+    <string name="note_record_manual_backfill">添加服药</string>
     <string name="note_record_rejudge_taken">更改为已服</string>
 </resources>

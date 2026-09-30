@@ -47,7 +47,7 @@
     <string name="rem_cycle_off_label">停药</string>
     <string name="rem_cycle_off_none">不设停药期</string>
     <string name="rem_cycle_off_hint">停 %1$d 天</string>
-    <string name="rem_prn_hint">按需服用不设定时提醒，适用于临时用药。服用时可通过「补录」记录实际时间与剂量。</string>
+    <string name="rem_prn_hint">按需服用不设定时提醒，适用于临时用药。服用时可通过「添加」记录实际时间与剂量。</string>
     <string name="rem_daily_hint">每天在下方设定的时点提醒服药。</string>
 
     <!-- 服药疗程 -->

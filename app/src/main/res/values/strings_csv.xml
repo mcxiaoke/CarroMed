@@ -14,7 +14,7 @@
 
     <!-- ================= 服药明细：记录类型列 ================= -->
     <string name="csv_record_type_planned">计划服药</string>
-    <string name="csv_record_type_manual">补录服药</string>
+    <string name="csv_record_type_manual">单次服药</string>
 
     <!-- ================= 库存流水：类型列（TransactionType） ================= -->
     <string name="csv_tx_type_taken_deduct">服药扣减</string>

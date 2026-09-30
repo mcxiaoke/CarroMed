@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="man_title">补录服药</string>
+    <string name="man_title">单次服药</string>
     <string name="man_cancel">取消</string>
     <string name="man_backfill_hint">忘记记录或未带手机？支持补记过去的服药记录，并可同步扣减相应库存。</string>
     <string name="man_error_with_icon">⚠️ %1$s</string>
@@ -11,7 +11,7 @@
     <string name="man_medication_label">药品 *</string>
     <string name="man_no_medications">暂无在服药品，请先在药箱添加</string>
     <string name="man_actual_time_title">实际服药时间</string>
-    <string name="man_backfill_window">支持补录最近 %1$d 天内的服药记录。</string>
+    <string name="man_backfill_window">支持添加最近 %1$d 天内的服药记录。</string>
     <string name="man_date_label">日期</string>
     <string name="man_cd_pick_date">选择日期</string>
     <string name="man_time_label">时间</string>
@@ -31,7 +31,7 @@
     <string name="man_save">保存服药记录</string>
     <string name="man_error_select_medication">请先选择药品</string>
     <string name="man_error_invalid_dose">请输入有效的服用剂量（大于 0）</string>
-    <string name="man_error_future_time">不能补录未来的服药时间</string>
+    <string name="man_error_future_time">不能添加未来的服药时间</string>
     <string name="man_error_backfill_days">只能补录最近 %1$d 天内的服药</string>
-    <string name="man_error_save_failed">补录失败，请重试</string>
+    <string name="man_error_save_failed">添加失败，请重试</string>
 </resources>

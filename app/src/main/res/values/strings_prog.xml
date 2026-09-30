@@ -6,7 +6,7 @@
     <string name="prog_tab_matrix">7 天服药日历</string>
     <string name="prog_tab_timeline">服药时间线</string>
     <string name="prog_empty_matrix">暂无正在服用的药品。添加药品后，此处将呈现近 7 天的服药日历。</string>
-    <string name="prog_empty_timeline">还没有服药记录。在今日清单点「手动补录」可记录临时用药，或从提醒里确认服药。</string>
+    <string name="prog_empty_timeline">还没有服药记录。在今日清单点「添加」可记录临时用药，或从提醒里确认服药。</string>
     <string name="prog_overall_adherence_title">近 7 天整体依从率</string>
     <string name="prog_overall_adherence_detail">按时服用 %1$d 次 / 计划 %2$d 次</string>
     <string name="prog_overall_no_due">近 7 天暂无服药计划</string>
