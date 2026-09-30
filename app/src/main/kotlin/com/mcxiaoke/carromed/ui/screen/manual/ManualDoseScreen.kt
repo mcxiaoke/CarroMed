@@ -58,6 +58,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.core.domain.service.MANUAL_DOSE_BACKFILL_DAYS
 import com.mcxiaoke.carromed.ui.component.Quantity
 import java.time.format.DateTimeFormatter
 
@@ -239,11 +240,19 @@ fun ManualDoseScreen(
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "补录最常用于「忘记打卡」场景，因此必须能指定过去时刻。",
+                            "补录最常用于「忘记打卡」场景，因此必须能指定过去时刻；" +
+                                "只能补录最近 $MANUAL_DOSE_BACKFILL_DAYS 天内的服药。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(Modifier.height(12.dp))
+
+                        // 日期下界与领域层 logManualDose 的时间窗守卫同源（自然日口径），
+                        // 让用户在选择器里就选不出会被拒的日期，而不是保存时才报错。
+                        val minDateMs = java.time.LocalDate.now()
+                            .minusDays(MANUAL_DOSE_BACKFILL_DAYS)
+                            .atStartOfDay(java.time.ZoneId.systemDefault())
+                            .toInstant().toEpochMilli()
 
                         val dt = uiState.actualDateTime
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -259,24 +268,22 @@ fun ManualDoseScreen(
                                         modifier = Modifier
                                             .size(18.dp)
                                             .androidxClickable {
-                                                val c = java.util.Calendar.getInstance()
                                                 DatePickerDialog(
                                                     context,
                                                     { _, y, m, d -> viewModel.onActualDateChange(y, m, d) },
                                                     dt.year, dt.monthValue - 1, dt.dayOfMonth
-                                                ).show()
+                                                ).apply { datePicker.minDate = minDateMs }.show()
                                             }
                                     )
                                 },
                                 modifier = Modifier
                                     .weight(1.2f)
                                     .androidxClickable {
-                                        val c = java.util.Calendar.getInstance()
                                         DatePickerDialog(
                                             context,
                                             { _, y, m, d -> viewModel.onActualDateChange(y, m, d) },
                                             dt.year, dt.monthValue - 1, dt.dayOfMonth
-                                        ).show()
+                                        ).apply { datePicker.minDate = minDateMs }.show()
                                     },
                                 singleLine = true
                             )

@@ -19,6 +19,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import java.io.IOException
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * 服务层的**符号防御**（M2-2）与领域层的剂量校验（M2-1 第三层）。
@@ -107,7 +109,8 @@ class ServiceSignGuardTest {
     @Test
     fun `正剂量补录照常扣减（守卫没把正常路径也堵死）`() = runBlocking {
         val medId = givenTrackedMed()
-        tracking.logManualDose(medId, actualTs = 1000L, doseAmount = 0.5f)
+        // 时刻必须落在补录窗口内：1000L（1970 年）现在会被时间窗守卫拒绝
+        tracking.logManualDose(medId, actualTs = System.currentTimeMillis(), doseAmount = 0.5f)
         assertThat(balanceOf(medId)).isEqualTo(29500)
     }
 
@@ -121,6 +124,58 @@ class ServiceSignGuardTest {
             assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
         }
         assertThat(balanceOf(medId)).isEqualTo(30000)
+    }
+
+    // ==================== 补录时间窗（MANUAL_DOSE_BACKFILL_DAYS） ====================
+
+    /** 补录窗外的时刻：窗口下界再往前一天 */
+    private fun tooOldTs(): Long =
+        LocalDate.now().minusDays(MANUAL_DOSE_BACKFILL_DAYS).minusDays(1)
+            .atTime(9, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+    @Test
+    fun `早于补录窗口的补录被拒 账面不动`() = runBlocking {
+        val medId = givenTrackedMed()
+        val before = balanceOf(medId)
+
+        val thrown = runCatching {
+            tracking.logManualDose(medId, actualTs = tooOldTs(), doseAmount = 1f)
+        }.exceptionOrNull()
+
+        assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(balanceOf(medId)).isEqualTo(before)
+    }
+
+    @Test
+    fun `未来时刻的补录被拒`() = runBlocking {
+        val medId = givenTrackedMed()
+        val thrown = runCatching {
+            tracking.logManualDose(medId, actualTs = System.currentTimeMillis() + 120_000L, doseAmount = 1f)
+        }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
+    }
+
+    /** 窗口边界（恰好第 7 天）必须放行 —— 守卫是"早于窗口下界"才拒 */
+    @Test
+    fun `窗口边界第 7 天可以补录`() = runBlocking {
+        val medId = givenTrackedMed()
+        val boundary = LocalDate.now().minusDays(MANUAL_DOSE_BACKFILL_DAYS)
+            .atTime(12, 0).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        tracking.logManualDose(medId, actualTs = boundary, doseAmount = 1f)
+        assertThat(balanceOf(medId)).isEqualTo(29000)
+    }
+
+    /** 改时间同样受窗口约束：先合法补录，再尝试把时刻改到窗口外 */
+    @Test
+    fun `改时间不能把记录挪到补录窗口之外`() = runBlocking {
+        val medId = givenTrackedMed()
+        val recordId = tracking.logManualDose(
+            medId, actualTs = System.currentTimeMillis(), doseAmount = 1f
+        )
+        val thrown = runCatching {
+            tracking.editDose(recordId, newActualTs = tooOldTs())
+        }.exceptionOrNull()
+        assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
     }
 
     // ==================== refillStock ====================

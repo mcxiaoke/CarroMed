@@ -117,20 +117,26 @@ class AlarmReceiver : BroadcastReceiver() {
      *
      * **生产代码与测试共用**这一份解析 —— 测试自己再写一遍就守不到影子。
      * 解析失败返回 `null`（宁可不响，也不要响给错的人）。
+     *
+     * 放在 companion 里：`DoseActionReceiver` 的通知 Action 用同一套
+     * "内容寻址 + 反查开放槽位"的哲学（`carromed://action/...`，同样的
+     * 4 段路径形状），共用一份解析器才不会两边漂移。
      */
     data class AlarmKey(val medicationId: Long, val date: String, val time: String)
 
-    fun parseAlarmKey(uri: Uri?): AlarmKey? {
-        if (uri == null) return null
-        val segments = uri.pathSegments
-        // carromed://alarm/a/b/c/d ⇒ pathSegments = [a, b, c, d]（authority 被去掉）
-        if (segments.size < 4) return null
-        return runCatching {
-            AlarmKey(
-                medicationId = segments[0].toLong(),
-                date = segments[1],
-                time = segments[2]
-            )
-        }.getOrNull()?.takeIf { it.medicationId > 0 }
+    companion object {
+        fun parseAlarmKey(uri: Uri?): AlarmKey? {
+            if (uri == null) return null
+            val segments = uri.pathSegments
+            // carromed://alarm/a/b/c/d ⇒ pathSegments = [a, b, c, d]（authority 被去掉）
+            if (segments.size < 4) return null
+            return runCatching {
+                AlarmKey(
+                    medicationId = segments[0].toLong(),
+                    date = segments[1],
+                    time = segments[2]
+                )
+            }.getOrNull()?.takeIf { it.medicationId > 0 }
+        }
     }
 }

@@ -13,6 +13,7 @@ import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.domain.service.DoseEntryActions
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
+import com.mcxiaoke.carromed.core.domain.service.MANUAL_DOSE_BACKFILL_DAYS
 import com.mcxiaoke.carromed.ui.component.DecimalInput
 import com.mcxiaoke.carromed.ui.component.Quantity
 import androidx.lifecycle.AndroidViewModel
@@ -28,18 +29,20 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * **可编辑窗口：2 天**（只作用于"手动补录记录"的剂量 / 时间 / 撤销）。
+ * **可编辑窗口：7 天**（只作用于"手动补录记录"的剂量 / 时间 / 撤销）。
  *
- * 对齐 MyTherapy 的实机行为：事实可以永远留着、永远能看，
- * 但它"是否成立"只在近两天内还能改 —— 因为两三天前的服药已经进了依从率的历史统计。
+ * 与领域层的补录时间窗 [com.mcxiaoke.carromed.core.domain.service.MANUAL_DOSE_BACKFILL_DAYS]
+ * 同值同源：能补录多久之前的药，就应该能撤销多久之前的补录 ——
+ * 否则"昨天补了 6 天前的药，今天想撤"会被窗口卡死，事实与修正入口不同步。
+ * 旧的 2 天窗口就是这么和 7 天补录窗打架的（撤销窗 < 补录窗 = 永久不可改的既成事实）。
  *
  * ⚠️ **计划内记录的"撤销"不适用这个窗口**：那条规则是"仅当天"（见 [DoseEntryUiState.canUndo]），
  * 理由写在 `docs/PLAN-RECORD-DETAIL-20260929.md` §5.1：撤销会把槽位退回 `PENDING`，
  * 而计划时间早已过去 ⇒ 下一轮对账立刻把它结算成 `EXPIRED` ⇒
  * 用户翻到那天会看到一个**永远清不掉**的"已逾期未确认"待办。
- * 手动补录没有槽位，不存在这个问题，所以可以宽到 2 天。
+ * 手动补录没有槽位，不存在这个问题，所以可以宽到 7 天。
  */
-const val EDITABLE_WINDOW_DAYS: Long = 2
+const val EDITABLE_WINDOW_DAYS: Long = MANUAL_DOSE_BACKFILL_DAYS
 
 fun isWithinEditWindow(actualTs: Long): Boolean {
     val today = LocalDate.now()
@@ -72,7 +75,7 @@ fun isSameLocalDay(a: Long, b: Long): Boolean {
  * | 已逾期 | `EXPIRED` | 确认（补记）、跳过 |
  * | 已服 | `COMPLETED` | 跳过（改判）、撤销 |
  * | 已跳过 | `SKIPPED` | 确认（改判）、撤销 |
- * | 手动补录 | `slot == null && record != null` | 撤销（2 天内）+ 改剂量 / 时间 / 备注 |
+ * | 手动补录 | `slot == null && record != null` | 撤销（7 天内）+ 改剂量 / 时间 / 备注 |
  *
  * 另外有一维**与状态正交**：`isActionable`（槽位计划日不晚于今天）。
  * 未来日即使状态是待服，也**不渲染**确认 / 推迟 / 跳过 —— 服药是已发生的事实。
@@ -129,7 +132,7 @@ data class DoseEntryUiState(
     val isToday: Boolean
         get() = record?.let { isSameLocalDay(it.actualTs, System.currentTimeMillis()) } ?: false
 
-    /** 手动补录记录的 2 天窗口 */
+    /** 手动补录记录的 7 天窗口（与补录时间窗同源，见 [EDITABLE_WINDOW_DAYS]） */
     val withinEditWindow: Boolean
         get() = record?.let { isWithinEditWindow(it.actualTs) } ?: false
 
@@ -178,7 +181,7 @@ data class DoseEntryUiState(
      *
      * - 计划内记录：**仅当天**（见 [EDITABLE_WINDOW_DAYS] 的说明），
      *   外加一个逃生口 [isContradictoryRecord]；
-     * - 手动补录记录：2 天（它不退回任何待办，不产生"永远清不掉"的问题）
+     * - 手动补录记录：7 天（它不退回任何待办，不产生"永远清不掉"的问题）
      */
     val canUndo: Boolean
         get() = when {

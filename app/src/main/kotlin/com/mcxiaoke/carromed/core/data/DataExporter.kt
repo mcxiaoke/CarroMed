@@ -6,6 +6,7 @@ import com.mcxiaoke.carromed.core.alarm.AppLogging
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.FileProvider
 import androidx.room.withTransaction
 import com.mcxiaoke.carromed.core.data.entity.AppSettingEntity
@@ -1029,6 +1030,13 @@ object DataExporter {
         //
         // 撤在清库之前，才能拿到完整的旧身份集合。
         cancelAllAlarmsBeforeRestore(context, db)
+        // 托盘通知同样要清（osbf P1-4）：恢复是整库替换，旧通知必然全部过期，
+        // 而通知上的「已吃 / 推迟 / 跳过」按钮此前按 extras slotId 反查 ——
+        // 恢复后 id 空间交叠时会把别的药的新槽位扣掉库存。
+        // cancelAll 一步到位：任何"挑着撤"的方案都得先证明旧通知的身份集合可得，
+        // 而恢复场景里这个集合没有意义 —— 旧库已经整个被替换了。
+        runCatching { NotificationManagerCompat.from(context.applicationContext).cancelAll() }
+            .onFailure { AppLog.w(TAG, "cancel all notifications before restore failed", it) }
 
         return try {
             val (medCount, recordCount) = restoreBackup(db, backup)

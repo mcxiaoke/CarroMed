@@ -106,7 +106,16 @@ data class AddEditUiState(
 
     // ---- 库存维度 (仅 FULL 模式) ----
     val currentStock: String = "",
-    val minStockAlert: String = "10",
+
+    /**
+     * 默认 **"0"（= 关闭低库存告警）**。
+     *
+     * 本表单**没有**预警线输入框（预警线归库存页独占），这里只是随档案
+     * 写回的快照 —— 旧默认值 "10" 会让每个新药都被悄悄设上 10 片预警线：
+     * 用户从没选过、页面上也看不见，药还剩 9 片时就开始告警。
+     * 与"minStockAlert=0 表示关闭告警"的全局约定一致。
+     */
+    val minStockAlert: String = "0",
 
     val isSaving: Boolean = false,
     val error: String? = null

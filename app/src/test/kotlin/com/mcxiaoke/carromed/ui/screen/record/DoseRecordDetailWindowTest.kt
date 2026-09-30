@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.ui.screen.record
 
 import com.google.common.truth.Truth.assertThat
+import com.mcxiaoke.carromed.core.domain.service.MANUAL_DOSE_BACKFILL_DAYS
 import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
@@ -15,11 +16,14 @@ import java.time.ZoneId
  * | 规则 | 适用 | 判据 |
  * | :--- | :--- | :--- |
  * | 仅当天 | 计划内记录的**撤销** | [isSameLocalDay] |
- * | 2 天窗口 | 手动补录的剂量 / 时间 / 撤销 | [isWithinEditWindow] |
+ * | 7 天窗口 | 手动补录的剂量 / 时间 / 撤销 | [isWithinEditWindow] |
  *
  * 拆开的理由是撤销的**后果**不同：计划内记录的撤销会把槽位退回 `PENDING`，
  * 而计划时间早已过去 ⇒ 下一轮对账立刻判它逾期 ⇒ 用户翻到那天会看到一个
  * **永远清不掉**的待办。手动补录没有槽位，不存在这个问题。
+ *
+ * 7 天与领域层的补录时间窗 `MANUAL_DOSE_BACKFILL_DAYS` 同值同源：
+ * 能补多久之前的药，就要能撤多久之前的补录。
  *
  * 两条判据都必须能被单独钉住 —— 混在一起测，改坏其中一条另一条会掩盖它。
  */
@@ -33,24 +37,25 @@ class DoseRecordDetailWindowTest {
             .toInstant()
             .toEpochMilli()
 
-    // ==================== 2 天窗口（手动补录） ====================
+    // ==================== 7 天窗口（手动补录） ====================
 
     @Test
-    fun `今天与昨天的记录都在 2 天窗口内`() {
+    fun `今天与昨天和一周内的记录都在 7 天窗口内`() {
         assertThat(isWithinEditWindow(tsOfDaysAgo(0))).isTrue()
         assertThat(isWithinEditWindow(tsOfDaysAgo(1))).isTrue()
+        assertThat(isWithinEditWindow(tsOfDaysAgo(6))).isTrue()
     }
 
     @Test
-    fun `前天的记录刚好在窗内（第 3 天算超窗）`() {
-        // 边界就是 2 天：今天=0、昨天=1、前天=2 都可改
-        assertThat(isWithinEditWindow(tsOfDaysAgo(2))).isTrue()
-        assertThat(isWithinEditWindow(tsOfDaysAgo(3))).isFalse()
+    fun `第 7 天的记录刚好在窗内（第 8 天算超窗）`() {
+        // 边界就是 7 天：今天=0 … 7 天前=7 都可改
+        assertThat(isWithinEditWindow(tsOfDaysAgo(7))).isTrue()
+        assertThat(isWithinEditWindow(tsOfDaysAgo(8))).isFalse()
     }
 
     @Test
     fun `更早的记录一律超窗`() {
-        for (d in listOf(4L, 10L, 30L, 365L)) {
+        for (d in listOf(9L, 10L, 30L, 365L)) {
             assertThat(isWithinEditWindow(tsOfDaysAgo(d))).isFalse()
         }
     }
@@ -58,11 +63,11 @@ class DoseRecordDetailWindowTest {
     /**
      * 未来的时间戳（补录被拒的越界情况）不算在窗口内。
      *
-     * 判据写成 `age in 0..2` 而不是 `age <= 2`，就是为了让负数（未来）落到窗外，
+     * 判据写成 `age in 0..7` 而不是 `age <= 7`，就是为了让负数（未来）落到窗外，
      * 否则一个 `actual_ts` 被写坏成未来的记录会变成"永远可改"。
      */
     @Test
-    fun `未来时间的记录不在 2 天窗口内`() {
+    fun `未来时间的记录不在 7 天窗口内`() {
         val future = LocalDate.now()
             .plusDays(1)
             .atTime(9, 0)
@@ -73,9 +78,11 @@ class DoseRecordDetailWindowTest {
     }
 
     @Test
-    fun `窗口常量是 2 天`() {
-        // 改这个数就是改产品规则，所以让它出现在断言里而不是只活在实现里
-        assertThat(EDITABLE_WINDOW_DAYS).isEqualTo(2L)
+    fun `窗口常量是 7 天且与领域层补录窗口同值`() {
+        // 改这个数就是改产品规则，所以让它出现在断言里而不是只活在实现里；
+        // 与 MANUAL_DOSE_BACKFILL_DAYS 绑定：撤销窗绝不能窄于补录窗
+        assertThat(EDITABLE_WINDOW_DAYS).isEqualTo(7L)
+        assertThat(EDITABLE_WINDOW_DAYS).isEqualTo(MANUAL_DOSE_BACKFILL_DAYS)
     }
 
     // ==================== 仅当天（计划内记录的撤销） ====================

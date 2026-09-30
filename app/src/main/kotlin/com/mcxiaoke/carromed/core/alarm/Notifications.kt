@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -34,13 +35,13 @@ object Notifications {
     const val CHANNEL_DOSE_REMINDER_SILENT = "dose_reminder_silent"
 
     // 通知栏快捷操作指令
-    const val EXTRA_SLOT_ID = AlarmScheduler.EXTRA_SLOT_ID
     const val EXTRA_MINUTES = "snooze_minutes"
     const val ACTION_TAKE = "com.mcxiaoke.carromed.action.DOSE_TAKE"
     const val ACTION_SNOOZE = "com.mcxiaoke.carromed.action.DOSE_SNOOZE"
     const val ACTION_SKIP = "com.mcxiaoke.carromed.action.DOSE_SKIP"
 
-    // 通知栏 Action 按钮 requestCode 偏移 (slotId * 10 + offset 保证唯一)
+    // 通知栏 Action 按钮 requestCode：同一时刻最多 3 种 Action，
+    // 身份由 action + data（业务键）区分，requestCode 恒为小常量即可。
     private const val RC_TAKE = 0
     private const val RC_SNOOZE = 1
     private const val RC_SKIP = 2
@@ -74,38 +75,46 @@ object Notifications {
     }
 
     /**
-     * 通知栏 Action 的 PendingIntent。
+     * 通知栏 Action 的 PendingIntent —— **内容寻址**（osbf P1-4）。
      *
-     * ## 这里用算术编码是**安全**的，而 `AlarmScheduler` 里同样的写法不安全
+     * ## 为什么必须和闹钟一样用业务键寻址
      *
-     * 差别在 `Intent.filterEquals` 会比较 **action**：
-     * - 本方法三个 Action 的 action 互不相同（`DOSE_TAKE` / `DOSE_SNOOZE` / `DOSE_SKIP`），
-     *   所以同一槽位的三个按钮天然是三个不同 PendingIntent；
-     * - 不同槽位之间靠 `requestCode` 区分，`slotId*10+{0,1,2}` 在 `slotId >= 1` 时无交叠。
+     * 旧实现把 `slot.id` 塞进 extras，接收端按 slotId 反查。而 `dose_slots.id`
+     * 是**会变**的：备份恢复会用备份里的 id 覆盖当前库，托盘上残留的旧通知
+     * 带着"旧库的 id"，点「已吃」会反查到**别的药的新槽位**上扣库存 ——
+     * `filterEquals` 不看 extras，extras 从来就不是身份。
      *
-     * 而 `AlarmScheduler` 的 main / advance 两个分支 **action 完全相同**（`DOSE_ALARM`），
-     * 于是只能靠 requestCode 区分，而 `10N+1` 与 `M` 必然相交 —— 那就是 P0-1。
+     * 现在与 `AlarmScheduler.alarmUri` 同一哲学：身份 = `medId + date + time`
+     * （`carromed://action/{medId}/{date}/{time}/dose`），接收端
+     * [DoseActionReceiver] 用 `findOpenSlotId` 按内容反查当前库里的开放槽位。
+     * 恢复后 id 交叠也无所谓：内容键指向谁，动作就落在谁身上。
      *
-     * ⚠️ 若将来要合并这里的算术编码，请一并确认 action 是否仍能区分两者。
+     * requestCode 恒为小常量：不同槽位的 data 不同 ⇒ `filterEquals` 已能区分，
+     * 无需（也不能）再靠 slotId 算术编码。
      */
     private fun actionPendingIntent(
         context: Context,
-        slotId: Long,
+        slot: DoseSlotEntity,
         action: String,
         requestCode: Int,
         extras: Intent.() -> Unit = {}
     ): PendingIntent {
         val intent = Intent(context, DoseActionReceiver::class.java)
             .setAction(action)
-            .putExtra(EXTRA_SLOT_ID, slotId)
+            .setData(actionUri(slot))
             .apply(extras)
         return PendingIntent.getBroadcast(
             context,
-            (slotId * 10 + requestCode).toInt(),
+            requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
+
+    /** 通知 Action 的内容身份，与 `AlarmScheduler.alarmUri` 同形状、同判据。 */
+    private fun actionUri(slot: DoseSlotEntity) = Uri.parse(
+        "carromed://action/${slot.medicationId}/${slot.scheduledDate}/${slot.scheduledTime}/dose"
+    )
 
     /**
      * 弹出某槽位的服药提醒通知 (Heads-up)
@@ -190,17 +199,17 @@ object Notifications {
             .setOnlyAlertOnce(false)
             .addAction(
                 0, "✅ 确认已吃",
-                actionPendingIntent(context, slot.id, ACTION_TAKE, RC_TAKE)
+                actionPendingIntent(context, slot, ACTION_TAKE, RC_TAKE)
             )
             .addAction(
                 0, "⏰ 推迟 $snooze 分钟",
-                actionPendingIntent(context, slot.id, ACTION_SNOOZE, RC_SNOOZE) {
+                actionPendingIntent(context, slot, ACTION_SNOOZE, RC_SNOOZE) {
                     putExtra(EXTRA_MINUTES, snooze)
                 }
             )
             .addAction(
                 0, "⏭️ 跳过本次",
-                actionPendingIntent(context, slot.id, ACTION_SKIP, RC_SKIP)
+                actionPendingIntent(context, slot, ACTION_SKIP, RC_SKIP)
             )
             .build()
 

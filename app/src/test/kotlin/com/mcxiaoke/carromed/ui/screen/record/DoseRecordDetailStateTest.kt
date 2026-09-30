@@ -196,7 +196,7 @@ class DoseRecordDetailStateTest {
     // ==================== 手动补录（无槽位） ====================
 
     @Test
-    fun `手动补录 两天内可撤销且可改剂量与时间`() {
+    fun `手动补录 窗口内可撤销且可改剂量与时间`() {
         val s = stateOf(status = null, actualTs = tsOn(-1), isManual = true)
         assertThat(s.isManual).isTrue()
         assertThat(s.canUndo).isTrue()
@@ -209,18 +209,25 @@ class DoseRecordDetailStateTest {
     }
 
     /**
-     * ⭐ 手动补录的撤销放宽到 2 天，与计划内记录的"仅当天"**故意不同**：
+     * ⭐ 手动补录的撤销放宽到 7 天（与补录窗口同源），与计划内记录的"仅当天"**故意不同**：
      * 它只是把事实标 `REVERTED`，不会把任何条目退回待服，
      * 因此不产生"计划时间已过、对账立刻又判逾期"的永远清不掉的待办。
      */
     @Test
-    fun `手动补录超过 2 天只读`() {
-        val s = stateOf(status = null, actualTs = tsOn(-3), isManual = true)
+    fun `手动补录超过 7 天只读`() {
+        val s = stateOf(status = null, actualTs = tsOn(-8), isManual = true)
         assertThat(s.canUndo).isFalse()
         assertThat(s.canEditDose).isFalse()
         assertThat(s.canEditTime).isFalse()
         // 备注仍可改：它不改变"吃了多少"，也不改变结论
         assertThat(s.canEditNote).isTrue()
+    }
+
+    /** 窗口边界内侧：第 7 天仍可撤销（与补录窗口同边界） */
+    @Test
+    fun `手动补录第 7 天仍可撤销`() {
+        val s = stateOf(status = null, actualTs = tsOn(-7), isManual = true)
+        assertThat(s.canUndo).isTrue()
     }
 
     @Test
@@ -290,8 +297,8 @@ class DoseRecordDetailStateTest {
     @Test
     fun `待服形态没有任何状态动作之外的东西时 hasAnyAction 为真`() {
         assertThat(stateOf(SlotStatus.PENDING).hasAnyAction).isTrue()
-        // 超窗的手动补录：四个动作全不可用 ⇒ 整块不渲染
-        assertThat(stateOf(status = null, actualTs = tsOn(-5), isManual = true).hasAnyAction)
+        // 超窗的手动补录：四个动作全不可用 ⇒ 整块不渲染（窗口 7 天，取 8 天前）
+        assertThat(stateOf(status = null, actualTs = tsOn(-8), isManual = true).hasAnyAction)
             .isFalse()
     }
 

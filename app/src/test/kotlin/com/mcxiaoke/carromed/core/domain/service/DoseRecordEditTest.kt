@@ -64,6 +64,15 @@ class DoseRecordEditTest {
     )
 
     /**
+     * 补录时间窗（[MANUAL_DOSE_BACKFILL_DAYS] 天）内的合法时刻：昨天 09:00。
+     * 相对今天取值 —— 固定历日的 fixture 会在窗口滑过后随钟变红
+     * （AGENTS §3「下午全绿早上全红」），且 `logManualDose` 现在会拒绝窗外的时刻。
+     */
+    private fun recentTs(): Long =
+        java.time.LocalDate.now().minusDays(1).atTime(9, 0)
+            .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+    /**
      * 造一个来自排班的记录（`slot_id != null`），用于验证"槽位来源不可改剂量"。
      *
      * 槽位必须以 `PENDING` 插入再由 [DoseTrackingService.takeDose] 置为完成：
@@ -104,7 +113,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `改剂量 补差额流水且账实相符`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 1f)
+        val rid = manualRecord(ts = recentTs(), dose = 1f)
         db.assertLedgerBalance(medId, 29f)              // 30 - 1
 
         assertThat(tracking.editDose(rid, newDoseAmount = 3f)).isTrue()
@@ -119,7 +128,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `改剂量后 I2 仍成立（最后一条流水 balanceAfter 等于 SUM）`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 1f)
+        val rid = manualRecord(ts = recentTs(), dose = 1f)
         tracking.editDose(rid, newDoseAmount = 2.5f)
 
         val last = db.inventoryTransactionDao().getLatestTransaction(medId)!!
@@ -128,7 +137,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `改小剂量 补正数冲正`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 5f)
+        val rid = manualRecord(ts = recentTs(), dose = 5f)
         db.assertLedgerBalance(medId, 25f)
 
         assertThat(tracking.editDose(rid, newDoseAmount = 2f)).isTrue()
@@ -138,7 +147,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `台账只增不改 改剂量是补一行而不是改旧行`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 1f)
+        val rid = manualRecord(ts = recentTs(), dose = 1f)
         val before = ledgerFor(rid).map { it.changeAmount }
 
         tracking.editDose(rid, newDoseAmount = 2f)
@@ -159,7 +168,7 @@ class DoseRecordEditTest {
      */
     @Test
     fun `未扣库存的记录改剂量不产生流水`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 1f, deduct = false)
+        val rid = manualRecord(ts = recentTs(), dose = 1f, deduct = false)
         db.assertLedgerBalance(medId, 30f)              // 没扣过
 
         assertThat(tracking.editDose(rid, newDoseAmount = 4f)).isTrue()
@@ -171,7 +180,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `非法剂量被拒且不写库`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 1f)
+        val rid = manualRecord(ts = recentTs(), dose = 1f)
         for (bad in listOf(0f, -1f, Float.NaN)) {
             val thrown = runCatching { tracking.editDose(rid, newDoseAmount = bad) }.exceptionOrNull()
             assertThat(thrown).isInstanceOf(IllegalArgumentException::class.java)
@@ -182,7 +191,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `已撤销的记录不能被改回来`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 1f)
+        val rid = manualRecord(ts = recentTs(), dose = 1f)
         assertThat(tracking.undoManualDose(rid)).isTrue()
 
         assertThat(tracking.editDose(rid, newDoseAmount = 9f)).isFalse()
@@ -191,7 +200,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `改备注不产生流水`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 1f)
+        val rid = manualRecord(ts = recentTs(), dose = 1f)
         val before = ledgerFor(rid).size
 
         assertThat(tracking.editDose(rid, newNote = "随餐温水送服")).isTrue()
@@ -221,7 +230,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `手动补录的记录可以改时间且不产生流水`() = runTest {
-        val ts = 1_700_000_000_000L
+        val ts = recentTs()
         val rid = manualRecord(ts = ts, dose = 1f)
         val before = ledgerFor(rid).size
 
@@ -236,7 +245,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `不许把服药时间改到未来`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 1f)
+        val rid = manualRecord(ts = recentTs(), dose = 1f)
         val original = db.doseRecordDao().getRecordById(rid)!!.actualTs
         val future = System.currentTimeMillis() + 60_000L
 
@@ -247,7 +256,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `已撤销的记录不能改时间`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 1f)
+        val rid = manualRecord(ts = recentTs(), dose = 1f)
         val original = db.doseRecordDao().getRecordById(rid)!!.actualTs
         assertThat(tracking.undoManualDose(rid)).isTrue()
 
@@ -259,7 +268,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `撤销临时用药 事实保留且账目回补`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 2f)
+        val rid = manualRecord(ts = recentTs(), dose = 2f)
         db.assertLedgerBalance(medId, 28f)
 
         assertThat(tracking.undoManualDose(rid)).isTrue()
@@ -275,7 +284,7 @@ class DoseRecordEditTest {
 
     @Test
     fun `撤销临时用药是幂等的`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 2f)
+        val rid = manualRecord(ts = recentTs(), dose = 2f)
         assertThat(tracking.undoManualDose(rid)).isTrue()
         assertThat(tracking.undoManualDose(rid)).isFalse()   // 已撤销 ⇒ 拒绝
 
@@ -285,14 +294,14 @@ class DoseRecordEditTest {
 
     @Test
     fun `撤销未扣库存的临时用药不会平白加库存`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 2f, deduct = false)
+        val rid = manualRecord(ts = recentTs(), dose = 2f, deduct = false)
         assertThat(tracking.undoManualDose(rid)).isTrue()
         db.assertLedgerBalance(medId, 30f)             // 本来就是 30，不能变 32
     }
 
     @Test
     fun `撤销已撤销的记录后统计不计入`() = runTest {
-        val today = java.time.LocalDate.of(2026, 9, 29)
+        val today = java.time.LocalDate.now().minusDays(1)
         val ts = today.atTime(9, 0).atZone(java.time.ZoneId.systemDefault())
             .toInstant().toEpochMilli()
         val rid = manualRecord(ts = ts, dose = 1f)
@@ -333,7 +342,7 @@ class DoseRecordEditTest {
     /** 校准类流水与改剂量流水都必须在导出文案里有名字（穷尽 when 的回归防护）。 */
     @Test
     fun `改剂量流水可被导出识别`() = runTest {
-        val rid = manualRecord(ts = 1_700_000_000_000L, dose = 1f)
+        val rid = manualRecord(ts = recentTs(), dose = 1f)
         tracking.editDose(rid, newDoseAmount = 2f)
         val adjust = ledgerFor(rid).first { it.txType == TransactionType.DOSE_EDIT_ADJUST }
         assertThat(adjust).isNotNull()

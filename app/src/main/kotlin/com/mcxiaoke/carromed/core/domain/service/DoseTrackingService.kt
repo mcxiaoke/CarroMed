@@ -12,8 +12,20 @@ import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+
+/**
+ * 手动补录的时间窗：只能补录**最近 7 个自然日**内的服药（含撤销窗口）。
+ *
+ * 领域层定义（服务层是所有入口的公共下游，UI 的 DatePicker 下界与
+ * 记录详情页的撤销窗口都引用它），理由与"未来槽位不可表态"同源：
+ * 服药事实虽不可再生，但一条 1970 年的"已服"记录会把依从率与库存台账
+ * 永久污染 —— 而那么老的记录早已没有"忘打卡了补一下"的语义。
+ * 7 天覆盖"整周外出、回来一次性补"的现实场景，也与管理系统的常规追溯窗一致。
+ */
+const val MANUAL_DOSE_BACKFILL_DAYS: Long = 7
 
 /**
  * 核心用药追踪与调度核算服务 (DoseTrackingService)
@@ -585,6 +597,15 @@ class DoseTrackingService(
         require(newActualTs == null || newActualTs <= System.currentTimeMillis()) {
             "服药时间不能晚于当前时刻"
         }
+        // 同理不允许改到补录窗口之外（[MANUAL_DOSE_BACKFILL_DAYS]）——
+        // 与 logManualDose 的下界同源，否则"先补录再改时间"能绕过时间窗。
+        require(
+            newActualTs == null ||
+                !Instant.ofEpochMilli(newActualTs).atZone(ZoneId.systemDefault())
+                    .toLocalDate().isBefore(todayProvider().minusDays(MANUAL_DOSE_BACKFILL_DAYS))
+        ) {
+            "服药时间不能早于 $MANUAL_DOSE_BACKFILL_DAYS 天前"
+        }
 
         val fromSlot = record.slotId != null
         // 槽位来源的记录：时间与剂量都拒改（理由见 KDoc）
@@ -691,6 +712,19 @@ class DoseTrackingService(
         // 于是"补录一次负剂量服药"会凭空给账面加药，且事实记录显示"已服用 -2 片"。
         require(doseAmount > 0f && doseAmount.isFinite()) {
             "服药剂量必须大于 0，当前 $doseAmount"
+        }
+        // 时间窗守卫（[MANUAL_DOSE_BACKFILL_DAYS]）：上界拒绝未来时刻（60 秒容差
+        // 对齐 UI 的 `isAfter(now + 1min)`），下界按自然日 —— 与记录详情页的
+        // 撤销窗口 `age in 0..N` 同一套日历口径，避免"校验与窗口各说各话"
+        // （AGENTS §2 坑 7：校验判据要和兜底判据同源）。
+        val now = System.currentTimeMillis()
+        require(actualTs <= now + 60_000L) {
+            "不能补录未来的服药时间"
+        }
+        val minDate = todayProvider().minusDays(MANUAL_DOSE_BACKFILL_DAYS)
+        val actualDate = Instant.ofEpochMilli(actualTs).atZone(ZoneId.systemDefault()).toLocalDate()
+        require(!actualDate.isBefore(minDate)) {
+            "只能补录最近 $MANUAL_DOSE_BACKFILL_DAYS 天内的服药（早于 $minDate）"
         }
         val medication = medDao.getMedicationById(medicationId)
             ?: throw IllegalArgumentException("Medication not found: $medicationId")

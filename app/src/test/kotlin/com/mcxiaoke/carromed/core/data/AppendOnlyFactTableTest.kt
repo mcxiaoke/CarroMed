@@ -63,7 +63,11 @@ class AppendOnlyFactTableTest {
     private lateinit var tracking: DoseTrackingService
 
     private val context: Context get() = ApplicationProvider.getApplicationContext()
-    private val today: LocalDate = LocalDate.of(2026, 9, 28)
+
+    // 相对今天取"昨天"而不是写死历日：logManualDose 现在有 7 天补录窗口守卫，
+    // 固定日期的 fixture 会在窗口滑过之后随钟变红（AGENTS §3「下午全绿早上全红」）。
+    // 本文件所有日期都相对 `today` 推导，整体平移语义不变。
+    private val today: LocalDate = LocalDate.now().minusDays(1)
 
     @Before
     fun setup() {

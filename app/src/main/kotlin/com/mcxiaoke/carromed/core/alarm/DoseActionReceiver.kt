@@ -41,8 +41,18 @@ class DoseActionReceiver : BroadcastReceiver() {
             action != Notifications.ACTION_SKIP
         ) return
 
-        val slotId = intent.getLongExtra(Notifications.EXTRA_SLOT_ID, -1L)
-        if (slotId <= 0) return
+        // ⭐ 按**业务键**（medId + date + time）反查开放槽位，而不是 extras 里的
+        // slotId（osbf P1-4，与 AlarmReceiver 同一哲学）。
+        //
+        // `dose_slots.id` 是会变的：备份恢复会用备份里的 id 覆盖当前库，托盘上
+        // 残留的旧通知带着旧库的 id —— 按 slotId 反查，"恢复前的通知点已吃"
+        // 会把**别的药的新槽位**扣掉库存。通知按钮的身份是 `carromed://action/
+        // {medId}/{date}/{time}/dose`，内容键指向谁，动作就落在谁身上。
+        val key = AlarmReceiver.parseAlarmKey(intent.data)
+        if (key == null) {
+            AppLog.w(TAG, "unparseable action uri=${intent.data}")
+            return
+        }
 
         val result = goAsync()
         val appContext = context.applicationContext
@@ -50,7 +60,12 @@ class DoseActionReceiver : BroadcastReceiver() {
             try {
                 val db = AppDatabase.getInstance(appContext)
                 val actions = DoseEntryActions(appContext, db)
-                val slot = db.doseSlotDao().getSlotById(slotId)
+                val slotId = db.doseSlotDao().findOpenSlotId(
+                    medicationId = key.medicationId,
+                    scheduledDate = key.date,
+                    scheduledTime = key.time
+                )
+                val slot = slotId?.let { db.doseSlotDao().getSlotById(it) }
                 // 幂等守卫：仅待服/推迟中、且**计划日不晚于今天**的槽位允许快捷操作
                 // —— 防止双击连击重复扣减，也防止对未来的槽位表态。
                 //
@@ -75,30 +90,31 @@ class DoseActionReceiver : BroadcastReceiver() {
                         // 同名遮蔽之下，"在分支里 finish 一下"会拿到枚举 —— 编译期就报错，
                         // 但排查时会先怀疑协程，所以从一开始就别让两个东西同名。
                         val applied = if (isStillOpen) {
-                            actions.confirm(slotId = slotId, note = "通知栏快捷打卡")
+                            // `!!` 安全：isStillOpen 为真 ⇒ slot 已取到 ⇒ slotId 非空
+                            actions.confirm(slotId = slotId!!, note = "通知栏快捷打卡")
                         } else {
                             DoseActionResult.ALREADY_HANDLED
                         }
                         // 成功动作必须留痕（G5）：这是并发风险最高的写入口——
                         // 通知栏直接写库，进程可能刚被闹钟拉起，事后工单只有这里有现场
-                        AppLog.i(TAG, "action=take slot=$slotId result=$applied")
+                        AppLog.i(TAG, "action=take key=$key result=$applied")
                         notifyUser(appContext, applied.takeMessage())
                     }
 
                     Notifications.ACTION_SNOOZE -> {
                         val minutes = intent.getIntExtra(Notifications.EXTRA_MINUTES, 30)
-                        val ok = isStillOpen && actions.snooze(slotId, minutes)
-                        AppLog.i(TAG, "action=snooze slot=$slotId minutes=$minutes applied=$ok")
+                        val ok = isStillOpen && actions.snooze(slotId!!, minutes)
+                        AppLog.i(TAG, "action=snooze key=$key minutes=$minutes applied=$ok")
                         if (ok) notifyUser(appContext, "已推迟 $minutes 分钟，到时再提醒")
                     }
 
                     Notifications.ACTION_SKIP -> {
                         val applied = if (isStillOpen) {
-                            actions.skip(slotId, reason = "通知栏快捷跳过")
+                            actions.skip(slotId!!, reason = "通知栏快捷跳过")
                         } else {
                             DoseActionResult.ALREADY_HANDLED
                         }
-                        AppLog.i(TAG, "action=skip slot=$slotId result=$applied")
+                        AppLog.i(TAG, "action=skip key=$key result=$applied")
                         notifyUser(appContext, applied.takeMessage(skip = true))
                     }
                 }
@@ -106,7 +122,7 @@ class DoseActionReceiver : BroadcastReceiver() {
                 // 异常围栏（P2#2）：协程体内任何异常都不允许逃逸——
                 // 逃逸即走默认未捕获处理器，**整个进程被点通知栏按钮这一下打崩**，
                 // 且 goAsync 的保护形同虚设。与 AlarmReceiver / BootReceiver 同一口径。
-                AppLog.e(TAG, "dose action failed, action=$action slotId=$slotId", t)
+                AppLog.e(TAG, "dose action failed, action=$action key=$key", t)
             } finally {
                 result.finish()
             }

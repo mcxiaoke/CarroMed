@@ -7,11 +7,13 @@ import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
+import com.mcxiaoke.carromed.core.domain.service.MANUAL_DOSE_BACKFILL_DAYS
 import com.mcxiaoke.carromed.ui.component.DecimalInput
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -144,6 +146,13 @@ class ManualDoseViewModel(
         }
         if (s.actualDateTime.isAfter(LocalDateTime.now().plusMinutes(1))) {
             _uiState.value = s.copy(error = "不能补录未来的服药时间")
+            return
+        }
+        // 时间窗下界与领域层 logManualDose 同源（MANUAL_DOSE_BACKFILL_DAYS），
+        // 按自然日判定 —— 与记录详情页撤销窗口同一口径。
+        val minDate = LocalDate.now().minusDays(MANUAL_DOSE_BACKFILL_DAYS)
+        if (s.actualDateTime.toLocalDate().isBefore(minDate)) {
+            _uiState.value = s.copy(error = "只能补录最近 $MANUAL_DOSE_BACKFILL_DAYS 天内的服药")
             return
         }
         // 双击保护与 AddEdit/Reminder 同一条纪律（M2-4）

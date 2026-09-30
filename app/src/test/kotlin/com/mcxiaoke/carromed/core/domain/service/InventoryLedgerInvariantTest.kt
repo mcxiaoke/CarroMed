@@ -166,7 +166,7 @@ class InventoryLedgerInvariantTest {
         val repeats = 12
         val (medId, _) = newMed(stock = 30f)
         repeat(repeats) { i ->
-            if (i % 2 == 0) service.refillStock(medId, 5f) else service.logManualDose(medId, i.toLong(), 1f)
+            if (i % 2 == 0) service.refillStock(medId, 5f) else service.logManualDose(medId, System.currentTimeMillis() - i * 60_000L, 1f)
         }
         // balanceAfter 是展示用快照；权威值是 SUM。两者一旦分叉，这条立刻失败。
         assertThat(snapshotOf(medId)).isEqualTo(balanceOf(medId))
@@ -176,7 +176,7 @@ class InventoryLedgerInvariantTest {
     fun `I2 流水按时间顺序的 balanceAfter 构成前缀和`() = runTest {
         val (medId, _) = newMed(stock = 0f)
         service.refillStock(medId, 10f)
-        service.logManualDose(medId, 1L, 3f)
+        service.logManualDose(medId, System.currentTimeMillis(), 3f)
 
         val ascending = db.inventoryTransactionDao()
             .getTransactionsForMedication(medId).reversed()   // DAO 按 id DESC 返回
