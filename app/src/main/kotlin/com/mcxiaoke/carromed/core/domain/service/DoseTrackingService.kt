@@ -972,9 +972,12 @@ class DoseTrackingService(
 
         val fromStr = fromDate.format(SlotProjectionEngine.DATE_FORMATTER)
         val toStr = toDate.format(SlotProjectionEngine.DATE_FORMATTER)
-        val existing = slotDao
-            .getSlotsInRange(startDate = fromStr, endDate = toStr)
-            .filter { it.medicationId == medicationId }
+        // SQL 内过滤（osbf P3-7）：逐药调用不再把全窗口的行拉回来再丢
+        val existing = slotDao.getSlotsInRangeForMedication(
+            medicationId = medicationId,
+            startDate = fromStr,
+            endDate = toStr
+        )
 
         val projectedKeys = projectedSlots.map { slotKey(it.scheduledDate, it.scheduledTime) }.toSet()
 

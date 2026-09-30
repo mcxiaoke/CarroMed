@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.ui.component.DecimalInput
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -124,7 +125,16 @@ class RefillViewModel(
             // 入库即自动开启库存追踪（此前需用户手工在表单里填初始库存才开）。
             // ⚠️ **必须传 initialStock = null**（M2-5）：本页面停留期间可能已发生打卡扣减，
             // 传页面上的陈旧余额会把它当"用户声明的初始库存"写回账面，凭空多出一份。
+            //
+            // 失败不能静默（osbf P2-5）：入库已成功而开启追踪失败，用户必须知道
+            // "这次入库没有开始自动扣库存"，否则他会以为追踪一直是开着的。
             runCatching { trackingService.setStockTracking(medId, true, initialStock = null) }
+                .onFailure { t ->
+                    AppLog.w("RefillViewModel", "enable stock tracking after refill failed med=$medId", t)
+                    _uiState.value = _uiState.value.copy(
+                        error = "入库成功，但开启库存追踪失败：${t.message ?: t::class.java.simpleName}"
+                    )
+                }
             _uiState.value = _uiState.value.copy(isSaving = false)
             onSuccess()
         }

@@ -351,15 +351,20 @@ object DataExporter {
     // ---------------- JSON 全量备份：纯函数层 ----------------
 
     /**
-     * 把整库读成 [BackupFile]。**纯函数**：不碰 `Context`，因此可以直接单测。
+     * 把整库读成 [BackupFile]。不碰 `Context`（可直接单测）。
+     *
+     * 整个读取包在**一个读事务**里（osbf P2-4）：旧实现逐表查询，WAL 模式下
+     * 每条查询各自看到自己的快照，备份中途发生的写入会让文件内容自相矛盾
+     * （例如 `medications` 与 `inventory_transactions` 对不上账）。
+     * Room 事务给整个读取一份一致快照，`stockMilli` 与表内流水必然互洽。
      */
-    suspend fun buildBackup(db: AppDatabase, now: Long = System.currentTimeMillis()): BackupFile {
+    suspend fun buildBackup(db: AppDatabase, now: Long = System.currentTimeMillis()): BackupFile = db.withTransaction {
         // 库存余额不再是 medications 的一列；此处附上台账聚合值**仅供人工核对**，
         // 恢复流水即恢复余额，不从它写回任何列。
         val balanceByMed = db.inventoryTransactionDao().getAllBalances()
             .associate { it.medicationId to it.balance }
 
-        return BackupFile(
+        return@withTransaction BackupFile(
             app = BACKUP_APP_TAG,
             formatVersion = BackupFormatVersion.CURRENT.code,
             exportedAt = now,

@@ -4,6 +4,7 @@ import android.app.Application
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
@@ -87,7 +88,16 @@ data class ReminderSettingsUiState(
      */
     val globalSnoozeMinutes: Int = 30,
     val advanceMinutes: Int = 0,
+    /**
+     * 暂停状态 —— **只读**（osbf P2-2 / zcg #14）。
+     *
+     * 本页曾经提供可写的暂停开关，保存时 `setPausedUntil("")` 会把详情页设置的
+     * "暂停至某日"升级成无限期；现在的唯一入口在详情页，这里只读展示。
+     */
     val isPaused: Boolean = false,
+
+    /** 当前暂停的恢复日期（原样展示 `reminder_settings.paused_until`；空 = 无限期） */
+    val pausedUntil: String? = null,
 
     // 预览
     val preview: List<PreviewDay> = emptyList(),
@@ -168,7 +178,8 @@ class ReminderSettingsViewModel(
                 snoozeMinutes = rs.snoozeMinutes.coerceIn(0, 120),
                 globalSnoozeMinutes = globalSnoozeMinutes(),
                 advanceMinutes = rs.advanceMinutes.coerceIn(0, 120),
-                isPaused = rs.isPausedOn(today)
+                isPaused = rs.isPausedOn(today),
+                pausedUntil = rs.pausedUntil
             )
             refreshPreview()
         }
@@ -315,7 +326,6 @@ class ReminderSettingsViewModel(
             ?.takeIf { it > 0 }
             ?: ReminderSettings.DEFAULT_SNOOZE_MINUTES
     fun onAdvanceMinutesChange(v: Int) = mutate { it.copy(advanceMinutes = v.coerceIn(0, 120)) }
-    fun onPausedChange(v: Boolean) = mutate { it.copy(isPaused = v) }
 
     // ---------------- 保存 ----------------
 
@@ -374,10 +384,13 @@ class ReminderSettingsViewModel(
             // （重复时点 / 药品不存在）在 ViewModel 里未捕获会一路打到主线程 → 崩溃，
             // 且 `isSaving` 永远停在 true ⇒ 保存按钮**永久禁用**。
             runCatching {
-                // N5：这几步分属不同 service、各自开事务，**四步之间没有共同事务**。
-                // 第 2 步抛异常 ⇒ 药品档案已保存、提醒计划未保存，而用户什么都不知道。
-                // 这里显式串行 + 失败即整单报错（不假装成功），把"部分写入"从静默变成可见。
-                adminService.saveReminderPolicy(
+                // N5（osbf P2-5）：计划与行为分属两个 service、原先各自开事务，
+                // 第 2 步抛异常 ⇒ 计划已保存、行为未保存，表单停在旧值而库里
+                // 已是新计划。现在两步包进**同一个外层事务**：要么全成、要么全回滚。
+                // `reconcileSchedule` / `rescheduleAll` 留在事务外 —— 它们是读后写
+                // 的排期动作，重排失败不该把已落库的配置一并回滚掉。
+                db.withTransaction {
+                    adminService.saveReminderPolicy(
                     medicationId = medId,
                     draft = MedicationAdminService.PolicyDraft(
                         policyType = s.policyType,
@@ -414,13 +427,13 @@ class ReminderSettingsViewModel(
                         advanceMinutes = s.advanceMinutes
                     )
                 )
-                // 暂停归详情页的开关所有；提醒设置页只读展示，不在这里改。
-                val wasPaused = db.reminderSettingsDao().getByMedicationId(medId)
-                    ?.isPausedOn(LocalDate.now()) == true
-                if (s.isPaused != wasPaused) {
-                    if (s.isPaused) adminService.setPausedUntil(medId, "")
-                    else adminService.resume(medId)
                 }
+
+                // 暂停归详情页的开关所有；提醒设置页只读展示，**不在这里改**
+                // （osbf P2-2 / zcg #14）。旧实现在这里按进页快照 `s.isPaused`
+                // 与当前库值比对后写 `setPausedUntil("")` / `resume`：
+                // 一是把"暂停至某日"升级成无限期，二是页面停留期间别处改过的
+                // 暂停状态会被陈旧 UI 值覆盖回去。现在保存链完全不碰暂停。
 
                 trackingService.reconcileSchedule(medId)
                 runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db) }

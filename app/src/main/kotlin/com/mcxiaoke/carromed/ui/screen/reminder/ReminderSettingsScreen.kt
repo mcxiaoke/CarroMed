@@ -166,18 +166,27 @@ fun ReminderSettingsScreen(
                 }
             }
 
-            // 1. 提醒开关
+            // 1. 暂停状态 —— **只读展示**（osbf P2-2 / zcg #14）。
+            //
+            // 这里曾经是一个可写的暂停开关，保存时把"暂停至某日"升级成无限期
+            // （`setPausedUntil("")`），与同文件"暂停归详情页所有"的注释直接矛盾。
+            // 暂停（含恢复与期限调整）是排期语义，唯一入口在药品详情页；
+            // 本页只如实展示当前状态，避免两个入口互相覆盖。
             item {
-                SettingsCard(title = "提醒开关") {
-                    SwitchRow(
-                        title = "暂停该药品的提醒",
-                        subtitle = if (uiState.isPaused) {
-                            "当前已暂停：不再产生新提醒与闹钟，历史记录保留"
+                SettingsCard(title = "暂停状态") {
+                    Text(
+                        if (uiState.isPaused) {
+                            val until = uiState.pausedUntil
+                            if (until.isNullOrBlank()) {
+                                "已暂停（无恢复日期）——暂停与恢复请到药品详情页操作"
+                            } else {
+                                "已暂停，恢复日期：$until —— 暂停与恢复请到药品详情页操作"
+                            }
                         } else {
-                            "临时出差 / 感冒停药时用，比删除药品安全"
+                            "提醒进行中。临时停药请在药品详情页「暂停提醒」"
                         },
-                        checked = uiState.isPaused,
-                        onChange = { viewModel.onPausedChange(it) }
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

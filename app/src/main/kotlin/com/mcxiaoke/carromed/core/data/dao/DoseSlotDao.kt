@@ -143,6 +143,17 @@ interface DoseSlotDao {
     @Query("SELECT * FROM dose_slots WHERE scheduled_date BETWEEN :startDate AND :endDate ORDER BY scheduled_date ASC, scheduled_ts ASC")
     suspend fun getSlotsInRange(startDate: String, endDate: String): List<DoseSlotEntity>
 
+    /**
+     * 单药品的窗口查询（osbf P3-7 / sba P1-6）。
+     *
+     * `reconcileSchedule` 是**逐药**调用的：旧实现每次都拉全窗口槽位再在内存里
+     * `filter { it.medicationId == ... }`，一轮全量对账就是 O(药品数 × 窗口槽位数)
+     * 次行的传输。SQL 里带上 `medication_id` 后走现有 `Index(medication_id)`，
+     * 每药只取自己名下的行。
+     */
+    @Query("SELECT * FROM dose_slots WHERE medication_id = :medicationId AND scheduled_date BETWEEN :startDate AND :endDate ORDER BY scheduled_date ASC, scheduled_ts ASC")
+    suspend fun getSlotsInRangeForMedication(medicationId: Long, startDate: String, endDate: String): List<DoseSlotEntity>
+
     @Query("SELECT * FROM dose_slots WHERE status = 'PENDING' AND scheduled_ts >= :fromTs ORDER BY scheduled_ts ASC")
     suspend fun getPendingSlotsAfter(fromTs: Long): List<DoseSlotEntity>
 

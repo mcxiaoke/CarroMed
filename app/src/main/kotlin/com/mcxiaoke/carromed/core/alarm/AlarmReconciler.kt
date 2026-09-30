@@ -7,6 +7,8 @@ import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -142,7 +144,13 @@ object AlarmReconciler {
             .onFailure { AppLog.w(TAG, "cancel notification failed slot=$slotId", it) }
     }
 
-    suspend fun rescheduleAll(context: Context, db: AppDatabase) {
+    /**
+     * 全量对账。**IO 密集**（每药一次窗口查询 + 逐槽位系统闹钟调用），
+     * 内部已切到 [Dispatchers.IO]，调用方**不必**（也不应）再自行切线程 ——
+     * 一次包裹覆盖全部现有与未来的调用点（osbf P2-1：此前 6 个 ViewModel
+     * 调用点全在 Main 上裸跑）。
+     */
+    suspend fun rescheduleAll(context: Context, db: AppDatabase) = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         AppLog.i(TAG, "rescheduleAll start, now=$now")
 
