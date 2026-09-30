@@ -17,4 +17,32 @@
     <string name="cabinet_stock_low">⚠️ 剩 %1$s %2$s</string>
     <string name="cabinet_stock_normal">剩 %1$s %2$s</string>
     <string name="cabinet_cd_view_detail">查看详情</string>
+
+    <!-- 排序菜单（CabinetSortOrder.labelRes） -->
+    <string name="cabinet_sort_default">默认 (最近添加)</string>
+    <string name="cabinet_sort_name">按名称</string>
+    <string name="cabinet_sort_stock_low">库存由少到多</string>
+    <string name="cabinet_sort_expiry_soon">临期优先</string>
+
+    <!-- 频次描述（CabinetViewModel.buildItemUi 的 frequencyDescription） -->
+    <string name="cabinet_freq_times">%1$d 次</string>
+    <string name="cabinet_freq_daily">每天 %1$s · %2$s</string>
+    <string name="cabinet_freq_everyday">每天</string>
+    <string name="cabinet_freq_every_other_day">隔天</string>
+    <string name="cabinet_freq_every_n_days">每 %1$d 天</string>
+    <!-- 间隔频次拼接模板：%1$s 间隔文案，%2$s 每日次数，%3$s 时段 -->
+    <string name="cabinet_freq_pattern">%1$s %2$s · %3$s</string>
+    <string name="cabinet_freq_weekly">每周 %1$s · %2$s</string>
+    <string name="cabinet_freq_dow_1">一</string>
+    <string name="cabinet_freq_dow_2">二</string>
+    <string name="cabinet_freq_dow_3">三</string>
+    <string name="cabinet_freq_dow_4">四</string>
+    <string name="cabinet_freq_dow_5">五</string>
+    <string name="cabinet_freq_dow_6">六</string>
+    <string name="cabinet_freq_dow_7">日</string>
+    <string name="cabinet_freq_dow_unknown">?</string>
+    <string name="cabinet_freq_cycle">周期 %1$d天服/%2$d天停 · %3$s</string>
+    <string name="cabinet_freq_prn">按需服用 · 不设定时闹钟</string>
+    <string name="cabinet_freq_daily_no_policy">每日 %1$s · %2$s</string>
+    <string name="cabinet_freq_no_schedule">暂无排班</string>
 </resources>

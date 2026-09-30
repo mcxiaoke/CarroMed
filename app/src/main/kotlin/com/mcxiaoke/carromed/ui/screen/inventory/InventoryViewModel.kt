@@ -1,8 +1,10 @@
 package com.mcxiaoke.carromed.ui.screen.inventory
 
 import android.app.Application
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
 import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.model.Dose
@@ -22,7 +24,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 
 data class InventoryUiState(
@@ -103,9 +107,13 @@ class InventoryViewModel(
     }
 
     private suspend fun loadOnce() {
+        val app = getApplication<Application>()
         val overview = medDao.getOverviewById(medId)
         if (overview == null) {
-            _uiState.value = _uiState.value.copy(isLoading = false, error = "药品不存在或已被删除")
+            _uiState.value = _uiState.value.copy(
+                isLoading = false,
+                error = app.getString(R.string.inv_err_not_found)
+            )
             return
         }
             val med = overview.medication
@@ -192,12 +200,12 @@ class InventoryViewModel(
             try {
                 val file = com.mcxiaoke.carromed.core.data.DataExporter
                     .exportInventoryLedgerCsv(app, db)
-                _uiState.value = _uiState.value.copy(message = "已导出 ${file.name}")
+                _uiState.value = _uiState.value.copy(message = app.getString(R.string.inv_exported, file.name))
                 com.mcxiaoke.carromed.core.data.DataExporter.shareFile(app, file, "text/csv")
             } catch (e: Exception) {
                 // 吞异常降级成 UI error 的地方必须留痕（PLAN-LOGGING G4）
                 AppLog.w(TAG, "exportLedger failed", e)
-                _uiState.value = _uiState.value.copy(error = "导出失败: ${e.message}")
+                _uiState.value = _uiState.value.copy(error = app.getString(R.string.inv_export_failed, e.message))
             }
         }
     }
@@ -222,6 +230,7 @@ class InventoryViewModel(
      * 追踪开关只影响**今后**是否自动扣减，绝不回头改已经算清楚的账。
      */
     fun setTracking(enabled: Boolean) {
+        val app = getApplication<Application>()
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
             runCatching {
@@ -230,13 +239,18 @@ class InventoryViewModel(
             }.onFailure { t ->
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = "操作失败：${t.message ?: t::class.java.simpleName}"
+                    error = app.getString(
+                        R.string.inv_op_failed,
+                        t.message ?: t::class.java.simpleName
+                    )
                 )
                 return@launch
             }
             _uiState.value = _uiState.value.copy(
                 isSaving = false,
-                message = if (enabled) "已开启库存追踪" else "已关闭库存追踪（不再自动扣减）"
+                message = app.getString(
+                    if (enabled) R.string.inv_tracking_on else R.string.inv_tracking_off
+                )
             )
             load()
         }
@@ -244,6 +258,7 @@ class InventoryViewModel(
 
     /** 盘点校准：把账面拉回实物真实值，走流水而非直接改账面 */
     fun calibrate(note: String?) {
+        val app = getApplication<Application>()
         // parseNonNegative 而非 parsePositive：盘点出"实物为 0"（药已用完/清空）
         // 是合法的校准结果，领域层 calibrateStock 的 KDoc 明确允许 0。
         // 旧写法 parsePositive 让用户没法把账面校准到 0。
@@ -253,7 +268,7 @@ class InventoryViewModel(
             // 旧写法 `toFloatOrNull() ?: 回退旧值` 静默接受非法输入并提示"已保存" ——
             // 用户以为自己改了预警线，实际什么都没发生。
             _uiState.value = _uiState.value.copy(
-                error = "请输入有效的实际库存数量（0 或正数）"
+                error = app.getString(R.string.inv_err_calibrate_invalid)
             )
             return
         }
@@ -264,13 +279,19 @@ class InventoryViewModel(
             }.getOrElse { t ->
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = "盘点失败：${t.message ?: t::class.java.simpleName}"
+                    error = app.getString(
+                        R.string.inv_calibrate_failed,
+                        t.message ?: t::class.java.simpleName
+                    )
                 )
                 return@launch
             }
             _uiState.value = _uiState.value.copy(
                 isSaving = false,
-                message = if (changed) "盘点已记录：账面调整为 $target" else "账面与实物一致，无需调整"
+                message = app.getString(
+                    if (changed) R.string.inv_calibrated else R.string.inv_calibrate_no_change,
+                    target
+                )
             )
             load()
         }
@@ -289,6 +310,7 @@ class InventoryViewModel(
      */
     fun saveSettings() {
         val s = _uiState.value
+        val app = getApplication<Application>()
         // ⚠️ 非法输入必须**报错**，不能静默回退旧值（M7-3）。
         //
         // 旧写法 `?: s.minStockAlert` 配上"已保存"的提示，等于对用户说谎：
@@ -301,7 +323,7 @@ class InventoryViewModel(
         val alert = DecimalInput.parseNonNegative(s.minStockAlertInput)
         if (alert == null) {
             _uiState.value = s.copy(
-                error = "预警线无效：请输入 0 或正数（0 表示关闭低库存告警）"
+                error = app.getString(R.string.inv_err_alert_invalid)
             )
             return
         }
@@ -317,11 +339,17 @@ class InventoryViewModel(
             }.onFailure { t ->
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = "保存失败：${t.message ?: t::class.java.simpleName}"
+                    error = app.getString(
+                        R.string.inv_save_failed,
+                        t.message ?: t::class.java.simpleName
+                    )
                 )
                 return@launch
             }
-            _uiState.value = _uiState.value.copy(isSaving = false, message = "已保存")
+            _uiState.value = _uiState.value.copy(
+                isSaving = false,
+                message = app.getString(R.string.inv_saved)
+            )
             load()
         }
     }
@@ -358,34 +386,44 @@ class InventoryViewModel(
         daysOfWeek: List<Int>?,
         times: List<PolicyTimeEntity>
     ): String {
-        if (type == null || times.isEmpty()) return "暂无排班"
+        val app = getApplication<Application>()
+        if (type == null || times.isEmpty()) return app.getString(R.string.inv_freq_none)
         val perDay = times.size
         val timeStr = times.joinToString(", ") { it.timeOfDay }
         return when (type) {
-            PolicyType.DAILY -> "每天 $perDay 次 ($timeStr)"
+            PolicyType.DAILY -> app.getString(R.string.inv_freq_daily, perDay, timeStr)
             PolicyType.INTERVAL -> {
                 val n = (intervalDays ?: 2).coerceAtLeast(1)
-                val dayText = if (n <= 1) "每天" else if (n == 2) "隔天" else "每 $n 天"
-                "$dayText $perDay 次 ($timeStr)"
+                val dayText = when {
+                    n <= 1 -> app.getString(R.string.inv_freq_day_everyday)
+                    n == 2 -> app.getString(R.string.inv_freq_day_alternate)
+                    else -> app.getString(R.string.inv_freq_day_every_n, n)
+                }
+                app.getString(R.string.inv_freq_generic, dayText, perDay, timeStr)
             }
             PolicyType.DAYS_OF_WEEK -> {
-                val dayNames = listOf("一", "二", "三", "四", "五", "六", "日")
+                // NARROW 在中文下恰好是单字「一二三…」,英文下是 M/T/W…,随系统语言走
+                val locale = app.resources.configuration.locales[0]
                 val picked = (daysOfWeek ?: emptyList()).sorted()
-                    .joinToString("·") { dayNames.getOrElse(it - 1) { "?" } }
-                "每周 $picked 各 $perDay 次 ($timeStr)"
+                    .joinToString("·") {
+                        DayOfWeek.of(((it - 1) % 7 + 7) % 7 + 1)
+                            .getDisplayName(TextStyle.NARROW, locale)
+                    }
+                app.getString(R.string.inv_freq_weekly, picked, perDay, timeStr)
             }
-            PolicyType.CYCLE -> "周期用药 $perDay 次/服药日 ($timeStr)"
-            PolicyType.PRN -> "按需服用"
+            PolicyType.CYCLE -> app.getString(R.string.inv_freq_cycle, perDay, timeStr)
+            PolicyType.PRN -> app.getString(R.string.inv_freq_prn)
         }
     }
 
     private fun fmt(v: Float): String = if (v % 1f == 0f) v.toInt().toString() else v.toString()
 
-    fun txLabel(t: TransactionType): String = when (t) {
-        TransactionType.TAKEN_DEDUCT -> "服药扣减"
-        TransactionType.REFILL -> "购药入库"
-        TransactionType.REVERT_ROLLBACK -> "撤销冲正"
-        TransactionType.CALIBRATION_ADJUST -> "盘点调整"
-        TransactionType.DOSE_EDIT_ADJUST -> "改剂量调整"
+    @StringRes
+    fun txLabel(t: TransactionType): Int = when (t) {
+        TransactionType.TAKEN_DEDUCT -> R.string.inv_tx_taken_deduct
+        TransactionType.REFILL -> R.string.inv_tx_refill
+        TransactionType.REVERT_ROLLBACK -> R.string.inv_tx_revert
+        TransactionType.CALIBRATION_ADJUST -> R.string.inv_tx_calibrate
+        TransactionType.DOSE_EDIT_ADJUST -> R.string.inv_tx_dose_edit
     }
 }

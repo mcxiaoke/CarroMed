@@ -16,8 +16,10 @@ import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.core.domain.service.MANUAL_DOSE_BACKFILL_DAYS
 import com.mcxiaoke.carromed.ui.component.DecimalInput
 import com.mcxiaoke.carromed.ui.component.Quantity
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.R
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -95,7 +97,11 @@ data class DoseEntryUiState(
     val stock: Float? = null,
     /** 低库存预警线（**展示值**）。0 表示关闭告警 */
     val minStockAlert: Float = 0f,
-    val unit: String = "片",
+    /**
+     * 展示单位。纯状态类不持有 Android 上下文，默认留空；
+     * ViewModel 载入时填 `med.unit`，为空则兜底 R.string.rdetail_unit_default
+     */
+    val unit: String = "",
     /** 剂量输入（String，因为"正在输入 0."是合法中间态，见 M2-1） */
     val doseInput: String = "",
     val noteInput: String = "",
@@ -298,6 +304,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
 
     /** 手动补录记录（`slot_id == null`）：一次性读取，剂量与备注只在首次载入时填 */
     private suspend fun loadManualRecord() {
+        val app = getApplication<Application>()
         val rid = recordId ?: run {
             _uiState.update { it.copy(isLoading = false, notFound = true) }
             return
@@ -318,7 +325,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
                 record = record,
                 stock = if (med?.isStockTracked == true) overview?.stock else null,
                 minStockAlert = overview?.minStockAlert ?: 0f,
-                unit = med?.unit ?: "片",
+                unit = med?.unit ?: app.getString(R.string.rdetail_unit_default),
                 doseInput = Quantity.fmt(Dose(record.doseTaken).asFloat),
                 noteInput = record.note.orEmpty()
             )
@@ -326,6 +333,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
     }
 
     private suspend fun refreshFromSlot(slot: DoseSlotEntity) {
+        val app = getApplication<Application>()
         val overview = medDao.getOverviewById(slot.medicationId)
         val med = overview?.medication
         val record = currentRecordFor(slot)
@@ -343,7 +351,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
                 record = record,
                 stock = if (med?.isStockTracked == true) overview?.stock else null,
                 minStockAlert = overview?.minStockAlert ?: 0f,
-                unit = med?.unit ?: "片",
+                unit = med?.unit ?: app.getString(R.string.rdetail_unit_default),
                 // 剂量与备注只在**首次**载入时灌入：后台刷新不许覆盖用户正在敲的内容（M7-3）
                 doseInput = if (state.isLoading || state.record?.id != record?.id) {
                     Quantity.fmt(Dose(record?.doseTaken ?: slot.doseAmount).asFloat)
@@ -383,11 +391,15 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
     fun onActualTsChange(ts: Long) {
         val s = _uiState.value
         if (!s.canEditTime) {
-            _uiState.update { it.copy(error = "这条记录不能改时间") }
+            _uiState.update {
+                it.copy(error = getApplication<Application>().getString(R.string.rdetail_error_time_locked))
+            }
             return
         }
         if (ts > System.currentTimeMillis()) {
-            _uiState.update { it.copy(error = "服药时间不能晚于现在") }
+            _uiState.update {
+                it.copy(error = getApplication<Application>().getString(R.string.rdetail_error_time_future))
+            }
             return
         }
         _uiState.update { it.copy(pendingActualTs = ts, error = null) }
@@ -401,7 +413,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
         val sid = slotId ?: return
         if (!s.canConfirm) return
         val note = s.noteInput.ifBlank { null }
-        run("确认失败") {
+        run(R.string.rdetail_fail_confirm) {
             if (s.confirmNeedsRestate) {
                 actions.restate(sid, RecordStatus.COMPLETED, note)
             } else {
@@ -417,7 +429,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
         val sid = slotId ?: return
         if (!s.canSkip) return
         val note = s.noteInput.ifBlank { null }
-        run("跳过失败") {
+        run(R.string.rdetail_fail_skip) {
             if (s.skipNeedsRestate) {
                 actions.restate(sid, RecordStatus.SKIPPED, note)
             } else {
@@ -432,12 +444,12 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
         if (s.isManual) {
             val rid = recordId ?: return
             if (!s.canUndo) return
-            run("撤销失败") { tracking.undoManualDose(rid) }
+            run(R.string.rdetail_fail_undo) { tracking.undoManualDose(rid) }
             return
         }
         val sid = slotId ?: return
         if (!s.canUndo) return
-        run("撤销失败") { actions.undo(sid) }
+        run(R.string.rdetail_fail_undo) { actions.undo(sid) }
     }
 
     /** 推迟提醒 */
@@ -445,7 +457,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
         val s = _uiState.value
         val sid = slotId ?: return
         if (!s.canSnooze) return
-        run("推迟失败") { actions.snooze(sid, minutes) }
+        run(R.string.rdetail_fail_snooze) { actions.snooze(sid, minutes) }
     }
 
     /**
@@ -460,12 +472,15 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
 
         val parsed = DecimalInput.parsePositive(s.doseInput)
         if (s.canEditDose && parsed == null) {
-            _uiState.update { it.copy(error = "请输入大于 0 的剂量（例如 1 或 0.5）") }
+            _uiState.update {
+                it.copy(error = getApplication<Application>().getString(R.string.rdetail_error_dose_invalid))
+            }
             return
         }
 
         _uiState.update { it.copy(isSaving = true, error = null) }
         viewModelScope.launch {
+            val app = getApplication<Application>()
             runCatching {
                 tracking.editDose(
                     recordId = record.id,
@@ -480,7 +495,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
                     } else {
                         // 服务层拒绝 = 状态已经变了（已撤销）或参数非法：重新载入显示真实状态
                         _uiState.update {
-                            it.copy(isSaving = false, error = "这条记录已不可修改（可能已被撤销）")
+                            it.copy(isSaving = false, error = app.getString(R.string.rdetail_error_record_immutable))
                         }
                     }
                 }
@@ -488,7 +503,10 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
                     _uiState.update {
                         it.copy(
                             isSaving = false,
-                            error = "保存失败：${t.message ?: t::class.java.simpleName}"
+                            error = app.getString(
+                                R.string.rdetail_error_save_failed,
+                                t.message ?: t::class.java.simpleName
+                            )
                         )
                     }
                 }
@@ -496,10 +514,11 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
     }
 
     /** 每个状态动作的公共骨架：防连点 → 执行 → 成功即返回列表 / 失败给提示。 */
-    private fun run(failPrefix: String, block: suspend () -> Boolean) {
+    private fun run(@StringRes failRes: Int, block: suspend () -> Boolean) {
         if (_uiState.value.isSaving) return
         _uiState.update { it.copy(isSaving = true, error = null) }
         viewModelScope.launch {
+            val app = getApplication<Application>()
             runCatching { block() }
                 .onSuccess { ok ->
                     if (ok) {
@@ -508,7 +527,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
                         _uiState.update {
                             it.copy(
                                 isSaving = false,
-                                error = "这条记录的状态已变化，请重新查看"
+                                error = app.getString(R.string.rdetail_error_state_changed)
                             )
                         }
                     }
@@ -517,7 +536,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
                     _uiState.update {
                         it.copy(
                             isSaving = false,
-                            error = "$failPrefix：${t.message ?: t::class.java.simpleName}"
+                            error = app.getString(failRes, t.message ?: t::class.java.simpleName)
                         )
                     }
                 }

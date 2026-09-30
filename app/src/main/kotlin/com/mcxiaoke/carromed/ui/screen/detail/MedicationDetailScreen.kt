@@ -673,17 +673,23 @@ fun MedicationDetailScreen(
 
 // ---------------- 摘要构造 ----------------
 
+@Composable
 private fun buildProfileSummary(s: MedDetailUiState): String {
     val med = s.medication ?: return ""
     val parts = mutableListOf<String>()
-    med.description.takeIf { it.isNotBlank() }?.let { parts += "含医嘱说明" }
-    if (med.precautions.isNotEmpty()) parts += "${med.precautions.size} 条注意事项"
-    if (med.expiryDate.isNotBlank()) parts += "效期 ${med.expiryDate}"
-    if (med.noticeShort.isNotBlank()) parts += "通知简述已设"
-    return if (parts.isEmpty()) "${med.form} · ${med.unit} · 默认 ${Quantity.fmt(Dose(med.defaultDose).asFloat)} ${med.unit}/次"
-    else "${med.form} · ${med.unit} · $parts"
+    med.description.takeIf { it.isNotBlank() }?.let { parts += stringResource(R.string.mdetail_sum_has_description) }
+    if (med.precautions.isNotEmpty()) parts += stringResource(R.string.mdetail_sum_precautions, med.precautions.size)
+    if (med.expiryDate.isNotBlank()) parts += stringResource(R.string.mdetail_sum_expiry, med.expiryDate)
+    if (med.noticeShort.isNotBlank()) parts += stringResource(R.string.mdetail_sum_notice_short_set)
+    return if (parts.isEmpty()) {
+        stringResource(
+            R.string.mdetail_sum_defaults,
+            med.form, med.unit, Quantity.fmt(Dose(med.defaultDose).asFloat), med.unit
+        )
+    } else "${med.form} · ${med.unit} · $parts"
 }
 
+@Composable
 private fun buildReminderSummary(s: MedDetailUiState): String {
     // ⚠️ 没有计划时**必须显眼地**说出来（2026-09-29 UX 改造）。
     //
@@ -695,47 +701,55 @@ private fun buildReminderSummary(s: MedDetailUiState): String {
     // 这与本项目 §2 第 6 条「静默降级 = 给用户虚假的保证」同源：
     // 诚实的空缺好过虚假的完成感。
     if (s.policy == null) {
-        return "尚未设置服药计划 · 这味药不会自动提醒 → 点击设置"
+        return stringResource(R.string.mdetail_sum_no_plan)
     }
     val policy = s.policy ?: return ""
     val freq = when (policy.policyType) {
-        PolicyType.DAILY -> "每天 ${s.times.size} 次"
-        PolicyType.INTERVAL -> if (policy.intervalDays <= 2) "隔天" else "每隔 ${policy.intervalDays - 1} 天"
-        PolicyType.DAYS_OF_WEEK -> "每周 ${policy.daysOfWeek.size} 天"
-        PolicyType.CYCLE -> "周期 ${policy.cycleOnDays}服/${policy.cycleOffDays}停"
-        PolicyType.PRN -> "按需服用"
+        PolicyType.DAILY -> stringResource(R.string.mdetail_sum_freq_daily, s.times.size)
+        PolicyType.INTERVAL ->
+            if (policy.intervalDays <= 2) stringResource(R.string.mdetail_sum_freq_interval_short)
+            else stringResource(R.string.mdetail_sum_freq_interval, policy.intervalDays - 1)
+        PolicyType.DAYS_OF_WEEK -> stringResource(R.string.mdetail_sum_freq_weekly, policy.daysOfWeek.size)
+        PolicyType.CYCLE ->
+            stringResource(R.string.mdetail_sum_freq_cycle, policy.cycleOnDays, policy.cycleOffDays)
+        PolicyType.PRN -> stringResource(R.string.mdetail_sum_freq_prn)
     }
-    val times = if (s.times.isEmpty()) "无固定时点" else s.times.joinToString("、") { it.timeOfDay }
-    val course = if (policy.endDate != null) "至 ${policy.endDate}" else "无限期"
+    val times = if (s.times.isEmpty()) stringResource(R.string.mdetail_sum_no_fixed_times)
+    else s.times.joinToString("、") { it.timeOfDay }
+    val course = if (policy.endDate != null) stringResource(R.string.mdetail_sum_until, policy.endDate)
+    else stringResource(R.string.mdetail_sum_indefinite)
     val flags = buildList {
-        if (s.reminderSettings.isCriticalReminder) add("重要提醒")
-        if (s.reminderSettings.snoozeMinutes > 0) add("推迟 ${s.reminderSettings.snoozeMinutes} 分")
-        if (s.reminderSettings.advanceMinutes > 0) add("提前 ${s.reminderSettings.advanceMinutes} 分")
+        if (s.reminderSettings.isCriticalReminder) add(stringResource(R.string.mdetail_sum_flag_critical))
+        if (s.reminderSettings.snoozeMinutes > 0) add(stringResource(R.string.mdetail_sum_flag_snooze, s.reminderSettings.snoozeMinutes))
+        if (s.reminderSettings.advanceMinutes > 0) add(stringResource(R.string.mdetail_sum_flag_advance, s.reminderSettings.advanceMinutes))
     }
     val flagText = if (flags.isEmpty()) "" else " · ${flags.joinToString("/")}"
     return "$freq · $times · $course$flagText"
 }
 
+@Composable
 private fun buildInventorySummary(s: MedDetailUiState): String {
     val med = s.medication ?: return ""
-    if (!med.isStockTracked) return "未开启库存追踪"
+    if (!med.isStockTracked) return stringResource(R.string.mdetail_sum_stock_off)
     // 账面为负说明账实不符（已吃的超过记录库存），文案要如实说明而不是显示"剩余 -3"
     val balance = s.stock
     val stock = if (balance < 0f) {
-        "账面 ${Quantity.fmt(balance)} ${med.unit}，已超出记录库存，请盘点校准"
+        stringResource(R.string.mdetail_sum_stock_negative, Quantity.fmt(balance), med.unit)
     } else {
-        "${Quantity.fmt(balance)} ${med.unit} 剩余"
+        stringResource(R.string.mdetail_sum_stock_remaining, Quantity.fmt(balance), med.unit)
     }
-    val runway = if (StatsEngine.isRunwayUnlimited(s.runwayDays)) "" else " · 约可用 ${s.runwayDays} 天"
+    val runway = if (StatsEngine.isRunwayUnlimited(s.runwayDays)) ""
+    else stringResource(R.string.mdetail_sum_runway, s.runwayDays)
     return stock + runway
 }
 
+@Composable
 private fun txLabel(t: TransactionType): String = when (t) {
-    TransactionType.TAKEN_DEDUCT -> "服药扣减"
-    TransactionType.REFILL -> "购药入库"
-    TransactionType.REVERT_ROLLBACK -> "撤销冲正"
-    TransactionType.CALIBRATION_ADJUST -> "盘点调整"
-    TransactionType.DOSE_EDIT_ADJUST -> "改剂量调整"
+    TransactionType.TAKEN_DEDUCT -> stringResource(R.string.mdetail_tx_taken)
+    TransactionType.REFILL -> stringResource(R.string.mdetail_tx_refill)
+    TransactionType.REVERT_ROLLBACK -> stringResource(R.string.mdetail_tx_revert)
+    TransactionType.CALIBRATION_ADJUST -> stringResource(R.string.mdetail_tx_calibrate)
+    TransactionType.DOSE_EDIT_ADJUST -> stringResource(R.string.mdetail_tx_dose_edit)
 }
 
 @Composable

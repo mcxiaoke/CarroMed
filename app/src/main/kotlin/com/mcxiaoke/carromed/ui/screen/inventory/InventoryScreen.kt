@@ -380,7 +380,7 @@ fun InventoryScreen(
                 val tx = uiState.transactions[idx]
                 TxRow(
                     time = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(tx.createdAt)),
-                    label = viewModel.txLabel(tx.txType),
+                    label = stringResource(viewModel.txLabel(tx.txType)),
                     note = tx.note,
                     change = Dose(tx.changeAmount).asFloat,
                     balance = Dose(tx.balanceAfter).asFloat,

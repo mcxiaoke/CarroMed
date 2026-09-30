@@ -138,7 +138,7 @@ fun CabinetScreen(
                             DropdownMenuItem(
                                 text = {
                                     Text(
-                                        order.label,
+                                        stringResource(order.labelRes),
                                         fontWeight = if (order == uiState.sortOrder) FontWeight.Bold
                                         else FontWeight.Normal
                                     )

@@ -3,6 +3,7 @@ package com.mcxiaoke.carromed.ui.screen.refill
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.domain.AppLog
@@ -82,17 +83,22 @@ class RefillViewModel(
         val s = _uiState.value
         val amt = DecimalInput.parsePositive(s.addAmount)
         if (amt == null) {
-            _uiState.value = s.copy(error = "请输入大于 0 的入库数量")
+            _uiState.value = s.copy(
+                error = getApplication<Application>().getString(R.string.refill_error_amount_invalid)
+            )
             return
         }
         if (s.expiryDate.isNotBlank() && !Regex("""^\d{4}-\d{2}-\d{2}$""").matches(s.expiryDate)) {
-            _uiState.value = s.copy(error = "有效期格式应为 yyyy-MM-dd")
+            _uiState.value = s.copy(
+                error = getApplication<Application>().getString(R.string.refill_error_expiry_format)
+            )
             return
         }
         // 双击保护与另两个表单同一条纪律（M2-4）
         if (s.isSaving) return
 
         viewModelScope.launch {
+            val app = getApplication<Application>()
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
             // 复用领域层的入库路径，而不是自己重写一遍内联事务 ——
             // 内联版本曾直接调 updateStock 改账面（现已不存在该 API），
@@ -114,12 +120,12 @@ class RefillViewModel(
             }.getOrElse { t ->
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = "入库失败：${t.message ?: t::class.java.simpleName}"
+                    error = app.getString(R.string.refill_error_save_failed, t.message ?: t::class.java.simpleName)
                 )
                 return@launch
             }
             if (!ok) {
-                _uiState.value = _uiState.value.copy(isSaving = false, error = "药品已不存在，入库未执行")
+                _uiState.value = _uiState.value.copy(isSaving = false, error = app.getString(R.string.refill_error_med_missing))
                 return@launch
             }
             // 入库即自动开启库存追踪（此前需用户手工在表单里填初始库存才开）。
@@ -132,7 +138,7 @@ class RefillViewModel(
                 .onFailure { t ->
                     AppLog.w("RefillViewModel", "enable stock tracking after refill failed med=$medId", t)
                     _uiState.value = _uiState.value.copy(
-                        error = "入库成功，但开启库存追踪失败：${t.message ?: t::class.java.simpleName}"
+                        error = app.getString(R.string.refill_error_tracking_failed, t.message ?: t::class.java.simpleName)
                     )
                 }
             _uiState.value = _uiState.value.copy(isSaving = false)

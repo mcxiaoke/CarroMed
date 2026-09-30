@@ -4,6 +4,7 @@ import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.DataExporter
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
@@ -28,6 +29,8 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 
 data class DayAdherence(
     val date: LocalDate,
@@ -148,6 +151,7 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
 
     /** 7 天矩阵的原始计算结果，单独成一个流好和流水分开演进。 */
     private val matrixState: Flow<MatrixState> = todayFlow.flatMapLatest { today ->
+        val app = getApplication<Application>()
         val weekDates = remember7Days(today)
         combine(
             medDao.observeActiveOverviews(),
@@ -167,7 +171,7 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
                     DayAdherence(
                         date = d,
                         isToday = d == today,
-                        dayLabel = if (d == today) "今日" else dayLabelOf(d),
+                        dayLabel = if (d == today) app.getString(R.string.prog_today_label) else dayLabelOf(d),
                         state = StatsEngine.resolveDayState(b, isFutureDay = d.isAfter(today)),
                         completed = b.completed,
                         total = b.total
@@ -350,10 +354,14 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
     private fun remember7Days(today: LocalDate): List<LocalDate> =
         (6 downTo 0).map { today.minusDays(it.toLong()) }
 
-    private fun dayLabelOf(d: LocalDate): String = when (d.dayOfWeek.value) {
-        1 -> "周一"; 2 -> "周二"; 3 -> "周三"; 4 -> "周四"
-        5 -> "周五"; 6 -> "周六"; else -> "周日"
-    }
+    /**
+     * 星期标签走 `java.time` 本地化格式化而不是字符串资源：
+     * 中文环境给出「周一」…「周日」，其他语言自动跟随系统（"Mon"…）。
+     * 用 [TextStyle.SHORT]：与旧版两字宽度一致，矩阵列宽只有 36dp，
+     * 英文环境 FULL 的 "Monday" 会撑破布局。
+     */
+    private fun dayLabelOf(d: LocalDate): String =
+        d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
 
     fun selectTab(tab: Int) {
         _selectedTab.value = tab
@@ -366,14 +374,14 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
             try {
                 val file = DataExporter.exportDoseRecordsCsv(app, db)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, "已导出 ${file.name}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(app, app.getString(R.string.prog_export_success, file.name), Toast.LENGTH_LONG).show()
                 }
                 DataExporter.shareFile(app, file, "text/csv")
             } catch (e: Exception) {
                 // 吞异常降级成 Toast 的地方必须留痕（PLAN-LOGGING G4）
                 AppLog.w(TAG, "exportReport failed", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(app, app.getString(R.string.prog_export_failure, e.message), Toast.LENGTH_SHORT).show()
                 }
             }
         }

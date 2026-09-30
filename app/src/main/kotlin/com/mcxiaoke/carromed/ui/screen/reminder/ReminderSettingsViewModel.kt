@@ -1,8 +1,9 @@
 package com.mcxiaoke.carromed.ui.screen.reminder
 
 import android.app.Application
-import com.mcxiaoke.carromed.core.domain.model.Dose
 import androidx.lifecycle.AndroidViewModel
+import com.mcxiaoke.carromed.R
+import com.mcxiaoke.carromed.core.domain.model.Dose
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
@@ -140,9 +141,13 @@ class ReminderSettingsViewModel(
 
     fun load() {
         viewModelScope.launch {
+            val app = getApplication<Application>()
             val med = medDao.getMedicationById(medId)
             if (med == null) {
-                _uiState.value = _uiState.value.copy(isLoading = false, error = "药品不存在或已被删除")
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = app.getString(R.string.rem_error_med_not_found)
+                )
                 return@launch
             }
             // 提醒运行态独占 reminder_settings 表（A2）。先确保有行 ——
@@ -331,23 +336,24 @@ class ReminderSettingsViewModel(
 
     fun save() {
         val s = _uiState.value
+        val app = getApplication<Application>()
 
         // ⭐ 同步前置的"正在保存"闸门（M2-4）：双击会重复提交。
         if (s.isSaving) return
 
         if (s.policyType == PolicyType.DAYS_OF_WEEK && s.daysOfWeek.isEmpty()) {
-            _uiState.value = s.copy(error = DOW_ERROR)
+            _uiState.value = s.copy(error = app.getString(DOW_ERROR))
             return
         }
         if (s.policyType != PolicyType.PRN && s.times.isEmpty()) {
-            _uiState.value = s.copy(error = TIME_ERROR)
+            _uiState.value = s.copy(error = app.getString(TIME_ERROR))
             return
         }
         // 重复时点在领域层会被 require 拒绝（事务回滚）；这里前置拦下，
         // 把它变成表单台词而不是一个没接住的异常（P1）
         val timeKeys = s.times.map { it.time.trim() }
         if (timeKeys.size != timeKeys.distinct().size) {
-            _uiState.value = s.copy(error = DUPLICATE_TIME_ERROR)
+            _uiState.value = s.copy(error = app.getString(DUPLICATE_TIME_ERROR))
             return
         }
         // ⭐ 剂量必须逐条为正（M2-1）。0 剂量 ⇒ 闹钟照响、打卡照记、库存永不扣。
@@ -355,7 +361,7 @@ class ReminderSettingsViewModel(
         val badDose = s.times.firstOrNull { it.parsedDose() == null }
         if (badDose != null) {
             _uiState.value = s.copy(
-                error = "${badDose.time} 的剂量无效：请输入大于 0 的数值（例如 1 或 0.5）"
+                error = app.getString(R.string.rem_error_dose_invalid_at, badDose.time)
             )
             return
         }
@@ -372,7 +378,7 @@ class ReminderSettingsViewModel(
             // 结束日解析不出来（理论上不会，日期都是选择器给的）时**不拦**：
             // 拿一个解析失败当"非法"去阻止用户保存，是在制造新问题。
             if (start != null && end != null && end.isBefore(start)) {
-                _uiState.value = s.copy(error = END_BEFORE_START_ERROR)
+                _uiState.value = s.copy(error = app.getString(END_BEFORE_START_ERROR))
                 return
             }
         }
@@ -412,7 +418,10 @@ class ReminderSettingsViewModel(
                             // `!!` 安全：save() 已在协程之前逐条校验过 parsedDose() != null
                             MedicationAdminService.TimeDraft(
                                 it.time,
-                                requireNotNull(it.parsedDose()) { "剂量无效：${it.time}" },
+                                // 消息会经 onFailure 的「保存失败：」透出给用户（M2-3），走资源
+                                requireNotNull(it.parsedDose()) {
+                                    app.getString(R.string.rem_error_dose_invalid, it.time)
+                                },
                                 it.label
                             )
                         }
@@ -445,7 +454,10 @@ class ReminderSettingsViewModel(
             }.onFailure { t ->
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = "保存失败：${t.message ?: t::class.java.simpleName}"
+                    error = app.getString(
+                        R.string.rem_error_save_failed,
+                        t.message ?: t::class.java.simpleName
+                    )
                 )
                 return@launch
             }
@@ -498,18 +510,29 @@ class ReminderSettingsViewModel(
         _uiState.value = _uiState.value.copy(preview = preview)
     }
 
-    private fun dayLabel(d: LocalDate): String =
-        when (d.dayOfWeek.value) {
-            1 -> "周一"; 2 -> "周二"; 3 -> "周三"; 4 -> "周四"
-            5 -> "周五"; 6 -> "周六"; else -> "周日"
+    private fun dayLabel(d: LocalDate): String {
+        val app = getApplication<Application>()
+        return when (d.dayOfWeek.value) {
+            1 -> app.getString(R.string.rem_weekday_1)
+            2 -> app.getString(R.string.rem_weekday_2)
+            3 -> app.getString(R.string.rem_weekday_3)
+            4 -> app.getString(R.string.rem_weekday_4)
+            5 -> app.getString(R.string.rem_weekday_5)
+            6 -> app.getString(R.string.rem_weekday_6)
+            else -> app.getString(R.string.rem_weekday_7)
         }
+    }
 
     private inline fun mutate(
-        clearErrorFor: String? = null,
+        clearErrorFor: Int? = null,
         crossinline block: (ReminderSettingsUiState) -> ReminderSettingsUiState
     ) {
         val cur = _uiState.value
-        val cleared = if (clearErrorFor != null && cur.error == clearErrorFor) null else cur.error
+        // clearErrorFor 是报错文案的资源 ID：仅当当前报错正是同一句时才清掉，
+        // 改频次不该顺手抹掉"剂量无效"之类的别的报错。
+        val cleared = if (clearErrorFor != null && cur.error != null &&
+            cur.error == getApplication<Application>().getString(clearErrorFor)
+        ) null else cur.error
         val next = block(cur.copy(error = cleared))
         _uiState.value = next
         refreshPreview()
@@ -538,9 +561,10 @@ class ReminderSettingsViewModel(
     }
 
     companion object {
-        const val DOW_ERROR = "请至少选择一个每周服药日"
-        const val TIME_ERROR = "请至少设置一个提醒时点"
-        const val DUPLICATE_TIME_ERROR = "存在重复的服药时点，请合并或修改"
-        const val END_BEFORE_START_ERROR = "疗程结束日不能早于起始日"
+        /** 校验报错文案的资源 ID（B2 文案抽取），文案在 strings_rem.xml */
+        val DOW_ERROR = R.string.rem_error_dow_required
+        val TIME_ERROR = R.string.rem_error_time_required
+        val DUPLICATE_TIME_ERROR = R.string.rem_error_duplicate_time
+        val END_BEFORE_START_ERROR = R.string.rem_error_end_before_start
     }
 }

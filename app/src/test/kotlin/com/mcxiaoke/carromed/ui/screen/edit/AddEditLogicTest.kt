@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -30,21 +31,25 @@ class AddEditLogicTest {
         medId = null
     )
 
+    /** Robolectric 环境下解析字符串资源（B2 文案抽取后错误常量是资源 ID） */
+    private fun str(resId: Int): String =
+        ApplicationProvider.getApplicationContext<Application>().getString(resId)
+
     @Test
     fun defaultState_startsWithOneDailySlot() {
         val s = newVm().uiState.value
         assertThat(s.policyType).isEqualTo(PolicyType.DAILY)
         assertThat(s.timeSlots).hasSize(1)
         assertThat(s.isEdit).isFalse()
-        assertThat(s.title).isEqualTo("添加药品")
+        assertThat(s.titleRes).isEqualTo(R.string.medit_title_add_medication)
     }
 
     @Test
     fun title_distinguishesAddFromEditInfo() {
-        assertThat(newVm().uiState.value.title).isEqualTo("添加药品")
+        assertThat(newVm().uiState.value.titleRes).isEqualTo(R.string.medit_title_add_medication)
         val edit = AddEditUiState(medId = 5L, mode = AddEditMode.INFO_ONLY)
         assertThat(edit.isEdit).isTrue()
-        assertThat(edit.title).isEqualTo("编辑药品信息")
+        assertThat(edit.titleRes).isEqualTo(R.string.medit_title_edit_medication_info)
     }
 
     /** 走真实 `onIntervalDaysChange`：夹紧发生在 ViewModel 里，不是标准库的自言自语 */
@@ -92,9 +97,9 @@ class AddEditLogicTest {
 
     @Test
     fun errorConstants_areDistinctAndNonBlank() {
-        assertThat(AddEditMedicationViewModel.NAME_ERROR).isEqualTo("请输入药品名称")
-        assertThat(AddEditMedicationViewModel.DOW_ERROR).isEqualTo("请至少选择一个每周服药日")
-        assertThat(AddEditMedicationViewModel.TIME_ERROR).isEqualTo("请至少设置一个提醒时点")
+        assertThat(str(AddEditMedicationViewModel.NAME_ERROR)).isEqualTo("请输入药品名称")
+        assertThat(str(AddEditMedicationViewModel.DOW_ERROR)).isEqualTo("请至少选择一个每周服药日")
+        assertThat(str(AddEditMedicationViewModel.TIME_ERROR)).isEqualTo("请至少设置一个提醒时点")
     }
 
     // ==================== PRN 口径必须与提醒页一致（M7-9） ====================
@@ -133,7 +138,7 @@ class AddEditLogicTest {
         assertThat(vm.uiState.value.timeSlots.single().time).isEmpty()
 
         vm.save(onSuccess = {})
-        assertThat(vm.uiState.value.error).isEqualTo(AddEditMedicationViewModel.TIME_ERROR)
+        assertThat(vm.uiState.value.error).isEqualTo(str(AddEditMedicationViewModel.TIME_ERROR))
     }
 
     /**
@@ -153,7 +158,7 @@ class AddEditLogicTest {
         vm.save(onSuccess = {})
         // 一条都没填 ⇒ 与"列表为空"是同一种处境（用户还没开始配提醒），
         // 所以给的是概括台词 `TIME_ERROR`，而不是逐条点名。
-        assertThat(vm.uiState.value.error).isEqualTo(AddEditMedicationViewModel.TIME_ERROR)
+        assertThat(vm.uiState.value.error).isEqualTo(str(AddEditMedicationViewModel.TIME_ERROR))
     }
 
     /** 半截输入（"08:"）同样非法，且要指出是哪一格 */

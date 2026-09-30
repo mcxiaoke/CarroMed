@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.ui.screen.cabinet
 
 import android.app.Application
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
@@ -9,6 +10,7 @@ import com.mcxiaoke.carromed.core.data.model.MedicationOverview
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -32,11 +34,11 @@ data class MedicationItemUi(
 }
 
 /** 药箱排序方式 */
-enum class CabinetSortOrder(val label: String) {
-    DEFAULT("默认 (最近添加)"),
-    NAME("按名称"),
-    STOCK_LOW("库存由少到多"),
-    EXPIRY_SOON("临期优先")
+enum class CabinetSortOrder(@StringRes val labelRes: Int) {
+    DEFAULT(R.string.cabinet_sort_default),
+    NAME(R.string.cabinet_sort_name),
+    STOCK_LOW(R.string.cabinet_sort_stock_low),
+    EXPIRY_SOON(R.string.cabinet_sort_expiry_soon)
 }
 
 data class CabinetUiState(
@@ -144,9 +146,10 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
         val times = policy?.let { timesByPolicy[it.id] } ?: emptyList()
 
         val timeStr = times.joinToString(", ") { it.timeOfDay }
-        val perDay = if (times.isEmpty()) "0 次" else "${times.size} 次"
+        val app = getApplication<Application>()
+        val perDay = app.getString(R.string.cabinet_freq_times, times.size)
         val freqDesc = when (policy?.policyType) {
-            PolicyType.DAILY -> "每天 $perDay · $timeStr"
+            PolicyType.DAILY -> app.getString(R.string.cabinet_freq_daily, perDay, timeStr)
             PolicyType.INTERVAL -> {
                 // ⭐ 与库存页逐字同口径（M4-4）。
                 //
@@ -161,20 +164,32 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
                 // 但两个页面用两种写法会让人怀疑它们算的是不同的事。
                 val n = policy.intervalDays
                 val intervalText = when {
-                    n <= 1 -> "每天"
-                    n == 2 -> "隔天"
-                    else -> "每 $n 天"
+                    n <= 1 -> app.getString(R.string.cabinet_freq_everyday)
+                    n == 2 -> app.getString(R.string.cabinet_freq_every_other_day)
+                    else -> app.getString(R.string.cabinet_freq_every_n_days, n)
                 }
-                "$intervalText $perDay · $timeStr"
+                app.getString(R.string.cabinet_freq_pattern, intervalText, perDay, timeStr)
             }
             PolicyType.DAYS_OF_WEEK -> {
-                val dayNames = listOf("一", "二", "三", "四", "五", "六", "日")
-                val picked = policy.daysOfWeek.sorted().joinToString("·") { dayNames.getOrElse(it - 1) { "?" } }
-                "每周 $picked · $timeStr"
+                val dayNames = listOf(
+                    R.string.cabinet_freq_dow_1,
+                    R.string.cabinet_freq_dow_2,
+                    R.string.cabinet_freq_dow_3,
+                    R.string.cabinet_freq_dow_4,
+                    R.string.cabinet_freq_dow_5,
+                    R.string.cabinet_freq_dow_6,
+                    R.string.cabinet_freq_dow_7
+                )
+                val picked = policy.daysOfWeek.sorted()
+                    .joinToString("·") { app.getString(dayNames.getOrElse(it - 1) { R.string.cabinet_freq_dow_unknown }) }
+                app.getString(R.string.cabinet_freq_weekly, picked, timeStr)
             }
-            PolicyType.CYCLE -> "周期 ${policy.cycleOnDays}天服/${policy.cycleOffDays}天停 · $timeStr"
-            PolicyType.PRN -> "按需服用 · 不设定时闹钟"
-            null -> if (times.isNotEmpty()) "每日 $perDay · $timeStr" else "暂无排班"
+            PolicyType.CYCLE ->
+                app.getString(R.string.cabinet_freq_cycle, policy.cycleOnDays, policy.cycleOffDays, timeStr)
+            PolicyType.PRN -> app.getString(R.string.cabinet_freq_prn)
+            null ->
+                if (times.isNotEmpty()) app.getString(R.string.cabinet_freq_daily_no_policy, perDay, timeStr)
+                else app.getString(R.string.cabinet_freq_no_schedule)
         }
 
         return MedicationItemUi(

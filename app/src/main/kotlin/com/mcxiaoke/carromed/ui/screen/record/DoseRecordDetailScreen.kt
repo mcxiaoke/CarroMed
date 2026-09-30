@@ -665,9 +665,10 @@ private fun formatDay(ts: Long): String =
  * 解析失败时**原样回显**：这段代码渲染的是详情页顶部，
  * 一条坏串不该把整页打成崩溃（AGENTS.md §2 第 7 条：坏数据只坏在一处）。
  */
+@Composable
 private fun formatDayLabel(scheduledDate: String): String =
     runCatching { LocalDate.parse(scheduledDate) }.getOrNull()
-        ?.let { "${it.monthValue}月${it.dayOfMonth}日" }
+        ?.let { stringResource(R.string.rdetail_date_md, it.monthValue, it.dayOfMonth) }
         ?: scheduledDate
 
 /**

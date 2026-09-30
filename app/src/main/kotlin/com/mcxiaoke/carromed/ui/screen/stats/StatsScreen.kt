@@ -89,7 +89,7 @@ fun StatsScreen(
                         icon = {}
                     ) {
                         Text(
-                            p.label,
+                            stringResource(p.labelRes),
                             fontSize = 13.sp,
                             fontWeight = if (uiState.selectedPeriod == index) FontWeight.Bold else FontWeight.Normal
                         )
@@ -118,7 +118,7 @@ fun StatsScreen(
                     Text(
                         text = stringResource(
                             R.string.stats_period_total,
-                            StatsPeriod.entries[uiState.selectedPeriod].label
+                            stringResource(StatsPeriod.entries[uiState.selectedPeriod].labelRes)
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)

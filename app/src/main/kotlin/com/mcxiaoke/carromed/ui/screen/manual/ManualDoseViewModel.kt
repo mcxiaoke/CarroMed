@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.ui.screen.manual
 
 import android.app.Application
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -136,23 +137,32 @@ class ManualDoseViewModel(
         val s = _uiState.value
         val med = s.selectedMedication
         if (med == null) {
-            _uiState.value = s.copy(error = "请先选择药品")
+            _uiState.value = s.copy(
+                error = getApplication<Application>().getString(R.string.man_error_select_medication)
+            )
             return
         }
         val amount = DecimalInput.parsePositive(s.doseAmount)
         if (amount == null) {
-            _uiState.value = s.copy(error = "请输入有效的服用剂量（大于 0）")
+            _uiState.value = s.copy(
+                error = getApplication<Application>().getString(R.string.man_error_invalid_dose)
+            )
             return
         }
         if (s.actualDateTime.isAfter(LocalDateTime.now().plusMinutes(1))) {
-            _uiState.value = s.copy(error = "不能补录未来的服药时间")
+            _uiState.value = s.copy(
+                error = getApplication<Application>().getString(R.string.man_error_future_time)
+            )
             return
         }
         // 时间窗下界与领域层 logManualDose 同源（MANUAL_DOSE_BACKFILL_DAYS），
         // 按自然日判定 —— 与记录详情页撤销窗口同一口径。
         val minDate = LocalDate.now().minusDays(MANUAL_DOSE_BACKFILL_DAYS)
         if (s.actualDateTime.toLocalDate().isBefore(minDate)) {
-            _uiState.value = s.copy(error = "只能补录最近 $MANUAL_DOSE_BACKFILL_DAYS 天内的服药")
+            _uiState.value = s.copy(
+                error = getApplication<Application>()
+                    .getString(R.string.man_error_backfill_days, MANUAL_DOSE_BACKFILL_DAYS)
+            )
             return
         }
         // 双击保护与 AddEdit/Reminder 同一条纪律（M2-4）
@@ -160,6 +170,7 @@ class ManualDoseViewModel(
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
+            val app = getApplication<Application>()
             val epochMilli = s.actualDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
             // ⚠️ 整个调用包 runCatching（M2-3）。
@@ -179,7 +190,10 @@ class ManualDoseViewModel(
             }.onFailure { t ->
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = "补录失败：${t.message ?: t::class.java.simpleName}"
+                    error = app.getString(
+                        R.string.man_error_save_failed,
+                        t.message ?: t::class.java.simpleName
+                    )
                 )
                 return@launch
             }

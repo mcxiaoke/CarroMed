@@ -63,4 +63,38 @@
     <string name="mdetail_status_retro">补录</string>
     <string name="mdetail_status_skipped">已跳过</string>
     <string name="mdetail_status_reverted">已撤销</string>
+
+    <!-- ViewModel 错误消息 -->
+    <string name="mdetail_err_not_found">药品不存在或已被删除</string>
+
+    <!-- 摘要行(信息/提醒/库存分节副标题) -->
+    <string name="mdetail_sum_has_description">含医嘱说明</string>
+    <string name="mdetail_sum_precautions">%1$d 条注意事项</string>
+    <string name="mdetail_sum_expiry">效期 %1$s</string>
+    <string name="mdetail_sum_notice_short_set">通知简述已设</string>
+    <string name="mdetail_sum_defaults">%1$s · %2$s · 默认 %3$s %4$s/次</string>
+    <string name="mdetail_sum_no_plan">尚未设置服药计划 · 这味药不会自动提醒 → 点击设置</string>
+    <string name="mdetail_sum_freq_daily">每天 %1$d 次</string>
+    <string name="mdetail_sum_freq_interval_short">隔天</string>
+    <string name="mdetail_sum_freq_interval">每隔 %1$d 天</string>
+    <string name="mdetail_sum_freq_weekly">每周 %1$d 天</string>
+    <string name="mdetail_sum_freq_cycle">周期 %1$d服/%2$d停</string>
+    <string name="mdetail_sum_freq_prn">按需服用</string>
+    <string name="mdetail_sum_no_fixed_times">无固定时点</string>
+    <string name="mdetail_sum_until">至 %1$s</string>
+    <string name="mdetail_sum_indefinite">无限期</string>
+    <string name="mdetail_sum_flag_critical">重要提醒</string>
+    <string name="mdetail_sum_flag_snooze">推迟 %1$d 分</string>
+    <string name="mdetail_sum_flag_advance">提前 %1$d 分</string>
+    <string name="mdetail_sum_stock_off">未开启库存追踪</string>
+    <string name="mdetail_sum_stock_negative">账面 %1$s %2$s，已超出记录库存，请盘点校准</string>
+    <string name="mdetail_sum_stock_remaining">%1$s %2$s 剩余</string>
+    <string name="mdetail_sum_runway">" · 约可用 %1$d 天"</string>
+
+    <!-- 库存流水类型标签 -->
+    <string name="mdetail_tx_taken">服药扣减</string>
+    <string name="mdetail_tx_refill">购药入库</string>
+    <string name="mdetail_tx_revert">撤销冲正</string>
+    <string name="mdetail_tx_calibrate">盘点调整</string>
+    <string name="mdetail_tx_dose_edit">改剂量调整</string>
 </resources>

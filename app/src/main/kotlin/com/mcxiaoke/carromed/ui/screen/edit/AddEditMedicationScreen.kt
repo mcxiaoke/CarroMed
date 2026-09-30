@@ -121,7 +121,7 @@ fun AddEditMedicationScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(uiState.title, fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(uiState.titleRes), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     TextButton(onClick = onNavigateBack) {
                         Text(stringResource(R.string.medit_cancel), style = MaterialTheme.typography.bodyLarge)

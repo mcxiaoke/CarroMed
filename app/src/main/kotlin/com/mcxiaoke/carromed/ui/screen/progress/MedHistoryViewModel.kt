@@ -3,6 +3,7 @@ package com.mcxiaoke.carromed.ui.screen.progress
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
@@ -98,9 +99,10 @@ class MedHistoryViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     private suspend fun loadOnce(medId: Long) {
+        val app = getApplication<Application>()
         val med = medDao.getMedicationById(medId)
         if (med == null) {
-            _uiState.update { it.copy(isLoading = false, error = "药品不存在或已被删除") }
+            _uiState.update { it.copy(isLoading = false, error = app.getString(R.string.mhist_error_med_not_found)) }
             return
         }
         val records = recordDao.getRecordsForMedication(medId)
@@ -127,7 +129,7 @@ class MedHistoryViewModel(application: Application) : AndroidViewModel(applicati
                 .map { (ym, list) ->
                     MedHistoryMonth(
                         yearMonth = ym,
-                        headerLabel = "${ym.year} 年 ${ym.monthValue} 月",
+                        headerLabel = app.getString(R.string.mhist_header_ym, ym.year, ym.monthValue),
                         items = list.sortedByDescending { it.actualTs },
                         completedDoseMilli = list
                             .filter { it.status == RecordStatus.COMPLETED }

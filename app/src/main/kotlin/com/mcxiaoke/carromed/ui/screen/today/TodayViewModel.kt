@@ -3,6 +3,7 @@ package com.mcxiaoke.carromed.ui.screen.today
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
@@ -217,12 +218,14 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
     fun takeDose(slotId: Long) {
         viewModelScope.launch {
+            val app = getApplication<Application>()
             // 三种结果必须说三种话：未来槽位说"已处理过"是撒谎
             // （事实是从未有机会处理），说"未重复扣减"也会让用户以为打卡生效了。
             when (actions.confirm(slotId)) {
                 DoseActionResult.APPLIED -> Unit
-                DoseActionResult.FUTURE_SLOT -> emitEvent("未来的服药时间不能提前确认")
-                DoseActionResult.ALREADY_HANDLED -> emitEvent("该服药记录已处理过，未重复扣减库存")
+                DoseActionResult.FUTURE_SLOT -> emitEvent(app.getString(R.string.today_err_future_slot))
+                DoseActionResult.ALREADY_HANDLED ->
+                    emitEvent(app.getString(R.string.today_err_already_handled))
             }
         }
     }

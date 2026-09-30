@@ -18,4 +18,10 @@
     <string name="stats_legend_skipped">主动跳过</string>
     <string name="stats_legend_missed">逾期漏服</string>
     <string name="stats_pending_note">另有 %1$d 次尚未到服药时间，未计入依从率。</string>
+    <!-- 统计周期标签（StatsPeriod 枚举） -->
+    <string name="stats_period_week">过去 7 天</string>
+    <string name="stats_period_month">过去 30 天</string>
+    <string name="stats_period_year">过去 1 年</string>
+    <string name="stats_export_done">已导出 %1$s</string>
+    <string name="stats_export_failed">导出失败: %1$s</string>
 </resources>

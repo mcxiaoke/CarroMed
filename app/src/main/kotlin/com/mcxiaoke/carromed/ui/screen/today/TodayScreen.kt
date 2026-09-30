@@ -577,9 +577,11 @@ private fun PendingDoseCard(
  * **每一条**未来卡片调用，一旦 `LocalDate.parse` 抛异常就是整页崩溃。
  * 解析失败时原样回显计划日，绝不抛。
  */
+@Composable
 private fun futureDayLabel(scheduledDate: String, today: LocalDate): String {
     val date = runCatching { LocalDate.parse(scheduledDate) }.getOrNull() ?: return scheduledDate
-    return if (date == today.plusDays(1)) "明天" else "${date.monthValue}月${date.dayOfMonth}日"
+    return if (date == today.plusDays(1)) stringResource(R.string.today_future_tomorrow)
+    else stringResource(R.string.today_date_md, date.monthValue, date.dayOfMonth)
 }
 
 /** 首启引导卡：药箱为空时给出明确的下一步，而不是干瘪一句"今天没有待服任务" */

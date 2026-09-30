@@ -2,8 +2,10 @@ package com.mcxiaoke.carromed.ui.screen.stats
 
 import android.app.Application
 import android.widget.Toast
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
@@ -58,10 +60,10 @@ data class StatsUiState(
 )
 
 /** 统计周期：周 / 月 / 年 */
-enum class StatsPeriod(val label: String, val days: Int) {
-    WEEK("过去 7 天", 7),
-    MONTH("过去 30 天", 30),
-    YEAR("过去 1 年", 365)
+enum class StatsPeriod(@StringRes val labelRes: Int, val days: Int) {
+    WEEK(R.string.stats_period_week, 7),
+    MONTH(R.string.stats_period_month, 30),
+    YEAR(R.string.stats_period_year, 365)
 }
 
 /**
@@ -256,7 +258,7 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val file = DataExporter.exportDoseRecordsCsv(app, AppDatabase.getInstance(app))
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, "已导出 ${file.name}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(app, app.getString(R.string.stats_export_done, file.name), Toast.LENGTH_LONG).show()
                 }
                 DataExporter.shareFile(app, file, "text/csv")
             } catch (e: Exception) {
@@ -264,7 +266,7 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
                 // e.message 可能为 null，堆栈才是归因依据
                 AppLog.w(TAG, "exportReport failed", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(app, app.getString(R.string.stats_export_failed, e.message), Toast.LENGTH_SHORT).show()
                 }
             }
         }

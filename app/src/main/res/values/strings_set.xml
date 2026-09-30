@@ -48,6 +48,14 @@
     <string name="set_local_restore_title">从本机备份恢复</string>
     <string name="set_local_restore_desc">直接选用 App 刚生成的备份（系统文件选择器看不到这个目录）</string>
     <string name="set_local_backup_button">本机备份</string>
+    <string name="set_export_csv_done">已导出 %1$s，请选择保存或分享方式</string>
+    <string name="set_backup_done">备份已生成 %1$s</string>
+    <string name="set_backup_failed">备份失败: %1$s</string>
+    <string name="set_restore_error">无法恢复：%1$s</string>
+    <string name="set_restore_success_fmt">恢复成功：%1$d 种药品、%2$d 条服药记录已还原。</string>
+    <string name="set_restore_snapshot_fmt">已留恢复前快照：%1$s</string>
+    <string name="set_restore_no_snapshot">（未能生成恢复前快照）</string>
+    <string name="set_restore_failed">恢复失败：%1$s</string>
     <string name="set_export_log_title">导出诊断日志</string>
     <string name="set_export_log_desc">最近 7 天的运行日志，排查提醒与记账问题用</string>
     <string name="set_share_log_title">分享诊断日志</string>

@@ -43,6 +43,21 @@
     <string name="rdetail_note_actionable_hint">备注会随「确认服用」一起保存；只填不确认不会留下记录。</string>
     <string name="rdetail_note_future_hint">到达当天才能确认服用，备注会在那时一起保存；现在填写的内容不会落库。</string>
 
+    <!-- 单位兜底（med.unit 为空时的展示，由 ViewModel 填入状态） -->
+    <string name="rdetail_unit_default">片</string>
+
+    <!-- ViewModel 错误提示 -->
+    <string name="rdetail_error_time_locked">这条记录不能改时间</string>
+    <string name="rdetail_error_time_future">服药时间不能晚于现在</string>
+    <string name="rdetail_error_dose_invalid">请输入大于 0 的剂量（例如 1 或 0.5）</string>
+    <string name="rdetail_error_record_immutable">这条记录已不可修改（可能已被撤销）</string>
+    <string name="rdetail_error_save_failed">保存失败：%1$s</string>
+    <string name="rdetail_error_state_changed">这条记录的状态已变化，请重新查看</string>
+    <string name="rdetail_fail_confirm">确认失败：%1$s</string>
+    <string name="rdetail_fail_skip">跳过失败：%1$s</string>
+    <string name="rdetail_fail_undo">撤销失败：%1$s</string>
+    <string name="rdetail_fail_snooze">推迟失败：%1$s</string>
+
     <!-- 动作区 -->
     <string name="rdetail_confirm">确认服用</string>
     <string name="rdetail_confirm_rejudged">确认服用（改判）</string>
@@ -59,4 +74,7 @@
     <string name="rdetail_footnote_completed_no_undo">只有当天服用的记录可以撤销。更早的记录已经计入那几天的依从率，只能在「跳过」与「确认」之间改判。</string>
     <string name="rdetail_footnote_skipped_no_undo">只有当天的记录可以撤销。这条已经计入统计，可以在「确认」与「跳过」之间改判。</string>
     <string name="rdetail_footnote_expired">这条超过了计划时间且尚未确认。现在补记仍然有效：确认按实际服用记，跳过则不扣减库存。</string>
+
+    <!-- 日期说明 -->
+    <string name="rdetail_date_md">%1$d月%2$d日</string>
 </resources>

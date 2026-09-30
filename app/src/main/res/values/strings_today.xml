@@ -51,4 +51,12 @@
     <string name="today_cd_date">日期 %1$d月%2$d日 周%3$s</string>
     <string name="today_cd_today_suffix">，今天</string>
     <string name="today_cd_future_suffix">，未来排班预览</string>
+
+    <!-- ViewModel 错误消息 -->
+    <string name="today_err_future_slot">未来的服药时间不能提前确认</string>
+    <string name="today_err_already_handled">该服药记录已处理过，未重复扣减库存</string>
+
+    <!-- 未来槽位日期说明 -->
+    <string name="today_future_tomorrow">明天</string>
+    <string name="today_date_md">%1$d月%2$d日</string>
 </resources>

@@ -3,6 +3,7 @@ package com.mcxiaoke.carromed.ui.screen.detail
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
@@ -105,7 +106,11 @@ class MedicationDetailViewModel(
     private suspend fun loadDataOnce() {
             val overview = medDao.getOverviewById(medId)
             if (overview == null) {
-                _uiState.value = _uiState.value.copy(isLoading = false, error = "药品不存在或已被删除")
+                val app = getApplication<Application>()
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = app.getString(R.string.mdetail_err_not_found)
+                )
                 return
             }
             val med = overview.medication

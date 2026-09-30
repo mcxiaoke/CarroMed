@@ -1,8 +1,10 @@
 package com.mcxiaoke.carromed.ui.screen.edit
 
 import android.app.Application
+import androidx.annotation.StringRes
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
@@ -121,11 +123,14 @@ data class AddEditUiState(
     val error: String? = null
 ) {
     val isEdit: Boolean get() = medId != null && medId > 0L
-    val title: String
+
+    /** 顶部栏标题的资源 ID，Screen 侧用 `stringResource(titleRes)` 解析 */
+    @get:StringRes
+    val titleRes: Int
         get() = when {
-            isEdit && mode == AddEditMode.INFO_ONLY -> "编辑药品信息"
-            isEdit -> "编辑药品"
-            else -> "添加药品"
+            isEdit && mode == AddEditMode.INFO_ONLY -> R.string.medit_title_edit_medication_info
+            isEdit -> R.string.medit_title_edit_medication
+            else -> R.string.medit_title_add_medication
         }
 }
 
@@ -186,9 +191,13 @@ class AddEditMedicationViewModel(
 
     private fun loadExistingMedication(id: Long) {
         viewModelScope.launch {
+            val app = getApplication<Application>()
             val med = medDao.getMedicationById(id)
             if (med == null) {
-                _uiState.value = _uiState.value.copy(isLoading = false, error = "药品不存在或已被删除")
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    error = app.getString(R.string.medit_error_med_not_found)
+                )
                 return@launch
             }
             val policy = policyDao.getActivePolicyForMedication(id)
@@ -343,6 +352,7 @@ class AddEditMedicationViewModel(
 
     fun save(onSuccess: (Long) -> Unit) {
         val s = _uiState.value
+        val app = getApplication<Application>()
 
         // ⭐ 同步前置的"正在保存"闸门（M2-4）。
         //
@@ -355,12 +365,12 @@ class AddEditMedicationViewModel(
         if (s.isSaving) return
 
         if (s.name.isBlank()) {
-            _uiState.value = s.copy(error = NAME_ERROR)
+            _uiState.value = s.copy(error = app.getString(NAME_ERROR))
             return
         }
         val policyRequired = s.mode == AddEditMode.FULL
         if (policyRequired && s.policyType == PolicyType.DAYS_OF_WEEK && s.daysOfWeek.isEmpty()) {
-            _uiState.value = s.copy(error = DOW_ERROR)
+            _uiState.value = s.copy(error = app.getString(DOW_ERROR))
             return
         }
         // ⚠️ 两个 `if` 的条件互斥且体完全相同，等价于
@@ -377,7 +387,7 @@ class AddEditMedicationViewModel(
             // 详见 [TimeSlotDraft.parsedTime]：一个 `time = ""` 的槽位
             // 能让 `isEmpty()` 放行，随后被引擎回退成 08:00。
             if (s.timeSlots.none { it.parsedTime() != null }) {
-                _uiState.value = s.copy(error = TIME_ERROR)
+                _uiState.value = s.copy(error = app.getString(TIME_ERROR))
                 return
             }
             // 逐条指出是哪一格没填 —— 六格表单只说"请设置提醒时点"，
@@ -386,10 +396,16 @@ class AddEditMedicationViewModel(
             if (badTime != null) {
                 _uiState.value = s.copy(
                     error = if (badTime.time.isBlank()) {
-                        "第 ${s.timeSlots.indexOf(badTime) + 1} 个提醒时点还没填时间（格式 08:00）"
+                        app.getString(
+                            R.string.medit_error_time_blank,
+                            s.timeSlots.indexOf(badTime) + 1
+                        )
                     } else {
-                        "第 ${s.timeSlots.indexOf(badTime) + 1} 个提醒时点的「${badTime.time}」" +
-                            "不是有效时间，请按 08:00 的格式填写"
+                        app.getString(
+                            R.string.medit_error_time_invalid,
+                            s.timeSlots.indexOf(badTime) + 1,
+                            badTime.time
+                        )
                     }
                 )
                 return
@@ -400,7 +416,7 @@ class AddEditMedicationViewModel(
         if (policyRequired) {
             val timeKeys = s.timeSlots.map { it.time.trim() }
             if (timeKeys.size != timeKeys.distinct().size) {
-                _uiState.value = s.copy(error = DUPLICATE_TIME_ERROR)
+                _uiState.value = s.copy(error = app.getString(DUPLICATE_TIME_ERROR))
                 return
             }
             // ⭐ 剂量必须**逐条**为正（M2-1）。
@@ -411,7 +427,7 @@ class AddEditMedicationViewModel(
             val badDose = s.timeSlots.firstOrNull { it.parsedDose() == null }
             if (badDose != null) {
                 _uiState.value = s.copy(
-                    error = "${badDose.time} 的剂量无效：请输入大于 0 的数值（例如 1 或 0.5）"
+                    error = app.getString(R.string.medit_error_dose_invalid, badDose.time)
                 )
                 return
             }
@@ -434,7 +450,10 @@ class AddEditMedicationViewModel(
             }.onFailure { t ->
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = "保存失败：${t.message ?: t::class.java.simpleName}"
+                    error = app.getString(
+                        R.string.medit_error_save_failed,
+                        t.message ?: t::class.java.simpleName
+                    )
                 )
             }
         }
@@ -512,11 +531,15 @@ class AddEditMedicationViewModel(
     // ---------------- 内部工具 ----------------
 
     private inline fun mutate(
-        clearErrorFor: String? = null,
+        clearErrorFor: Int? = null,
         crossinline block: (AddEditUiState) -> AddEditUiState
     ) {
         val cur = _uiState.value
-        val cleared = if (clearErrorFor != null && cur.error == clearErrorFor) null else cur.error
+        // clearErrorFor 是报错文案的资源 ID：仅当当前报错正是同一句时才清掉，
+        // 改名不该顺手抹掉"剂量无效"之类的别的报错。
+        val cleared = if (clearErrorFor != null && cur.error != null &&
+            cur.error == getApplication<Application>().getString(clearErrorFor)
+        ) null else cur.error
         _uiState.value = block(cur.copy(error = cleared))
     }
 
@@ -544,9 +567,10 @@ class AddEditMedicationViewModel(
     }
 
     companion object {
-        const val NAME_ERROR = "请输入药品名称"
-        const val DOW_ERROR = "请至少选择一个每周服药日"
-        const val TIME_ERROR = "请至少设置一个提醒时点"
-        const val DUPLICATE_TIME_ERROR = "存在重复的服药时点，请合并或修改"
+        /** 校验报错文案的资源 ID（B2 文案抽取），文案见 strings_medit.xml */
+        val NAME_ERROR = R.string.medit_error_name_required
+        val DOW_ERROR = R.string.medit_error_dow_required
+        val TIME_ERROR = R.string.medit_error_time_required
+        val DUPLICATE_TIME_ERROR = R.string.medit_error_duplicate_time
     }
 }

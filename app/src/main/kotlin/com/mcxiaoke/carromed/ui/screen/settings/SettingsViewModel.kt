@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.DataExporter
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.entity.AppSettingEntity
 import com.mcxiaoke.carromed.core.domain.AppLog
 import kotlinx.coroutines.Dispatchers
@@ -93,14 +94,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             try {
                 val file = DataExporter.exportDoseRecordsCsv(app, db)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, "已导出 ${file.name}，请选择保存或分享方式", Toast.LENGTH_LONG).show()
+                    Toast.makeText(app, app.getString(R.string.set_export_csv_done, file.name), Toast.LENGTH_LONG).show()
                 }
                 DataExporter.shareFile(app, file, "text/csv")
             } catch (e: Exception) {
                 // 吞异常降级成 Toast 的地方必须留痕（PLAN-LOGGING G4）
                 AppLog.w(TAG, "exportCsv failed", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(app, app.getString(R.string.set_export_failed, e.message), Toast.LENGTH_SHORT).show()
                 }
             } finally {
                 _uiState.value = _uiState.value.copy(isExporting = false)
@@ -117,13 +118,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             try {
                 val file = DataExporter.exportFullBackupJson(app, db)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, "备份已生成 ${file.name}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(app, app.getString(R.string.set_backup_done, file.name), Toast.LENGTH_LONG).show()
                 }
                 DataExporter.shareFile(app, file, "application/json")
             } catch (e: Exception) {
                 AppLog.w(TAG, "exportBackup failed", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, "备份失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(app, app.getString(R.string.set_backup_failed, e.message), Toast.LENGTH_SHORT).show()
                 }
             } finally {
                 _uiState.value = _uiState.value.copy(isExporting = false)
@@ -213,7 +214,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val app = getApplication<Application>()
         viewModelScope.launch {
             withContext(Dispatchers.Main) {
-                Toast.makeText(app, "无法恢复：${t.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(app, app.getString(R.string.set_restore_error, t.message), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -239,12 +240,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     // 恢复后立刻按新数据重排全部闹钟
                     runCatching { AlarmReconciler.rescheduleAll(app, db) }
                     val snap = result.snapshotFile
-                        ?.let { "已留恢复前快照：${it.substringAfterLast('/')}" }
-                        ?: "（未能生成恢复前快照）"
-                    "恢复成功：${result.medications} 种药品、${result.records} 条服药记录已还原。$snap"
+                        ?.let { app.getString(R.string.set_restore_snapshot_fmt, it.substringAfterLast('/')) }
+                        ?: app.getString(R.string.set_restore_no_snapshot)
+                    app.getString(R.string.set_restore_success_fmt, result.medications, result.records) + snap
                 }
-                is DataExporter.RestoreResult.Invalid -> "无法恢复：${result.reason}"
-                is DataExporter.RestoreResult.Failure -> "恢复失败：${result.message}"
+                is DataExporter.RestoreResult.Invalid -> app.getString(R.string.set_restore_error, result.reason)
+                is DataExporter.RestoreResult.Failure -> app.getString(R.string.set_restore_failed, result.message)
             }
             _uiState.value = _uiState.value.copy(isRestoring = false)
             withContext(Dispatchers.Main) {

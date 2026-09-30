@@ -1,19 +1,5 @@
 ﻿   1  app\src\main\kotlin\com\mcxiaoke\carromed\core\alarm\AlarmReceiver.kt
         skip: no open slot for $key (已打卡/已结算/已删除)
-   3  app\src\main\kotlin\com\mcxiaoke\carromed\core\alarm\AlarmScheduler.kt
-        精确闹钟（到点必响）
-        闹钟应用通道（准点）
-        不精确提醒（可能延迟约 1 小时）
-   6  app\src\main\kotlin\com\mcxiaoke\carromed\core\alarm\DoseActionReceiver.kt
-        通知栏快捷打卡
-        已推迟 $minutes 分钟，到时再提醒
-        通知栏快捷跳过
-        已跳过本次，不扣减库存
-  15  app\src\main\kotlin\com\mcxiaoke\carromed\core\alarm\Notifications.kt
-        服药提醒
-        到点吃药的浮动横幅与通知栏提醒
-        服药提醒 (夜间静音)
-        夜间 23:00-07:00 的服药提醒，不响铃不震动
    4  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\BackupFormat.kt
         常备药
         片剂
@@ -51,139 +37,21 @@
         片剂
         片
         服药时段
-   4  app\src\main\kotlin\com\mcxiaoke\carromed\ui\navigation\AppNavigation.kt
-        今日
-        药箱
-        进展
-        统计
-  17  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\cabinet\CabinetScreen.kt
-        我的药箱
-        添加药品
-        搜索药名 / 别名 / 类别
-        搜索
-  14  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\cabinet\CabinetViewModel.kt
-        默认 (最近添加)
-        按名称
-        库存由少到多
-        临期优先
-  71  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\detail\MedicationDetailScreen.kt
-        药品详情
-        返回
-        正在加载药品信息...
-        已停药归档
-   1  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\detail\MedicationDetailViewModel.kt
-        药品不存在或已被删除
-  39  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\edit\AddEditMedicationScreen.kt
-        取消
-        保存
-        药品信息
-        药品名称 *
-  36  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\edit\AddEditMedicationViewModel.kt
+  23  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\edit\AddEditMedicationViewModel.kt
         服药时段
         常备药
         片剂
         片
-  37  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\inventory\InventoryScreen.kt
-        库存管理
-        返回
-        保存
-        药品不存在
-  24  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\inventory\InventoryViewModel.kt
-        药品不存在或已被删除
-        已导出 ${file.name}
-        导出失败: ${e.message}
-        操作失败：${t.message ?: t::class.java.simpleName}
-  31  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\manual\ManualDoseScreen.kt
+   1  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\manual\ManualDoseViewModel.kt
         手动补录服药
-        取消
-        忘记打卡或未带手机？支持补记过去任意时刻，系统会保留真实服药事实，
-        并按需联动扣减库存。
-   6  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\manual\ManualDoseViewModel.kt
-        请先选择药品
-        请输入有效的服用剂量（大于 0）
-        不能补录未来的服药时间
-        只能补录最近 $MANUAL_DOSE_BACKFILL_DAYS 天内的服药
-  10  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\progress\MedHistoryScreen.kt
-        返回
-        服药历史
-        服药历史
-        还没有服药记录。
-   2  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\progress\MedHistoryViewModel.kt
-        药品不存在或已被删除
-        ${ym.year} 年 ${ym.monthValue} 月
-  29  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\progress\ProgressScreen.kt
-        进展追踪
-        导出报告
-        还没有在服药品。添加第一个药品后，这里会显示近 7 天的真实打卡情况。
-        还没有服药记录。在今日清单点「手动补录」可记录临时用药，
-   5  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\progress\ProgressViewModel.kt
-        今日
-        周一
-        周五
-        已导出 ${file.name}
-  50  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\record\DoseRecordDetailScreen.kt
-        记录详情
-        返回
-        这条记录不存在，可能已被删除
-        保存备注
-  14  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\record\DoseRecordDetailViewModel.kt
-        片
-        片
-        片
-        这条记录不能改时间
-  16  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\refill\RefillScreen.kt
-        补药入库
-        返回
-        药品
-        当前库存结余: 
-   7  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\refill\RefillViewModel.kt
+   2  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\refill\RefillViewModel.kt
         同仁堂实体药房
-        请输入大于 0 的入库数量
-        有效期格式应为 yyyy-MM-dd
         采购入库 (${s.channel})
-  53  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\reminder\ReminderSettingsScreen.kt
-        提醒设置
-        返回
-        保存
-        暂停状态
-  19  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\reminder\ReminderSettingsViewModel.kt
-        药品不存在或已被删除
-        ${badDose.time} 的剂量无效：请输入大于 0 的数值（例如 1 或 0.5）
-        剂量无效：${it.time}
-        保存失败：${t.message ?: t::class.java.simpleName}
-  20  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\settings\PermissionCheckScreen.kt
-        系统特权自检与保活指引
-        返回
-        1. 精确闹钟 (Exact Alarm)
-        决定提醒是「到点必响」还是「系统择机送达」。用药提醒属于
-  46  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\settings\SettingsScreen.kt
-        确认覆盖当前数据？
-        所选文件：${preview.fileName}
-        生成时间：${preview.exportedAtText}
-        包含 ${preview.medicationCount} 种药品、${preview.recordCount} 条服药记录
-  10  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\settings\SettingsViewModel.kt
-        已导出 ${file.name}，请选择保存或分享方式
-        导出失败: ${e.message}
-        备份已生成 ${file.name}
-        备份失败: ${e.message}
-  17  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\stats\StatsScreen.kt
-        统计报表
-        导出报告
-        ${StatsPeriod.entries[uiState.selectedPeriod].label}累计用药统计
-        多种单位
-   5  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\stats\StatsViewModel.kt
-        过去 7 天
-        过去 30 天
-        过去 1 年
-        已导出 ${file.name}
-  45  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\today\TodayScreen.kt
-        补录
-        手动补录
-        今日清单
-        系统设置
-   2  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\today\TodayViewModel.kt
-        未来的服药时间不能提前确认
-        该服药记录已处理过，未重复扣减库存
+   9  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\reminder\ReminderSettingsViewModel.kt
+        服药时段
+        空腹服用
+        饭前服用
+        随餐服用
   41  app\src\debug\kotlin\com\mcxiaoke\carromed\core\data\DevSampleDataSeeder.kt
         环孢素
         新赛斯平
@@ -195,6 +63,6 @@
         统计报表
         今日清单
 
-TOTAL literals: 825
-TOTAL unique:   640
+TOTAL literals: 206
+TOTAL unique:   145
 
