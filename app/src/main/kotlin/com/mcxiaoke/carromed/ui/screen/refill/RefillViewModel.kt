@@ -120,9 +120,10 @@ class RefillViewModel(
                     expiryDate = s.expiryDate.ifBlank { null }
                 )
             }.getOrElse { t ->
+                AppLog.e("RefillVM", "refill failed med=$medId", t)
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = app.getString(R.string.refill_error_save_failed, t.message ?: t::class.java.simpleName)
+                    error = app.getString(R.string.refill_error_save_failed)
                 )
                 return@launch
             }
@@ -140,7 +141,7 @@ class RefillViewModel(
                 .onFailure { t ->
                     AppLog.w("RefillViewModel", "enable stock tracking after refill failed med=$medId", t)
                     _uiState.value = _uiState.value.copy(
-                        error = app.getString(R.string.refill_error_tracking_failed, t.message ?: t::class.java.simpleName)
+                        error = app.getString(R.string.refill_error_tracking_failed)
                     )
                 }
             _uiState.value = _uiState.value.copy(isSaving = false)

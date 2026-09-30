@@ -27,7 +27,7 @@
     <!-- 校验报错（RefillViewModel）；写库相关的错误文案后续批次再 key 化 -->
     <string name="refill_error_amount_invalid">请输入大于 0 的入库数量</string>
     <string name="refill_error_expiry_format">有效期格式应为 yyyy-MM-dd</string>
-    <string name="refill_error_save_failed">入库失败：%1$s</string>
+    <string name="refill_error_save_failed">入库失败，请重试</string>
     <string name="refill_error_med_missing">药品已不存在，入库未执行</string>
-    <string name="refill_error_tracking_failed">入库成功，但开启库存追踪失败：%1$s</string>
+    <string name="refill_error_tracking_failed">入库成功，但开启库存追踪失败，请到库存管理页手动开启</string>
 </resources>

@@ -51,12 +51,12 @@
     <string name="rdetail_error_time_future">服药时间不能晚于现在</string>
     <string name="rdetail_error_dose_invalid">请输入大于 0 的剂量（例如 1 或 0.5）</string>
     <string name="rdetail_error_record_immutable">这条记录已不可修改（可能已被撤销）</string>
-    <string name="rdetail_error_save_failed">保存失败：%1$s</string>
+    <string name="rdetail_error_save_failed">保存失败，请重试</string>
     <string name="rdetail_error_state_changed">这条记录的状态已变化，请重新查看</string>
-    <string name="rdetail_fail_confirm">确认失败：%1$s</string>
-    <string name="rdetail_fail_skip">跳过失败：%1$s</string>
-    <string name="rdetail_fail_undo">撤销失败：%1$s</string>
-    <string name="rdetail_fail_snooze">推迟失败：%1$s</string>
+    <string name="rdetail_fail_confirm">确认失败，请重试</string>
+    <string name="rdetail_fail_skip">跳过失败，请重试</string>
+    <string name="rdetail_fail_undo">撤销失败，请重试</string>
+    <string name="rdetail_fail_snooze">推迟失败，请重试</string>
 
     <!-- 动作区 -->
     <string name="rdetail_confirm">确认服用</string>

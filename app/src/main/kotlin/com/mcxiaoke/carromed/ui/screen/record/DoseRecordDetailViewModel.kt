@@ -8,6 +8,7 @@ import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
@@ -500,13 +501,11 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
                     }
                 }
                 .onFailure { t ->
+                    AppLog.e("DoseRecordDetailVM", "save failed record=${_uiState.value.record?.id}", t)
                     _uiState.update {
                         it.copy(
                             isSaving = false,
-                            error = app.getString(
-                                R.string.rdetail_error_save_failed,
-                                t.message ?: t::class.java.simpleName
-                            )
+                            error = app.getString(R.string.rdetail_error_save_failed)
                         )
                     }
                 }
@@ -533,10 +532,14 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
                     }
                 }
                 .onFailure { t ->
+                    // ⚠️ 不把 t.message 透给用户：那是领域层不变量违约的技术文本
+                    // （"服药剂量必须大于 0，当前 -1.0"），用户看不懂，翻译它也不划算。
+                    // 诊断信息进日志（设置页可导出），界面只说"失败了、可以重试"。
+                    AppLog.e("DoseRecordDetailVM", "action failed res=$failRes", t)
                     _uiState.update {
                         it.copy(
                             isSaving = false,
-                            error = app.getString(failRes, t.message ?: t::class.java.simpleName)
+                            error = app.getString(failRes)
                         )
                     }
                 }

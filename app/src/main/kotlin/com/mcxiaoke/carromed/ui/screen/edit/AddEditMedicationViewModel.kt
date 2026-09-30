@@ -13,6 +13,7 @@ import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.MedicationCategory
 import com.mcxiaoke.carromed.core.domain.model.MedicationForm
 import com.mcxiaoke.carromed.core.domain.model.SlotLabel
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService
 import com.mcxiaoke.carromed.ui.component.DecimalInput
@@ -486,12 +487,12 @@ class AddEditMedicationViewModel(
             runCatching {
                 saveInternal(s, onSuccess)
             }.onFailure { t ->
+                // 不透出 t.message：领域层抛的是不变量违约文本，用户看不懂，
+                // 翻译它也不划算。细节进日志，界面只说"保存失败"。
+                AppLog.e("AddEditMedVM", "save failed med=${s.medId}", t)
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = app.getString(
-                        R.string.medit_error_save_failed,
-                        t.message ?: t::class.java.simpleName
-                    )
+                    error = app.getString(R.string.medit_error_save_failed)
                 )
             }
         }

@@ -47,15 +47,15 @@
     <string name="inv_err_not_found">药品不存在或已被删除</string>
     <string name="inv_exported">已导出 %1$s</string>
     <string name="inv_export_failed">导出失败: %1$s</string>
-    <string name="inv_op_failed">操作失败：%1$s</string>
+    <string name="inv_op_failed">操作失败，请重试</string>
     <string name="inv_tracking_on">已开启库存追踪</string>
     <string name="inv_tracking_off">已关闭库存追踪（不再自动扣减）</string>
     <string name="inv_err_calibrate_invalid">请输入有效的实际库存数量（0 或正数）</string>
-    <string name="inv_calibrate_failed">盘点失败：%1$s</string>
+    <string name="inv_calibrate_failed">盘点失败，请重试</string>
     <string name="inv_calibrated">盘点已记录：账面调整为 %1$s</string>
     <string name="inv_calibrate_no_change">账面与实物一致，无需调整</string>
     <string name="inv_err_alert_invalid">预警线无效：请输入 0 或正数（0 表示关闭低库存告警）</string>
-    <string name="inv_save_failed">保存失败：%1$s</string>
+    <string name="inv_save_failed">保存失败，请重试</string>
     <string name="inv_saved">已保存</string>
 
     <!-- 频次描述文案 -->

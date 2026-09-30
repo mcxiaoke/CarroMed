@@ -13,6 +13,7 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.model.SlotLabel
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.core.alarm.ReminderSettings
 import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService
@@ -454,12 +455,11 @@ class ReminderSettingsViewModel(
                 trackingService.reconcileSchedule(medId)
                 runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db, presnap) }
             }.onFailure { t ->
+                // 不透出 t.message：领域层抛的是不变量违约文本，用户看不懂。细节进日志。
+                AppLog.e("ReminderSettingsVM", "save failed med=$medId", t)
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = app.getString(
-                        R.string.rem_error_save_failed,
-                        t.message ?: t::class.java.simpleName
-                    )
+                    error = app.getString(R.string.rem_error_save_failed)
                 )
                 return@launch
             }

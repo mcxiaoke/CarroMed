@@ -69,5 +69,5 @@
     <string name="medit_error_time_blank">第 %1$d 个提醒时点还没填时间（格式 08:00）</string>
     <string name="medit_error_time_invalid">第 %1$d 个提醒时点的「%2$s」不是有效时间，请按 08:00 的格式填写</string>
     <string name="medit_error_dose_invalid">%1$s 的剂量无效：请输入大于 0 的数值（例如 1 或 0.5）</string>
-    <string name="medit_error_save_failed">保存失败：%1$s</string>
+    <string name="medit_error_save_failed">保存失败，请重试</string>
 </resources>

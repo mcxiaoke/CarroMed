@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.core.domain.service.MANUAL_DOSE_BACKFILL_DAYS
 import com.mcxiaoke.carromed.ui.component.DecimalInput
@@ -190,12 +191,11 @@ class ManualDoseViewModel(
                     deductStock = s.deductStock
                 )
             }.onFailure { t ->
+                // 不透出 t.message：领域层抛的是不变量违约文本，用户看不懂。细节进日志。
+                AppLog.e("ManualDoseVM", "backfill failed med=${med.id}", t)
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = app.getString(
-                        R.string.man_error_save_failed,
-                        t.message ?: t::class.java.simpleName
-                    )
+                    error = app.getString(R.string.man_error_save_failed)
                 )
                 return@launch
             }

@@ -17,6 +17,7 @@ import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import com.google.common.truth.Truth.assertThat
 import com.mcxiaoke.carromed.MainActivity
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.DevSampleDataSeeder
 import com.mcxiaoke.carromed.ui.component.TestTags
@@ -73,6 +74,16 @@ class SmokeNavigationTest {
     }
 
     // ---------- helpers ----------
+
+    /**
+     * 运行时解析界面文案 —— 断言一律引用 `R.string.*`，不写中文字面量。
+     *
+     * 中文都放在 `res/values/`（默认目录，与设备 locale 无关），
+     * 所以设备是英文环境时这里同样解析出中文，无需切 locale。
+     * 用 activity 而非 `targetContext`：activity 就是真正渲染这些字符串的 Context，
+     * 其 locale / 覆写与被测页面完全一致。
+     */
+    private fun str(id: Int): String = composeRule.activity.getString(id)
 
     /**
      * 参数化 tag 的前缀匹配（`dose_card_123` / `med_card_5`）。
@@ -165,75 +176,75 @@ class SmokeNavigationTest {
     @Test
     fun allTabs_open_withoutCrash() {
         openTab(TestTags.TAB_CABINET)
-        waitByText("我的药箱")
+        waitByText(str(R.string.cabinet_title))
         openTab(TestTags.TAB_PROGRESS)
-        waitByText("进展追踪")
+        waitByText(str(R.string.prog_title))
         openTab(TestTags.TAB_STATS)
-        waitByText("统计报表")
+        waitByText(str(R.string.stats_title))
         openTab(TestTags.TAB_TODAY)
-        waitByText("今日清单")
+        waitByText(str(R.string.today_title))
     }
 
     @Test
     fun allRoutes_open_withoutCrash() {
         // --- settings + permission_check（今日页右上角进入）---
-        composeRule.onNodeWithContentDescription("系统设置").performClick()
-        waitByText("系统设置")
+        composeRule.onNodeWithContentDescription(str(R.string.today_cd_settings)).performClick()
+        waitByText(str(R.string.set_title))
         // 按钮实际文本带 " >" 后缀，必须 substring 匹配（首次运行踩过：全等匹配永远找不到）
-        clickTextScrolling("查看 4 项系统特权自检与保活指引", substring = true)
-        waitByText("系统特权自检与保活指引")
+        clickTextScrolling(str(R.string.set_permission_check_button), substring = true)
+        waitByText(str(R.string.perm_title))
         pressBack()
         pressBack()
 
         // --- manual_dose（今日页 FAB）---
         // ⚠️ ExtendedFAB 合并语义后 Text 不可见（本版本行为），用图标 desc 点它
-        composeRule.onNodeWithContentDescription("补录").performClick()
-        waitByText("手动补录服药")
+        composeRule.onNodeWithContentDescription(str(R.string.today_cd_manual_log)).performClick()
+        waitByText(str(R.string.man_title))
         pressBack()
 
         // --- dose_detail（今日页任一待服卡片）---
         waitByTagPrefix(TestTags.DOSE_CARD)
         clickTagScrolling(TestTags.DOSE_CARD)
-        waitByText("记录详情")
+        waitByText(str(R.string.rdetail_title))
         pressBack()
 
         // --- med_add（药箱右上角"添加药品"，新增模式带初始库存段）---
         openTab(TestTags.TAB_CABINET)
-        composeRule.onNodeWithContentDescription("添加药品").performClick()
+        composeRule.onNodeWithContentDescription(str(R.string.cabinet_add_medication)).performClick()
         // SectionCard 的标题渲染成 "N. 标题"，用 substring 匹配段名
-        clickTextScrolling("初始库存", substring = true)
+        clickTextScrolling(str(R.string.medit_section_initial_stock), substring = true)
         pressBack()
 
         // --- med_detail 与它的三个二级页 ---
         openTab(TestTags.TAB_CABINET)
         waitByTagPrefix(TestTags.MED_CARD)
         clickTagScrolling(TestTags.MED_CARD)
-        waitByText("药品设置")
-        clickTextScrolling("药品信息")
-        waitByText("编辑药品信息")
+        waitByText(str(R.string.mdetail_section_settings))
+        clickTextScrolling(str(R.string.mdetail_entry_profile))
+        waitByText(str(R.string.medit_title_edit_medication_info))
         pressBack()
-        clickTextScrolling("提醒设置")
-        waitByText("提醒设置")
+        clickTextScrolling(str(R.string.mdetail_entry_reminder))
+        waitByText(str(R.string.rem_title))
         pressBack()
-        clickTextScrolling("库存管理")
-        waitByText("库存管理")
+        clickTextScrolling(str(R.string.mdetail_entry_inventory))
+        waitByText(str(R.string.inv_title))
         // --- refill（库存页"补药入库"）---
-        clickTextScrolling("补药入库")
-        waitByText("补药入库")
+        clickTextScrolling(str(R.string.inv_refill))
+        waitByText(str(R.string.refill_title))
         // refill → 库存 → 药品详情 → 药箱，共 3 跳；数错必跪，用"back 直到药箱可见"
         pressBackUntilTag(TestTags.MED_CARD)
 
         // --- med_history（进展页任一药品矩阵卡）---
         openTab(TestTags.TAB_PROGRESS)
-        waitByText("进展追踪")
+        waitByText(str(R.string.prog_title))
         // 矩阵卡整卡可点、contentDescription 以药名开头（见 MedicationMatrixCard）
-        clickTextScrolling("环孢素", substring = true)
-        waitByText("服药历史")
+        clickTextScrolling(SEED_MED_NAME, substring = true)
+        waitByText(str(R.string.mhist_title))
         pressBack()
 
         // --- stats（直开）---
         openTab(TestTags.TAB_STATS)
-        waitByText("统计报表")
+        waitByText(str(R.string.stats_title))
     }
 
     @Test
@@ -252,14 +263,23 @@ class SmokeNavigationTest {
         // 撤销：打开"今日已服"区的第一张卡片 → 记录详情 → 撤销
         // （种子数据自带 2 条已服，onFirst 可能是其中之一——无论撤哪条，
         //   槽位都会回到 PENDING，待服按钮数守恒，这正是冒烟要断言的不变量）
-        composeRule.onAllNodesWithText("已服").onFirst().performClick()
-        waitByText("撤销（回到未确认）")
-        composeRule.onNodeWithText("撤销（回到未确认）").performClick()
+        composeRule.onAllNodesWithText(str(R.string.today_badge_taken)).onFirst().performClick()
+        waitByText(str(R.string.rdetail_undo))
+        composeRule.onNodeWithText(str(R.string.rdetail_undo)).performClick()
         // ⚠️ 撤销成功后记录详情页**自动弹回**今日页（uiState.done → onNavigateBack），
         // 这里绝不能再 pressBack——那会把 App 整个退出（首次运行踩过）
 
         composeRule.waitUntil(timeoutMillis = 10_000) {
             confirmButtonCount() == before
         }
+    }
+
+    private companion object {
+        /**
+         * 种子数据里的药名，**不是界面文案**：`环孢素` 是写进 Room 的 `medication.name`，
+         * 由 [DevSampleDataSeeder] 灌入，从来没有对应的 `R.string.*`（药品名是用户数据，
+         * 不可能资源化）。这里匹配的是库里的实际值，故保留字面量并显式说明出处。
+         */
+        const val SEED_MED_NAME = "环孢素"
     }
 }

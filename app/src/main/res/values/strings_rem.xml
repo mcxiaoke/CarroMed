@@ -13,7 +13,7 @@
     <string name="rem_error_duplicate_time">存在重复的服药时点，请合并或修改</string>
     <string name="rem_error_dose_invalid_at">%1$s 的剂量无效：请输入大于 0 的数值（例如 1 或 0.5）</string>
     <string name="rem_error_dose_invalid">剂量无效：%1$s</string>
-    <string name="rem_error_save_failed">保存失败：%1$s</string>
+    <string name="rem_error_save_failed">保存失败，请重试</string>
     <string name="rem_error_end_before_start">疗程结束日不能早于起始日</string>
 
     <!-- 暂停状态（只读展示）-->

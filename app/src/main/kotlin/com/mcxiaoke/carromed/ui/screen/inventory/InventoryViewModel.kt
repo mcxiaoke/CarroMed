@@ -237,12 +237,11 @@ class InventoryViewModel(
                 trackingService.setStockTracking(medId, enabled, initialStock = null)
                 runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db) }
             }.onFailure { t ->
+                // 不透出 t.message：领域层抛的是不变量违约文本，用户看不懂。细节进日志。
+                AppLog.e("InventoryVM", "setTracking failed med=$medId enabled=$enabled", t)
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = app.getString(
-                        R.string.inv_op_failed,
-                        t.message ?: t::class.java.simpleName
-                    )
+                    error = app.getString(R.string.inv_op_failed)
                 )
                 return@launch
             }
@@ -277,12 +276,10 @@ class InventoryViewModel(
             val changed = runCatching {
                 trackingService.calibrateStock(medId, target, note)
             }.getOrElse { t ->
+                AppLog.e("InventoryVM", "calibrate failed med=$medId", t)
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = app.getString(
-                        R.string.inv_calibrate_failed,
-                        t.message ?: t::class.java.simpleName
-                    )
+                    error = app.getString(R.string.inv_calibrate_failed)
                 )
                 return@launch
             }
@@ -337,12 +334,10 @@ class InventoryViewModel(
                 }
                 medDao.updateMinStockAlert(medId, Dose.of(alert).milli)
             }.onFailure { t ->
+                AppLog.e("InventoryVM", "saveSettings failed med=$medId", t)
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
-                    error = app.getString(
-                        R.string.inv_save_failed,
-                        t.message ?: t::class.java.simpleName
-                    )
+                    error = app.getString(R.string.inv_save_failed)
                 )
                 return@launch
             }

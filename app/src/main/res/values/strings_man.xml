@@ -33,5 +33,5 @@
     <string name="man_error_invalid_dose">请输入有效的服用剂量（大于 0）</string>
     <string name="man_error_future_time">不能补录未来的服药时间</string>
     <string name="man_error_backfill_days">只能补录最近 %1$d 天内的服药</string>
-    <string name="man_error_save_failed">补录失败：%1$s</string>
+    <string name="man_error_save_failed">补录失败，请重试</string>
 </resources>
