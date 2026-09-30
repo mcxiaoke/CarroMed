@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.mcxiaoke.carromed.BuildConfig
 import com.mcxiaoke.carromed.core.data.converter.AppConverters
 import com.mcxiaoke.carromed.core.data.dao.AppSettingDao
 import com.mcxiaoke.carromed.core.data.dao.DoseRecordDao
@@ -113,28 +114,27 @@ abstract class AppDatabase : RoomDatabase() {
          */
 
         /**
-         * ⚠️⚠️ **发布前必须删除这一行** ⚠️⚠️
+         * ⚠️ **破坏式重建仅限 debug 构建**
          *
-         * ## 为什么开发期打开了破坏式重建
+         * ## 为什么开发期打开破坏式重建
          *
          * v2 → v3 删了 `medications.current_stock` 一列，并把 5 个金额列从 `REAL`
          * 改成了整数毫单位。这类改写在 SQLite 里必须靠"建新表 + 拷数据 + 改名"实现，
          * 是一整套迁移代码 —— 而 `AGENTS.md` 已明确：项目尚未公开发布，
          * **不需要任何迁移或兼容旧版本的代码**。
          *
-         * 过去这里刻意禁用破坏式回退（理由是"服药事实不可再生"）。那条理由
-         * 成立的前提是**已经有真实用户在用**。现在这个前提被明文否定，
-         * 于是"禁止破坏"与"不写迁移"变成了两条互斥要求。
-         *
-         * ## 选它的理由
-         *
          * 与其写一段 60 行、只在开发期被执行一次、此后永远不被覆盖的迁移 SQL，
-         * 不如让 Room 直接重建库：
-         * - 开发期数据可从 `dev.SEED` 广播一键重建，损失为零；
-         * - 不会留下一段"看起来在保护数据、实际只保护了浮点转整数"的假保障；
-         * - 真正发布前，`MIGRATION_*` 会连同 `MigrationTest` 一起重新补齐并逐条验证。
+         * 不如让 Room 直接重建库：开发期数据可从 `dev.SEED` 广播一键重建，损失为零。
+         * （对比方案"静默崩溃"更糟：开发机上换台机器 clone 就起不来。）
          *
-         * 对比方案（静默崩溃）更糟：开发机上换台机器 clone 就起不来。
+         * ## 为什么不能让 release 也走这条路
+         *
+         * 过去这里是裸调用 + "TODO(发布前删除)" —— 忘了删，release 版本不匹配时
+         * 就会**静默清空用户全部服药历史**。现在改成 debug 门控：
+         * release 构建不再回退，schema 不匹配会显式抛异常
+         * （`IllegalStateException: Room cannot verify the data integrity`），
+         * 比静默删库诚实。真正发布前，按 AGENTS §2 的纪律重建 `MIGRATION_*`
+         * 并逐条验证。
          */
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -143,7 +143,11 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .fallbackToDestructiveMigration() // TODO(发布前删除)：见上方 KDoc
+                    .apply {
+                        if (BuildConfig.DEBUG) {
+                            fallbackToDestructiveMigration()
+                        }
+                    }
                     .build()
                     .also { INSTANCE = it }
             }

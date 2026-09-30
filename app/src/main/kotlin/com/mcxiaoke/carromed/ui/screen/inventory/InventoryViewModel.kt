@@ -220,13 +220,16 @@ class InventoryViewModel(
 
     /** 盘点校准：把账面拉回实物真实值，走流水而非直接改账面 */
     fun calibrate(note: String?) {
-        val target = DecimalInput.parsePositive(_uiState.value.calibrateInput)
+        // parseNonNegative 而非 parsePositive：盘点出"实物为 0"（药已用完/清空）
+        // 是合法的校准结果，领域层 calibrateStock 的 KDoc 明确允许 0。
+        // 旧写法 parsePositive 让用户没法把账面校准到 0。
+        val target = DecimalInput.parseNonNegative(_uiState.value.calibrateInput)
         if (target == null) {
             // ⚠️ 0 必须**报错**而不是当"清空了输入框"（M7-3）。
             // 旧写法 `toFloatOrNull() ?: 回退旧值` 静默接受非法输入并提示"已保存" ——
             // 用户以为自己改了预警线，实际什么都没发生。
             _uiState.value = _uiState.value.copy(
-                error = "请输入有效的实际库存数量（大于 0）"
+                error = "请输入有效的实际库存数量（0 或正数）"
             )
             return
         }

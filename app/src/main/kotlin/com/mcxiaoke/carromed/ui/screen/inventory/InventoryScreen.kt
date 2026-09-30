@@ -328,7 +328,7 @@ fun InventoryScreen(
                             label = { Text("实际剩余 (${med.unit})") },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                         )
                         Spacer(Modifier.width(10.dp))
                         Button(

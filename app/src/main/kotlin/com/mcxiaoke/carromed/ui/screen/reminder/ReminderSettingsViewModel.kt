@@ -221,7 +221,17 @@ class ReminderSettingsViewModel(
     private fun defaultEndDate(): String = LocalDate.now().plusDays(90)
         .format(SlotProjectionEngine.DATE_FORMATTER)
 
-    fun onEndDateChange(v: String?) = mutate { it.copy(endDate = v) }
+    /**
+     * 清除日期（`v == null`，日期框的「清除」按钮）等价于关闭结束日开关。
+     *
+     * 旧实现只清 `endDate` 值、不动 `hasEndDate`，保存时
+     * `clearEndDate = !s.hasEndDate` 仍为 false —— 服务层把 null 当"没传"
+     * 而沿用库里的旧结束日：用户点了清除、界面也空了，疗程结束日照旧生效。
+     */
+    fun onEndDateChange(v: String?) = mutate { s ->
+        if (v == null) s.copy(hasEndDate = false, endDate = null)
+        else s.copy(endDate = v)
+    }
 
     // ---------------- 时点 ----------------
 
@@ -377,7 +387,9 @@ class ReminderSettingsViewModel(
                         cycleOffDays = s.cycleOffDays,
                         startDate = s.startDate,
                         endDate = if (s.hasEndDate) s.endDate else null,
-                        clearEndDate = !s.hasEndDate,
+                        // 防御：`hasEndDate=true` 但日期为空同样按"清除"处理，
+                        // 服务层对 null endDate + clearEndDate=false 的解释是"沿用旧值"。
+                        clearEndDate = !s.hasEndDate || s.endDate == null,
                         times = s.times.map {
                             // `!!` 安全：save() 已在协程之前逐条校验过 parsedDose() != null
                             MedicationAdminService.TimeDraft(

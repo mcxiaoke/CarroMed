@@ -303,7 +303,11 @@ fun ReminderSettingsScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                if (uiState.hasEndDate) "到该日期后自动停止提醒（抗生素疗程）" else "长期服用：无限期",
+                                if (uiState.hasEndDate && uiState.endDate != null) {
+                                    "到该日期后自动停止提醒（抗生素疗程）"
+                                } else {
+                                    "长期服用：无限期"
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
