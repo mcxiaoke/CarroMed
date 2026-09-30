@@ -46,6 +46,15 @@ python tools\app_screenshots.py --clear --seed
 # ---- 数据库直查 ----
 cmd /c "adb -s emulator-5554 exec-out run-as com.mcxiaoke.carromed cat databases/carromed.db > temp\carromed.db"
 python temp\dbdump.py
+
+# ---- 诊断日志（PLAN-LOGGING-20260929）----
+# 看实时日志：AppLog 的 logcat tag 与类名一致
+adb -s emulator-5554 logcat -s CarroMedApp:V AlarmScheduler:V AlarmReconciler:V DoseTrackingService:V
+# 拉 应用私有日志文件（含 crash 文件）：
+cmd /c "adb -s emulator-5554 exec-out run-as com.mcxiaoke.carromed ls files/logs"
+cmd /c "adb -s emulator-5554 exec-out run-as com.mcxiaoke.carromed cat files/logs/app-20260929.log"
+# 崩溃演练（仅 debug 包）：
+adb -s emulator-5554 shell am broadcast -a com.mcxiaoke.carromed.dev.CRASH -n com.mcxiaoke.carromed/.DevDataReceiver
 ```
 
 > 不授予 `POST_NOTIFICATIONS` 也能跑，只是看不到通知横幅，
@@ -419,6 +428,8 @@ python temp\dbdump.py     # 表行数 + 全量关键字段
 | 混淆模拟器与真机 | 截图分辨率 / 行为对不上 | 每条 adb 命令都带 `-s emulator-5554` |
 | 看不到通知横幅 | 权限没授予 | `pm grant ... android.permission.POST_NOTIFICATIONS` |
 | Room 迁移静默清库 | 用户历史被抹 | 项目**已刻意禁用** `fallbackToDestructiveMigration`；迁移失败要显式崩溃 |
+| 纯 JVM 测试碰 `android.util.Log` | `RuntimeException: Method i in android.util.Log not mocked`，jqwik 属性测试全红 | 一律走 `AppLog`（`core/domain`，零 android import，见 `docs/PLAN-LOGGING-20260929.md` D2）；**不要**在 domain 层直接 import `android.util.Log`，也不要开 `returnDefaultValues` 掩盖 |
+| 排查"没提醒/账不对"没有现场 | logcat 早滚没了，用户侧拿不到 | 拉私有日志（§1 命令速查）或让用户在设置页「导出诊断日志」；崩溃看 `filesDir/logs/crash-*.txt` |
 
 ---
 
@@ -428,6 +439,8 @@ python temp\dbdump.py     # 表行数 + 全量关键字段
 
 - [ ] `./gradlew clean assembleDebug testDebugUnitTest` 全绿
 - [ ] `./gradlew compileReleaseKotlin` 通过（debug 能编不代表 release 能编）
+- [ ] `./gradlew connectedDebugAndroidTest` 全绿（需 emulator-5554 在线；
+      UI 冒烟守 §2 坑 5 的 viewModel 工厂反射路径，见 `SmokeNavigationTest`）
 - [ ] 模拟器实测过改动涉及的流程
 - [ ] `python tools\app_screenshots.py --clear --seed` 跑通，
       `manifest.md` 无新增失败项
