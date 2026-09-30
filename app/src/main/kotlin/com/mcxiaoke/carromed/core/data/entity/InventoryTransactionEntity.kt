@@ -56,7 +56,11 @@ data class InventoryTransactionEntity(
     val txType: TransactionType,
 
     @ColumnInfo(name = "note")
-    val note: String? = null, // 备注 (如 "每日打卡扣减", "同仁堂药房采购30片", "误触打卡撤销")
+    val note: String? = null, // 备注。程序化流水只放数据载荷（数量/批次/用户附加文本），文案由 noteKey 资源化；用户自由文本原样
+
+    /** schema v8：程序化备注的分类 key（[LedgerNoteKey] name），null = 用户自由文本。 */
+    @ColumnInfo(name = "note_key")
+    val noteKey: String? = null,
 
     /** schema v2：采购批次号 (仅 REFILL 入库流水有意义) */
     @ColumnInfo(name = "batch_number")

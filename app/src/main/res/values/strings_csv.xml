@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- B5 导出文件名资源化：CSV 表头/状态值 + 导出文件名前缀 + 备份读写错误消息 -->
+<!-- ⚠️ 表头里的逗号是 CSV 列分隔符，翻译时**不得**增删/本地化；只译列名本身。 -->
+<resources>
+    <!-- ================= CSV 表头（逗号分隔，勿改结构） ================= -->
+    <string name="csv_header_dose_records">服药时间,药品名称,剂量,单位,记录状态,记录类型,备注</string>
+    <string name="csv_header_inventory">时间,药品名称,变动数量,单位,结余,类型,批号,有效期,备注</string>
+
+    <!-- ================= 服药明细：记录状态列 ================= -->
+    <string name="csv_status_completed">已服</string>
+    <string name="csv_status_completed_retro">已服(补录)</string>
+    <string name="csv_status_skipped">跳过</string>
+    <string name="csv_status_reverted">已撤销</string>
+
+    <!-- ================= 服药明细：记录类型列 ================= -->
+    <string name="csv_record_type_planned">计划打卡</string>
+    <string name="csv_record_type_manual">手动记录</string>
+
+    <!-- ================= 库存流水：类型列（TransactionType） ================= -->
+    <string name="csv_tx_type_taken_deduct">服药扣减</string>
+    <string name="csv_tx_type_refill">购药入库</string>
+    <string name="csv_tx_type_revert_rollback">撤销冲正</string>
+    <string name="csv_tx_type_calibration_adjust">盘点调整</string>
+    <string name="csv_tx_type_dose_edit_adjust">改剂量调整</string>
+
+    <!-- ================= CSV 单元格兜底值 ================= -->
+    <string name="csv_value_unknown_medication">未知药品</string>
+
+    <!-- ================= 导出文件名前缀（后接 yyyyMMdd_HHmmss） ================= -->
+    <string name="csv_file_dose_records">CarroMed_服药明细_</string>
+    <string name="csv_file_inventory">CarroMed_库存流水_</string>
+    <string name="csv_file_backup">CarroMed_全量备份_</string>
+    <string name="csv_file_snapshot">CarroMed_恢复前快照_</string>
+    <string name="csv_file_logs">CarroMed_诊断日志_</string>
+    <string name="csv_share_title">分享导出文件</string>
+    <string name="csv_error_list_separator">；</string>
+
+    <!-- ================= 备份读写的用户可见错误（会流到设置页提示） ================= -->
+    <string name="csv_error_unreadable">无法读取所选文件</string>
+    <string name="csv_error_unreadable_named">无法读取 %1$s</string>
+    <string name="csv_error_not_backup_file">不是有效的 CarroMed 备份文件</string>
+    <string name="csv_error_not_carromed_backup">该文件不是 CarroMed 备份文件</string>
+    <string name="csv_error_restore_rolled_back">恢复失败，已自动回滚: %1$s</string>
+
+    <!-- 备份校验问题（validateBackup 携带 resId+args，展示层解析；纯校验不依赖 Context） -->
+    <string name="backup_err_unsupported_version">备份格式版本 %1$s 不受支持（当前支持 1~%2$d）</string>
+    <string name="backup_err_dangling_reminder">提醒设置引用了不存在的药品 #%1$d</string>
+    <string name="backup_err_dangling_policy">服用计划 #%1$d 引用了不存在的药品 #%2$d</string>
+    <string name="backup_err_dangling_policy_time">服药时点 #%1$d 引用了不存在的计划 #%2$d</string>
+    <string name="backup_err_dangling_slot">槽位 #%1$d 引用了不存在的药品 #%2$d</string>
+    <string name="backup_err_dangling_record">服药记录 #%1$d 引用了不存在的药品 #%2$d</string>
+    <string name="backup_err_dangling_record_slot">服药记录 #%1$d 引用了已不存在的槽位 #%2$d</string>
+    <string name="backup_err_dangling_ledger">库存流水 #%1$d 引用了不存在的药品 #%2$d</string>
+    <string name="backup_err_dup_medication">药品 #%1$d 在备份中出现了 %2$d 次</string>
+    <string name="backup_err_dup_slot_key">药品 #%1$d 在 %2$s %3$s 有 %4$d 条重复槽位</string>
+    <string name="backup_err_dup_slot_pk">槽位 #%1$d 在备份中出现了 %2$d 次（主键重复会静默覆盖）</string>
+    <string name="backup_err_dup_reminder_settings">药品 #%1$d 的提醒设置在备份中有 %2$d 行（每药应恰好一行）</string>
+    <string name="backup_err_dup_app_setting">设置项「%1$s」在备份中出现了 %2$d 次</string>
+    <string name="backup_err_multi_active_policies">药品 #%1$d 有 %2$d 条同时生效的计划（#%3$s）</string>
+    <string name="backup_err_dup_policy_time">计划 #%1$d 在 %2$s 有 %3$d 条重复时点</string>
+    <string name="backup_err_missing_reminder_settings">药品 #%1$d 缺少提醒设置（恢复时会补默认值，建议重新导出备份）</string>
+
+    <!-- checkDuplicates 的行标签（作为一个 %1$s 传入，译文可按语序调整） -->
+    <string name="backup_row_record">服药记录</string>
+    <string name="backup_row_ledger">库存流水</string>
+    <string name="backup_row_policy">服用计划</string>
+    <string name="backup_row_policy_time">服药时点</string>
+    <string name="backup_err_dup_row">%1$s #%2$d 在备份中出现了 %3$d 次</string>
+
+    <!-- 查询不到显示名时的占位文件名 -->
+    <string name="csv_fallback_selected_file">所选文件</string>
+</resources>

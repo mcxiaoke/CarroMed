@@ -50,7 +50,11 @@ data class DoseRecordEntity(
     val isRetrospective: Boolean = false, // 是否为事后补录
 
     @ColumnInfo(name = "note")
-    val note: String? = null, // 服药备注 (如 "随早餐服下", "头痛临时加服")
+    val note: String? = null, // 服药备注。程序化记录只放用户/数据文本，文案由 noteKey 资源化；用户自由备注原样
+
+    /** schema v8：程序化备注的分类 key（[RecordNoteKey] name），null = 用户自由文本。 */
+    @ColumnInfo(name = "note_key")
+    val noteKey: String? = null,
 
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis()

@@ -2,8 +2,10 @@ package com.mcxiaoke.carromed.ui.component
 
 import androidx.annotation.StringRes
 import com.mcxiaoke.carromed.R
+import com.mcxiaoke.carromed.core.domain.model.LedgerNoteKey
 import com.mcxiaoke.carromed.core.domain.model.MedicationCategory
 import com.mcxiaoke.carromed.core.domain.model.MedicationForm
+import com.mcxiaoke.carromed.core.domain.model.RecordNoteKey
 import com.mcxiaoke.carromed.core.domain.model.SlotLabel
 
 /**
@@ -55,5 +57,59 @@ object MedVocab {
         SlotLabel.AFTER_MEAL.name -> R.string.slot_after_meal
         SlotLabel.BEDTIME.name -> R.string.slot_bedtime
         else -> null
+    }
+
+    @StringRes
+    fun ledgerNoteRes(key: String?): Int? = when (key) {
+        LedgerNoteKey.TAKE_DEDUCT.name -> R.string.note_ledger_take_deduct
+        LedgerNoteKey.SKIP.name -> R.string.note_ledger_skip
+        LedgerNoteKey.REJUDGE_TAKEN.name -> R.string.note_ledger_rejudge_taken
+        LedgerNoteKey.UNDO_TAKE_REVERT.name -> R.string.note_ledger_undo_revert
+        LedgerNoteKey.UNDO_TEMP_REVERT.name -> R.string.note_ledger_undo_temp
+        LedgerNoteKey.DOSE_EDIT.name -> R.string.note_ledger_dose_edit
+        LedgerNoteKey.RETRO_DEDUCT.name -> R.string.note_ledger_retro
+        LedgerNoteKey.PRN_DEDUCT.name -> R.string.note_ledger_prn
+        LedgerNoteKey.CALIBRATE.name -> R.string.note_ledger_calibrate
+        LedgerNoteKey.TRACKING_INIT.name -> R.string.note_ledger_track_init
+        LedgerNoteKey.TRACKING_INIT_CALIBRATE.name -> R.string.note_ledger_track_init_calibrate
+        LedgerNoteKey.REFILL.name -> R.string.note_ledger_refill
+        else -> null
+    }
+
+    /**
+     * 流水备注的显示文本：有 key → 本地化标签 + 非空载荷以「（载荷）」拼接；
+     * 无 key → 用户自由文本原样；两者皆空 → null。
+     * 供 Composable（LocalContext）与 CSV 导出（Context）共用，规则只有这一份。
+     */
+    fun ledgerNoteDisplay(context: android.content.Context, noteKey: String?, note: String?): String? {
+        val payload = note?.takeIf { it.isNotBlank() }
+        val res = ledgerNoteRes(noteKey)
+        if (res == null) return payload
+        val label = context.getString(res)
+        return if (payload == null) label else "$label（$payload）"
+    }
+
+    @StringRes
+    fun recordNoteRes(key: String?): Int? = when (key) {
+        RecordNoteKey.NOTIFICATION_TAKE.name -> R.string.note_record_notification_take
+        RecordNoteKey.NOTIFICATION_SKIP.name -> R.string.note_record_notification_skip
+        RecordNoteKey.SKIP.name -> R.string.note_record_skip
+        RecordNoteKey.MANUAL_BACKFILL.name -> R.string.note_record_manual_backfill
+        RecordNoteKey.REJUDGE_TAKEN.name -> R.string.note_record_rejudge_taken
+        else -> null
+    }
+
+    /**
+     * 服药记录备注的显示文本：与 [ledgerNoteDisplay] 同规则。
+     *
+     * 用户可编辑备注的编辑入口（详情页）读的是**原始 note 列**，不经过这里 ——
+     * 那是用户自己的文字，不该被程序化标签覆盖。
+     */
+    fun recordNoteDisplay(context: android.content.Context, noteKey: String?, note: String?): String? {
+        val payload = note?.takeIf { it.isNotBlank() }
+        val res = recordNoteRes(noteKey)
+        if (res == null) return payload
+        val label = context.getString(res)
+        return if (payload == null) label else "$label（$payload）"
     }
 }

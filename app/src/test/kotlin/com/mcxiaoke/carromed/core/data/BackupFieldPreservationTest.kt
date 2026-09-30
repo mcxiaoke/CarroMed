@@ -291,6 +291,7 @@ class BackupFieldPreservationTest {
                     balanceAfter = it.balanceAfter,
                     txType = it.txType,
                     note = it.note,
+                    noteKey = it.noteKey,
                     batchNumber = it.batchNumber,
                     expiryDate = it.expiryDate,
                     createdAt = it.createdAt

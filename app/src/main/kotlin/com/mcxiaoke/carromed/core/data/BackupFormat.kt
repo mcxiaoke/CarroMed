@@ -164,6 +164,8 @@ data class DoseRecordBackup(
     val status: RecordStatus = RecordStatus.COMPLETED,
     val isRetrospective: Boolean = false,
     val note: String? = null,
+    /** B5：程序化备注的分类 key（[com.mcxiaoke.carromed.core.domain.model.RecordNoteKey] name），null = 用户自由文本 */
+    val noteKey: String? = null,
     val createdAt: Long = 0
 )
 
@@ -190,6 +192,8 @@ data class InventoryTransactionBackup(
      */
     val txType: TransactionType = TransactionType.TAKEN_DEDUCT,
     val note: String? = null,
+    /** B5：程序化备注的分类 key（[com.mcxiaoke.carromed.core.domain.model.LedgerNoteKey] name），null = 用户自由文本 */
+    val noteKey: String? = null,
     val batchNumber: String? = null,
     val expiryDate: String? = null,
     val createdAt: Long = 0

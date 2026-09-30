@@ -110,10 +110,12 @@ class RefillViewModel(
                 trackingService.refillStock(
                     medicationId = medId,
                     addedAmount = amt,
-                    note = buildString {
-                        append("采购入库 (${s.channel})")
-                        if (s.note.isNotBlank()) append(" · ${s.note}")
-                    },
+                    // B5：note 只放数据载荷（渠道、用户附加文本），
+                    // 「采购入库」标签由 noteKey(REFILL) + 资源在显示层提供
+                    note = listOfNotNull(
+                        s.channel.takeIf { it.isNotBlank() },
+                        s.note.takeIf { it.isNotBlank() }
+                    ).joinToString(" · ").ifBlank { null },
                     batchNumber = s.batchNumber.ifBlank { null },
                     expiryDate = s.expiryDate.ifBlank { null }
                 )

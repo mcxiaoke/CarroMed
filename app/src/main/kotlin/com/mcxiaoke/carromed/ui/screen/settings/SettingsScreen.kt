@@ -116,14 +116,16 @@ fun SettingsScreen(
                     )
                     if (preview.warnings.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
+                        val warnContext = LocalContext.current
+                        val warnSep = stringResource(R.string.csv_error_list_separator)
                         Text(
-                            // 取 [BackupProblem.message]：这些条目是结构化类型，
-                            // 直接 joinToString 会输出 `BackupProblem(kind=…, message=…)`。
+                            // 取 [BackupProblem.message]（用 Context 解析资源 + 参数）：这些条目
+                            // 是结构化类型，直接 joinToString 会输出 `BackupProblem(kind=…, …)`。
                             // 能进到这里的都是**不拦住恢复**的提示（[BackupProblemKind.blocksRestore]），
                             // 所以措辞用"注意"而不是"错误"——它们不妨碍恢复。
                             stringResource(
                                 R.string.set_restore_warnings,
-                                preview.warnings.joinToString("；") { it.message }
+                                preview.warnings.joinToString(warnSep) { it.message(warnContext) }
                             ),
                             color = MaterialTheme.colorScheme.error
                         )

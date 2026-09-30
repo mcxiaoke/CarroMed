@@ -88,12 +88,14 @@ class DoseEntryActions(
     suspend fun confirm(
         slotId: Long,
         takenAmount: Float? = null,
-        note: String? = null
+        note: String? = null,
+        noteKey: String? = null
     ): DoseActionResult {
         val ok = tracking.takeDose(
             slotId = slotId,
             takenAmount = takenAmount,
-            note = note
+            note = note,
+            noteKey = noteKey
         )
         if (!ok) {
             val failure = classifyFailure(slotId)
@@ -107,8 +109,12 @@ class DoseEntryActions(
     }
 
     /** 跳过本次：写跳过事实（不扣库存）→ 撤闹钟 → 撤通知（未来槽位同样不碰闹钟） */
-    suspend fun skip(slotId: Long, reason: String? = null): DoseActionResult {
-        val ok = tracking.skipDose(slotId = slotId, reason = reason)
+    suspend fun skip(
+        slotId: Long,
+        reason: String? = null,
+        noteKey: String? = null
+    ): DoseActionResult {
+        val ok = tracking.skipDose(slotId = slotId, reason = reason, noteKey = noteKey)
         if (!ok) {
             val failure = classifyFailure(slotId)
             if (failure == DoseActionResult.FUTURE_SLOT) {

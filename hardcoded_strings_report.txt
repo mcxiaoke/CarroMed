@@ -1,68 +1,39 @@
 ﻿   1  app\src\main\kotlin\com\mcxiaoke\carromed\core\alarm\AlarmReceiver.kt
         skip: no open slot for $key (已打卡/已结算/已删除)
-   4  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\BackupFormat.kt
-        常备药
-        片剂
+   1  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\BackupFormat.kt
         片
-        服药时段
-  50  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\DataExporter.kt
-        服药时间,药品名称,剂量,单位,记录状态,记录类型,备注\n
-        已服(补录)
-        跳过
-        已撤销
-   1  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\entity\DoseRecordEntity.kt
-        随早餐服下
-   1  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\entity\InventoryTransactionEntity.kt
-        每日打卡扣减
-   4  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\entity\MedicationEntity.kt
-        常备药
-        片剂
+   2  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\entity\MedicationEntity.kt
         片
         , // 通知栏单行简述 (如 
-   2  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\entity\PolicyTimeEntity.kt
+   1  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\entity\PolicyTimeEntity.kt
          (24小时制，如 
-        服药时段
-   4  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\entity\ReminderSettingsEntity.kt
+   1  app\src\main\kotlin\com\mcxiaoke\carromed\core\data\entity\ReminderSettingsEntity.kt
         未暂停
-        提醒已暂停
-        提醒已暂停
-        提醒已暂停，明天恢复
-  21  app\src\main\kotlin\com\mcxiaoke\carromed\core\domain\service\DoseTrackingService.kt
+   9  app\src\main\kotlin\com\mcxiaoke\carromed\core\domain\service\DoseTrackingService.kt
         服药剂量必须大于 0，当前 $takenAmount
-        按时服药打卡扣减
-        主动跳过本次服药
-        用户误触打卡撤销冲正
-  13  app\src\main\kotlin\com\mcxiaoke\carromed\core\domain\service\MedicationAdminService.kt
-        常备药
-        片剂
+        服药剂量必须大于 0，当前 $newDoseAmount
+        服药时间不能晚于当前时刻
+        服药时间不能早于 $MANUAL_DOSE_BACKFILL_DAYS 天前
+   9  app\src\main\kotlin\com\mcxiaoke\carromed\core\domain\service\MedicationAdminService.kt
         片
-        服药时段
-  23  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\edit\AddEditMedicationViewModel.kt
-        服药时段
-        常备药
-        片剂
+        药品名称不能为空
+        保存提醒行为失败：reminder_settings 无 medId=${draft.medId} 的行
+        设置暂停失败：reminder_settings 无 medId=$medId 的行
+   1  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\edit\AddEditMedicationViewModel.kt
         片
-   1  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\manual\ManualDoseViewModel.kt
-        手动补录服药
-   2  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\refill\RefillViewModel.kt
+   1  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\refill\RefillViewModel.kt
         同仁堂实体药房
-        采购入库 (${s.channel})
-   9  app\src\main\kotlin\com\mcxiaoke\carromed\ui\screen\reminder\ReminderSettingsViewModel.kt
-        服药时段
-        空腹服用
-        饭前服用
-        随餐服用
-  41  app\src\debug\kotlin\com\mcxiaoke\carromed\core\data\DevSampleDataSeeder.kt
+  33  app\src\debug\kotlin\com\mcxiaoke\carromed\core\data\DevSampleDataSeeder.kt
         环孢素
         新赛斯平
-        处方药 · 免疫
-        软胶囊
+        片
+        预防和治疗同种异体器官移植后的排斥反应。建议每天固定时间整粒温水吞服，切勿与葡萄柚同服。
   29  app\src\androidTest\kotlin\com\mcxiaoke\carromed\ui\SmokeNavigationTest.kt
         我的药箱
         进展追踪
         统计报表
         今日清单
 
-TOTAL literals: 206
-TOTAL unique:   145
+TOTAL literals: 88
+TOTAL unique:   68
 

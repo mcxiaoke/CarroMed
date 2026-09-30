@@ -50,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,8 +58,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
-import com.mcxiaoke.carromed.ui.screen.edit.ReadOnlyDateField
+import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
+import com.mcxiaoke.carromed.ui.screen.edit.ReadOnlyDateField
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
@@ -381,7 +383,7 @@ fun InventoryScreen(
                 TxRow(
                     time = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(tx.createdAt)),
                     label = stringResource(viewModel.txLabel(tx.txType)),
-                    note = tx.note,
+                    note = MedVocab.ledgerNoteDisplay(LocalContext.current, tx.noteKey, tx.note),
                     change = Dose(tx.changeAmount).asFloat,
                     balance = Dose(tx.balanceAfter).asFloat,
                     unit = med.unit,

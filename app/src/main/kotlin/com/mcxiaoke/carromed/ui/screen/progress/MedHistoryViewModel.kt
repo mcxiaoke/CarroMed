@@ -44,7 +44,9 @@ data class MedHistoryItem(
     val status: RecordStatus,
     val isManual: Boolean,
     val isRetrospective: Boolean,
-    val note: String?
+    val note: String?,
+    /** 程序化备注分类（[RecordNoteKey] name）；显示层用 MedVocab.recordNoteDisplay 解析。 */
+    val noteKey: String?
 )
 
 data class MedHistoryMonth(
@@ -117,7 +119,8 @@ class MedHistoryViewModel(application: Application) : AndroidViewModel(applicati
                     status = r.status,
                     isManual = r.slotId == null,
                     isRetrospective = r.isRetrospective,
-                    note = r.note
+                    note = r.note,
+                    noteKey = r.noteKey
                 )
             }
 

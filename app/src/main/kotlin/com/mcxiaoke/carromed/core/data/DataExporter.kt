@@ -9,6 +9,8 @@ import android.net.Uri
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.FileProvider
 import androidx.room.withTransaction
+import com.mcxiaoke.carromed.R
+import androidx.annotation.StringRes
 import com.mcxiaoke.carromed.core.data.entity.AppSettingEntity
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
@@ -19,6 +21,7 @@ import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.model.Dose
+import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -175,9 +178,26 @@ object BackupDefaults {
     const val CYCLE_OFF_DAYS = 7
 }
 
-/** 一条校验问题：[kind] 决定它是否拦住恢复，[message] 只用于展示。 */
-data class BackupProblem(val kind: BackupProblemKind, val message: String) {
+/**
+ * 一条校验问题：[kind] 决定它是否拦住恢复，[message] 只用于展示。
+ *
+ * 文案以**资源 ID + 参数**携带（而非已格式化的字符串），这样 [validateBackup]
+ * 仍是纯函数（无 `Context`，可直接 JVM 单测），由展示层用 `getString` 解析。
+ * [message] 仅供日志/测试断言，**绝不可用于控制流**。
+ */
+data class BackupProblem(
+    val kind: BackupProblemKind,
+    @StringRes val messageRes: Int,
+    val args: List<Any> = emptyList()
+) {
     val blocksRestore: Boolean get() = kind.blocksRestore
+
+    /** 展示用文案（`Context` 由调用方提供）。 */
+    fun message(context: Context): String = context.getString(messageRes, *args.toTypedArray())
+
+    /** 无 `Context` 时的可读近似（资源名 + 参数），供日志与测试使用。 */
+    val message: String
+        get() = if (args.isEmpty()) "$messageRes" else "$messageRes$args"
 }
 
 /**
@@ -245,25 +265,37 @@ object DataExporter {
         val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val sb = StringBuilder()
         sb.append(BOM)
-        sb.append("服药时间,药品名称,剂量,单位,记录状态,记录类型,备注\n")
+        sb.append(context.getString(R.string.csv_header_dose_records)).append('\n')
+        val unknownMed = context.getString(R.string.csv_value_unknown_medication)
         for (r in records) {
             val med = medMap[r.medicationId]
             val statusText = when (r.status) {
-                RecordStatus.COMPLETED -> if (r.isRetrospective) "已服(补录)" else "已服"
-                RecordStatus.SKIPPED -> "跳过"
-                RecordStatus.REVERTED -> "已撤销"
+                RecordStatus.COMPLETED -> if (r.isRetrospective) {
+                    context.getString(R.string.csv_status_completed_retro)
+                } else {
+                    context.getString(R.string.csv_status_completed)
+                }
+                RecordStatus.SKIPPED -> context.getString(R.string.csv_status_skipped)
+                RecordStatus.REVERTED -> context.getString(R.string.csv_status_reverted)
             }
-            val typeText = if (r.slotId != null) "计划打卡" else "手动记录"
+            val typeText = if (r.slotId != null) {
+                context.getString(R.string.csv_record_type_planned)
+            } else {
+                context.getString(R.string.csv_record_type_manual)
+            }
             sb.append(escapeCsv(fmt.format(Date(r.actualTs)))).append(',')
-            sb.append(escapeCsv(med?.name ?: "未知药品")).append(',')
+            sb.append(escapeCsv(med?.name ?: unknownMed)).append(',')
             sb.append(Dose(r.doseTaken).asFloat).append(',')
             sb.append(escapeCsv(med?.unit ?: "")).append(',')
-            sb.append(statusText).append(',')
-            sb.append(typeText).append(',')
-            sb.append(escapeCsv(r.note ?: "")).append('\n')
+            sb.append(escapeCsv(statusText)).append(',')
+            sb.append(escapeCsv(typeText)).append(',')
+            sb.append(escapeCsv(MedVocab.recordNoteDisplay(context, r.noteKey, r.note) ?: "")).append('\n')
         }
 
-        val file = File(exportDir(context), "CarroMed_服药明细_${timestamp()}.csv")
+        val file = File(
+            exportDir(context),
+            context.getString(R.string.csv_file_dose_records) + timestamp() + ".csv"
+        )
         file.writeText(sb.toString(), Charsets.UTF_8)
         return file
     }
@@ -281,28 +313,37 @@ object DataExporter {
         val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         val sb = StringBuilder()
         sb.append(BOM)
-        sb.append("时间,药品名称,变动数量,单位,结余,类型,批号,有效期,备注\n")
+        sb.append(context.getString(R.string.csv_header_inventory)).append('\n')
+        val unknownMed = context.getString(R.string.csv_value_unknown_medication)
         for (t in txs) {
             val med = medMap[t.medicationId]
             val typeText = when (t.txType) {
-                com.mcxiaoke.carromed.core.data.model.TransactionType.TAKEN_DEDUCT -> "服药扣减"
-                com.mcxiaoke.carromed.core.data.model.TransactionType.REFILL -> "购药入库"
-                com.mcxiaoke.carromed.core.data.model.TransactionType.REVERT_ROLLBACK -> "撤销冲正"
-                com.mcxiaoke.carromed.core.data.model.TransactionType.CALIBRATION_ADJUST -> "盘点调整"
-                com.mcxiaoke.carromed.core.data.model.TransactionType.DOSE_EDIT_ADJUST -> "改剂量调整"
+                com.mcxiaoke.carromed.core.data.model.TransactionType.TAKEN_DEDUCT ->
+                    context.getString(R.string.csv_tx_type_taken_deduct)
+                com.mcxiaoke.carromed.core.data.model.TransactionType.REFILL ->
+                    context.getString(R.string.csv_tx_type_refill)
+                com.mcxiaoke.carromed.core.data.model.TransactionType.REVERT_ROLLBACK ->
+                    context.getString(R.string.csv_tx_type_revert_rollback)
+                com.mcxiaoke.carromed.core.data.model.TransactionType.CALIBRATION_ADJUST ->
+                    context.getString(R.string.csv_tx_type_calibration_adjust)
+                com.mcxiaoke.carromed.core.data.model.TransactionType.DOSE_EDIT_ADJUST ->
+                    context.getString(R.string.csv_tx_type_dose_edit_adjust)
             }
             sb.append(escapeCsv(fmt.format(Date(t.createdAt)))).append(',')
-            sb.append(escapeCsv(med?.name ?: "未知药品")).append(',')
+            sb.append(escapeCsv(med?.name ?: unknownMed)).append(',')
             sb.append(Dose(t.changeAmount).asFloat).append(',')
             sb.append(escapeCsv(med?.unit ?: "")).append(',')
             sb.append(Dose(t.balanceAfter).asFloat).append(',')
-            sb.append(typeText).append(',')
+            sb.append(escapeCsv(typeText)).append(',')
             sb.append(escapeCsv(t.batchNumber ?: "")).append(',')
             sb.append(escapeCsv(t.expiryDate ?: "")).append(',')
-            sb.append(escapeCsv(t.note ?: "")).append('\n')
+            sb.append(escapeCsv(MedVocab.ledgerNoteDisplay(context, t.noteKey, t.note) ?: "")).append('\n')
         }
 
-        val file = File(exportDir(context), "CarroMed_库存流水_${timestamp()}.csv")
+        val file = File(
+            exportDir(context),
+            context.getString(R.string.csv_file_inventory) + timestamp() + ".csv"
+        )
         file.writeText(sb.toString(), Charsets.UTF_8)
         return file
     }
@@ -465,6 +506,7 @@ object DataExporter {
                     status = r.status,
                     isRetrospective = r.isRetrospective,
                     note = r.note,
+                    noteKey = r.noteKey,
                     createdAt = r.createdAt
                 )
             },
@@ -477,6 +519,7 @@ object DataExporter {
                     balanceAfter = t.balanceAfter,
                     txType = t.txType,
                     note = t.note,
+                    noteKey = t.noteKey,
                     batchNumber = t.batchNumber,
                     expiryDate = t.expiryDate,
                     createdAt = t.createdAt
@@ -515,15 +558,17 @@ object DataExporter {
      */
     fun validateBackup(backup: BackupFile): List<BackupProblem> {
         val problems = mutableListOf<BackupProblem>()
-        fun report(kind: BackupProblemKind, message: String) {
-            problems += BackupProblem(kind, message)
+        fun report(kind: BackupProblemKind, @StringRes messageRes: Int, vararg args: Any) {
+            problems += BackupProblem(kind, messageRes, args.toList())
         }
 
         val version = BackupFormatVersion.from(backup.formatVersion)
         if (version == null) {
             report(
                 BackupProblemKind.UNSUPPORTED_VERSION,
-                "备份格式版本 ${backup.formatVersion} 不受支持（当前支持 1~${BackupFormatVersion.CURRENT.code}）"
+                R.string.backup_err_unsupported_version,
+                backup.formatVersion,
+                BackupFormatVersion.CURRENT.code
             )
         }
 
@@ -533,37 +578,37 @@ object DataExporter {
 
         backup.reminderSettings.forEach {
             if (it.medicationId !in medIds) {
-                report(BackupProblemKind.DANGLING_FK, "提醒设置引用了不存在的药品 #${it.medicationId}")
+                report(BackupProblemKind.DANGLING_FK, R.string.backup_err_dangling_reminder, it.medicationId)
             }
         }
         backup.schedulePolicies.forEach {
             if (it.medicationId !in medIds) {
-                report(BackupProblemKind.DANGLING_FK, "服用计划 #${it.id} 引用了不存在的药品 #${it.medicationId}")
+                report(BackupProblemKind.DANGLING_FK, R.string.backup_err_dangling_policy, it.id, it.medicationId)
             }
         }
         backup.policyTimes.forEach {
             if (it.policyId !in policyIds) {
-                report(BackupProblemKind.DANGLING_FK, "服药时点 #${it.id} 引用了不存在的计划 #${it.policyId}")
+                report(BackupProblemKind.DANGLING_FK, R.string.backup_err_dangling_policy_time, it.id, it.policyId)
             }
         }
         backup.doseSlots.forEach {
             if (it.medicationId !in medIds) {
-                report(BackupProblemKind.DANGLING_FK, "槽位 #${it.id} 引用了不存在的药品 #${it.medicationId}")
+                report(BackupProblemKind.DANGLING_FK, R.string.backup_err_dangling_slot, it.id, it.medicationId)
             }
         }
         backup.doseRecords.forEach {
             if (it.medicationId !in medIds) {
-                report(BackupProblemKind.DANGLING_FK, "服药记录 #${it.id} 引用了不存在的药品 #${it.medicationId}")
+                report(BackupProblemKind.DANGLING_FK, R.string.backup_err_dangling_record, it.id, it.medicationId)
             }
             // slotId 可空（手动补录），非空时必须指向存在的槽位。
             // ⚠️ 但这**不是**致命项：没有真实外键约束，恢复不会崩。见 [BackupProblemKind.DANGLING_SLOT_REF]。
             if (it.slotId != null && it.slotId !in slotIds) {
-                report(BackupProblemKind.DANGLING_SLOT_REF, "服药记录 #${it.id} 引用了已不存在的槽位 #${it.slotId}")
+                report(BackupProblemKind.DANGLING_SLOT_REF, R.string.backup_err_dangling_record_slot, it.id, it.slotId)
             }
         }
         backup.inventoryTransactions.forEach {
             if (it.medicationId !in medIds) {
-                report(BackupProblemKind.DANGLING_FK, "库存流水 #${it.id} 引用了不存在的药品 #${it.medicationId}")
+                report(BackupProblemKind.DANGLING_FK, R.string.backup_err_dangling_ledger, it.id, it.medicationId)
             }
         }
 
@@ -572,7 +617,7 @@ object DataExporter {
         backup.medications.groupBy { it.id }
             .filterValues { it.size > 1 }
             .forEach { (id, dup) ->
-                report(BackupProblemKind.DUPLICATE_MEDICATION_ID, "药品 #$id 在备份中出现了 ${dup.size} 次")
+                report(BackupProblemKind.DUPLICATE_MEDICATION_ID, R.string.backup_err_dup_medication, id, dup.size)
             }
 
         // 槽位唯一键重复 ⇒ `DoseSlotDao.insertAll` 的 IGNORE 会静默丢行。
@@ -582,7 +627,8 @@ object DataExporter {
             .forEach { (key, dup) ->
                 report(
                     BackupProblemKind.DUPLICATE_SLOT_KEY,
-                    "药品 #${key.first} 在 ${key.second} ${key.third} 有 ${dup.size} 条重复槽位"
+                    R.string.backup_err_dup_slot_key,
+                    key.first, key.second, key.third, dup.size
                 )
             }
 
@@ -593,16 +639,16 @@ object DataExporter {
             rows: List<T>,
             idOf: (T) -> Long,
             kind: BackupProblemKind,
-            label: String
+            @StringRes labelRes: Int
         ) {
             rows.groupBy { idOf(it) }
                 .filterValues { it.size > 1 }
-                .forEach { (rid, dup) -> report(kind, "$label #$rid 在备份中出现了 ${dup.size} 次") }
+                .forEach { (rid, dup) -> report(kind, R.string.backup_err_dup_row, labelRes, rid, dup.size) }
         }
-        checkDuplicates(backup.doseRecords, { it.id }, BackupProblemKind.DUPLICATE_RECORD_ID, "服药记录")
-        checkDuplicates(backup.inventoryTransactions, { it.id }, BackupProblemKind.DUPLICATE_LEDGER_ID, "库存流水")
-        checkDuplicates(backup.schedulePolicies, { it.id }, BackupProblemKind.DUPLICATE_POLICY_ID, "服用计划")
-        checkDuplicates(backup.policyTimes, { it.id }, BackupProblemKind.DUPLICATE_POLICY_TIME_ID, "服药时点")
+        checkDuplicates(backup.doseRecords, { it.id }, BackupProblemKind.DUPLICATE_RECORD_ID, R.string.backup_row_record)
+        checkDuplicates(backup.inventoryTransactions, { it.id }, BackupProblemKind.DUPLICATE_LEDGER_ID, R.string.backup_row_ledger)
+        checkDuplicates(backup.schedulePolicies, { it.id }, BackupProblemKind.DUPLICATE_POLICY_ID, R.string.backup_row_policy)
+        checkDuplicates(backup.policyTimes, { it.id }, BackupProblemKind.DUPLICATE_POLICY_TIME_ID, R.string.backup_row_policy_time)
 
         // ⚠️ 下面三类的**主键不是自增 id**，上面那个通用检查覆盖不到它们（M5-3）。
         //
@@ -619,7 +665,8 @@ object DataExporter {
             .forEach { (rid, dup) ->
                 report(
                     BackupProblemKind.DUPLICATE_SLOT_KEY,
-                    "槽位 #$rid 在备份中出现了 ${dup.size} 次（主键重复会静默覆盖）"
+                    R.string.backup_err_dup_slot_pk,
+                    rid, dup.size
                 )
             }
         backup.reminderSettings.groupBy { it.medicationId }
@@ -627,7 +674,8 @@ object DataExporter {
             .forEach { (medId, dup) ->
                 report(
                     BackupProblemKind.DUPLICATE_REMINDER_SETTINGS,
-                    "药品 #$medId 的提醒设置在备份中有 ${dup.size} 行（每药应恰好一行）"
+                    R.string.backup_err_dup_reminder_settings,
+                    medId, dup.size
                 )
             }
         backup.appSettings.groupBy { it.key }
@@ -635,7 +683,8 @@ object DataExporter {
             .forEach { (key, dup) ->
                 report(
                     BackupProblemKind.DUPLICATE_APP_SETTING_KEY,
-                    "设置项「$key」在备份中出现了 ${dup.size} 次"
+                    R.string.backup_err_dup_app_setting,
+                    key, dup.size
                 )
             }
 
@@ -650,7 +699,8 @@ object DataExporter {
             .forEach { (medId, dup) ->
                 report(
                     BackupProblemKind.MULTIPLE_ACTIVE_POLICIES,
-                    "药品 #$medId 有 ${dup.size} 条同时生效的计划（#${dup.joinToString { p -> p.id.toString() }}）"
+                    R.string.backup_err_multi_active_policies,
+                    medId, dup.size, dup.joinToString(", ") { p -> p.id.toString() }
                 )
             }
 
@@ -663,7 +713,8 @@ object DataExporter {
             .forEach { (key, dup) ->
                 report(
                     BackupProblemKind.DUPLICATE_POLICY_TIME,
-                    "计划 #${key.first} 在 ${key.second} 有 ${dup.size} 条重复时点"
+                    R.string.backup_err_dup_policy_time,
+                    key.first, key.second, dup.size
                 )
             }
 
@@ -671,10 +722,7 @@ object DataExporter {
         // 所以这是**提示**而不是错误 —— 拦住会让 A2 之前版本的备份永远恢复不了。
         val medsWithSettings = backup.reminderSettings.map { it.medicationId }.toSet()
         medIds.subtract(medsWithSettings).forEach {
-            report(
-                BackupProblemKind.MISSING_REMINDER_SETTINGS,
-                "药品 #$it 缺少提醒设置（恢复时会补默认值，建议重新导出备份）"
-            )
+            report(BackupProblemKind.MISSING_REMINDER_SETTINGS, R.string.backup_err_missing_reminder_settings, it)
         }
 
         return problems
@@ -811,6 +859,7 @@ object DataExporter {
                     status = r.status,
                     isRetrospective = r.isRetrospective,
                     note = r.note,
+                    noteKey = r.noteKey,
                     createdAt = r.createdAt
                 )
             })
@@ -824,6 +873,7 @@ object DataExporter {
                     balanceAfter = t.balanceAfter,
                     txType = t.txType,
                     note = t.note,
+                    noteKey = t.noteKey,
                     batchNumber = t.batchNumber,
                     expiryDate = t.expiryDate,
                     createdAt = t.createdAt
@@ -841,7 +891,10 @@ object DataExporter {
 
     /** 导出全量数据库为 JSON 备份文件，返回生成的文件 */
     suspend fun exportFullBackupJson(context: Context, db: AppDatabase): File {
-        val file = File(exportDir(context), "CarroMed_全量备份_${timestamp()}.json")
+        val file = File(
+            exportDir(context),
+            context.getString(R.string.csv_file_backup) + timestamp() + ".json"
+        )
         file.writeText(encodeBackup(buildBackup(db)), Charsets.UTF_8)
         AppLog.i(TAG, "full backup written: ${file.name}")
         return file
@@ -855,7 +908,10 @@ object DataExporter {
      * 写失败**不阻断恢复** —— 快照是保险，不是前置条件。
      */
     private suspend fun writeSafetySnapshot(context: Context, db: AppDatabase): File? = try {
-        val file = File(exportDir(context), "CarroMed_恢复前快照_${timestamp()}.json")
+        val file = File(
+            exportDir(context),
+            context.getString(R.string.csv_file_snapshot) + timestamp() + ".json"
+        )
         file.writeText(encodeBackup(buildBackup(db)), Charsets.UTF_8)
         AppLog.i(TAG, "safety snapshot written: ${file.name}")
         file
@@ -958,28 +1014,39 @@ object DataExporter {
      */
     suspend fun inspectBackup(context: Context, uri: Uri): Result<BackupPreview> {
         val text = readText(context, uri)
-            ?: return Result.failure(IllegalArgumentException("无法读取所选文件"))
-        return inspectText(text, displayName(context, uri))
+            ?: return Result.failure(
+                IllegalArgumentException(context.getString(R.string.csv_error_unreadable))
+            )
+        return inspectText(context, text, displayName(context, uri))
     }
 
     /** 同上，但读本机导出目录里的文件（绕开 SAF 的目录限制） */
-    fun inspectLocalBackup(file: File): Result<BackupPreview> {
+    fun inspectLocalBackup(context: Context, file: File): Result<BackupPreview> {
         val text = readText(file)
-            ?: return Result.failure(IllegalArgumentException("无法读取 ${file.name}"))
-        return inspectText(text, file.name)
+            ?: return Result.failure(
+                IllegalArgumentException(
+                    context.getString(R.string.csv_error_unreadable_named, file.name)
+                )
+            )
+        return inspectText(context, text, file.name)
     }
 
-    private fun inspectText(text: String, display: String): Result<BackupPreview> {
+    private fun inspectText(context: Context, text: String, display: String): Result<BackupPreview> {
         val backup = runCatching { decodeBackup(text) }.getOrElse {
-            return Result.failure(IllegalArgumentException("不是有效的 CarroMed 备份文件"))
+            return Result.failure(
+                IllegalArgumentException(context.getString(R.string.csv_error_not_backup_file))
+            )
         }
         if (backup.app != BACKUP_APP_TAG) {
-            return Result.failure(IllegalArgumentException("该文件不是 CarroMed 备份文件"))
+            return Result.failure(
+                IllegalArgumentException(context.getString(R.string.csv_error_not_carromed_backup))
+            )
         }
         val problems = validateBackup(backup)
         val fatal = problems.filter { it.blocksRestore }
         if (fatal.isNotEmpty()) {
-            return Result.failure(IllegalArgumentException(fatal.joinToString("；") { it.message }))
+            val sep = context.getString(R.string.csv_error_list_separator)
+            return Result.failure(IllegalArgumentException(fatal.joinToString(sep) { it.message(context) }))
         }
         val version = BackupFormatVersion.from(backup.formatVersion) ?: BackupFormatVersion.V1
         return Result.success(
@@ -1002,7 +1069,8 @@ object DataExporter {
                 val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
                 if (idx >= 0 && c.moveToFirst()) c.getString(idx) else null
             }
-        }.getOrNull() ?: uri.lastPathSegment ?: "所选文件"
+        }.getOrNull() ?: uri.lastPathSegment
+            ?: context.getString(R.string.csv_fallback_selected_file)
 
     /**
      * 从 JSON 备份覆盖式恢复整库。
@@ -1011,13 +1079,17 @@ object DataExporter {
      * **读 → 校验 → 留快照 → 才开事务清库**。任何一步失败都不会丢数据。
      */
     suspend fun importBackup(context: Context, db: AppDatabase, uri: Uri): RestoreResult {
-        val text = readText(context, uri) ?: return RestoreResult.Invalid("无法读取所选文件")
+        val text = readText(context, uri)
+            ?: return RestoreResult.Invalid(context.getString(R.string.csv_error_unreadable))
         return restoreFromText(context, db, text)
     }
 
     /** 同上，但源是本机导出目录里的文件 */
     suspend fun importLocalBackup(context: Context, db: AppDatabase, file: File): RestoreResult {
-        val text = readText(file) ?: return RestoreResult.Invalid("无法读取 ${file.name}")
+        val text = readText(file)
+            ?: return RestoreResult.Invalid(
+                context.getString(R.string.csv_error_unreadable_named, file.name)
+            )
         return restoreFromText(context, db, text)
     }
 
@@ -1030,11 +1102,11 @@ object DataExporter {
             decodeBackup(text)
         } catch (e: Exception) {
             AppLog.w(TAG, "restore rejected: not a valid backup file", e)
-            return RestoreResult.Invalid("不是有效的 CarroMed 备份文件")
+            return RestoreResult.Invalid(context.getString(R.string.csv_error_not_backup_file))
         }
         if (backup.app != BACKUP_APP_TAG) {
             AppLog.w(TAG, "restore rejected: app tag mismatch (app=${backup.app})")
-            return RestoreResult.Invalid("该文件不是 CarroMed 备份文件")
+            return RestoreResult.Invalid(context.getString(R.string.csv_error_not_carromed_backup))
         }
 
         val problems = validateBackup(backup)
@@ -1049,7 +1121,8 @@ object DataExporter {
         if (fatal.isNotEmpty()) {
             // ⚠️ 在此返回，数据库**尚未被触碰**
             AppLog.w(TAG, "restore rejected: ${fatal.size} fatal problem(s), db untouched")
-            return RestoreResult.Invalid(fatal.joinToString("；") { it.message })
+            val sep = context.getString(R.string.csv_error_list_separator)
+            return RestoreResult.Invalid(fatal.joinToString(sep) { it.message(context) })
         }
 
         val snapshot = writeSafetySnapshot(context, db)
@@ -1085,7 +1158,9 @@ object DataExporter {
         } catch (e: Exception) {
             // 事务整体回滚，数据库回到恢复前的样子
             AppLog.e(TAG, "restore failed, transaction rolled back", e)
-            RestoreResult.Failure("恢复失败，已自动回滚: ${e.message}")
+            RestoreResult.Failure(
+                context.getString(R.string.csv_error_restore_rolled_back, e.message ?: "")
+            )
         }
     }
 
@@ -1127,7 +1202,10 @@ object DataExporter {
             ?.sortedBy { it.name }
             .orEmpty()
         if (files.isEmpty()) return null
-        val out = File(exportDir(context), "CarroMed_诊断日志_${timestamp()}.txt")
+        val out = File(
+            exportDir(context),
+            context.getString(R.string.csv_file_logs) + timestamp() + ".txt"
+        )
         out.bufferedWriter(Charsets.UTF_8).use { writer ->
             for (f in files) {
                 writer.appendLine("===== ${f.name} =====")
@@ -1143,7 +1221,12 @@ object DataExporter {
     /**
      * 通过系统分享面板分享导出文件 (FileProvider 授权)
      */
-    fun shareFile(context: Context, file: File, mime: String, title: String = "分享导出文件") {
+    fun shareFile(
+        context: Context,
+        file: File,
+        mime: String,
+        title: String = context.getString(R.string.csv_share_title)
+    ) {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val send = Intent(Intent.ACTION_SEND).apply {
             type = mime

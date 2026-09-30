@@ -53,4 +53,25 @@
     <string name="precaution_no_driving">服后勿驾车</string>
     <string name="precaution_no_aluminum_antacid">不可与含铝抗酸药同服</string>
     <string name="precaution_caution_liver_kidney">肝肾功能不全慎用</string>
+
+    <!-- 库存流水程序化备注 LedgerNoteKey（note 列只放载荷，文案在这里） -->
+    <string name="note_ledger_take_deduct">按时服药打卡扣减</string>
+    <string name="note_ledger_skip">主动跳过本次服药</string>
+    <string name="note_ledger_rejudge_taken">改判为已服</string>
+    <string name="note_ledger_undo_revert">用户误触打卡撤销冲正</string>
+    <string name="note_ledger_undo_temp">临时服药记录撤销冲正</string>
+    <string name="note_ledger_dose_edit">修改剂量</string>
+    <string name="note_ledger_retro">事后补录服药扣减</string>
+    <string name="note_ledger_prn">按需/临时服药扣减</string>
+    <string name="note_ledger_calibrate">库存盘点校准</string>
+    <string name="note_ledger_track_init">开启库存追踪建档</string>
+    <string name="note_ledger_track_init_calibrate">开启库存追踪建档校准</string>
+    <string name="note_ledger_refill">采购入库</string>
+
+    <!-- 服药记录程序化备注 RecordNoteKey -->
+    <string name="note_record_notification_take">通知栏快捷打卡</string>
+    <string name="note_record_notification_skip">通知栏快捷跳过</string>
+    <string name="note_record_skip">主动跳过本次服药</string>
+    <string name="note_record_manual_backfill">手动补录服药</string>
+    <string name="note_record_rejudge_taken">改判为已服</string>
 </resources>

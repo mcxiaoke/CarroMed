@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
+import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreenContainer
@@ -195,12 +197,13 @@ private fun MedHistoryRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 val dose = com.mcxiaoke.carromed.core.domain.model.Dose(item.doseMilli).asFloat
+                val noteText = MedVocab.recordNoteDisplay(LocalContext.current, item.noteKey, item.note)
                 val subtitle = buildString {
                     append(Quantity.fmt(dose)).append(' ').append(unit)
                     if (item.isManual) append(stringResource(R.string.mhist_tag_manual))
                     if (item.isRetrospective) append(stringResource(R.string.mhist_tag_retrospective))
-                    if (!item.note.isNullOrBlank()) {
-                        append(" · ").append(item.note)
+                    if (noteText != null) {
+                        append(" · ").append(noteText)
                     }
                 }
                 Text(

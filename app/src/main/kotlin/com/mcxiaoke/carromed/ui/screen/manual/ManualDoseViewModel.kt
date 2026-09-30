@@ -184,7 +184,9 @@ class ManualDoseViewModel(
                     actualTs = epochMilli,
                     doseAmount = amount,
                     isRetrospective = s.actualDateTime.isBefore(LocalDateTime.now().minusMinutes(2)),
-                    note = s.note.ifBlank { "手动补录服药" },
+                    // 用户没填备注时留 null，由 logManualDose 落 RecordNoteKey.MANUAL_BACKFILL，
+                    // 标签在展示层按 locale 解析 —— 不要在这里写死文案进库（B5）。
+                    note = s.note.ifBlank { null },
                     deductStock = s.deductStock
                 )
             }.onFailure { t ->

@@ -10,6 +10,7 @@ import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
+import com.mcxiaoke.carromed.core.domain.model.RecordNoteKey
 import com.mcxiaoke.carromed.core.domain.service.DoseActionResult
 import com.mcxiaoke.carromed.core.domain.service.DoseEntryActions
 import kotlinx.coroutines.CoroutineScope
@@ -92,7 +93,9 @@ class DoseActionReceiver : BroadcastReceiver() {
                         // 但排查时会先怀疑协程，所以从一开始就别让两个东西同名。
                         val applied = if (isStillOpen) {
                             // `!!` 安全：isStillOpen 为真 ⇒ slot 已取到 ⇒ slotId 非空
-                            actions.confirm(slotId = slotId!!, note = appContext.getString(R.string.act_note_take))
+                            // ⚠️ 存 key 而不是 getString 的结果：note 会进历史与导出，
+                            // 存本地化文案等于让同一个操作在不同语言下留下不同文本。
+                            actions.confirm(slotId = slotId!!, noteKey = RecordNoteKey.NOTIFICATION_TAKE.name)
                         } else {
                             DoseActionResult.ALREADY_HANDLED
                         }
@@ -111,7 +114,7 @@ class DoseActionReceiver : BroadcastReceiver() {
 
                     Notifications.ACTION_SKIP -> {
                         val applied = if (isStillOpen) {
-                            actions.skip(slotId!!, reason = appContext.getString(R.string.act_note_skip))
+                            actions.skip(slotId!!, noteKey = RecordNoteKey.NOTIFICATION_SKIP.name)
                         } else {
                             DoseActionResult.ALREADY_HANDLED
                         }

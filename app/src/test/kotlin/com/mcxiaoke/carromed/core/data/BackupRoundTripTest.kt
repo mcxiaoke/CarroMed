@@ -7,7 +7,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
+import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import com.mcxiaoke.carromed.core.data.model.TransactionType
+import com.mcxiaoke.carromed.core.domain.model.LedgerNoteKey
+import com.mcxiaoke.carromed.core.domain.model.RecordNoteKey
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -166,6 +170,68 @@ class BackupRoundTripTest {
         val expected = db.inventoryTransactionDao().getAllTransactions().sumOf { it.changeAmount }
         val actual = spare.inventoryTransactionDao().getAllTransactions().sumOf { it.changeAmount }
         assertThat(actual).isEqualTo(expected)
+    }
+
+    /**
+     * B5：流水的 `noteKey`（程序化备注分类）必须随备份往返。
+     *
+     * 漏掉它不会让任何金额对不上 —— 守恒照样成立、台账照样平，
+     * 坏的是**语义**：恢复后所有程序化流水退化成"用户自由文本"，
+     * 界面再也拼不出"按时服药打卡扣减"这类标签，备注列只剩裸载荷。
+     * 这类"数字全对、含义丢失"的退化最容易被当成无事发生。
+     */
+    @Test
+    fun `流水的 noteKey 与载荷在往返后都不丢`() = runTest {
+        val medId = seedMed("环孢素", listOf("08:00"))
+        service.takeDose(
+            slotId = db.doseSlotDao().getSlotsForDate(today.toString())
+                .first { it.medicationId == medId }.id,
+            note = "随早餐"
+        )
+        service.calibrateStock(medId, actualStock = 20f, note = "换包装")
+
+        DataExporter.restoreBackup(spare, DataExporter.buildBackup(db, now = now))
+
+        val byType = spare.inventoryTransactionDao().getAllTransactions()
+            .associateBy { it.txType }
+        // 打卡：key 是程序化分类，note 只剩用户载荷
+        assertThat(byType.getValue(TransactionType.TAKEN_DEDUCT).noteKey)
+            .isEqualTo(LedgerNoteKey.TAKE_DEDUCT.name)
+        assertThat(byType.getValue(TransactionType.TAKEN_DEDUCT).note).isEqualTo("随早餐")
+        // 盘点：key 之外还带一条 `a → b` 数量载荷，两者都在
+        val calibrate = byType.getValue(TransactionType.CALIBRATION_ADJUST)
+        assertThat(calibrate.noteKey).isEqualTo(LedgerNoteKey.CALIBRATE.name)
+        assertThat(calibrate.note).contains("→")
+    }
+
+    /**
+     * B5：服药记录的 `noteKey` 同样必须往返。
+     *
+     * 与流水那条同源：丢 key 不影响任何统计（依从率、消耗都对），
+     * 坏的是"通知栏打卡"与"主动跳过"在历史里退化成无法归类的裸文本。
+     * 另有一点值得钉住：**用户自己填的备注不得被程序化标签顶掉** ——
+     * 传了 note 就没有 noteKey，两者互斥。
+     */
+    @Test
+    fun `记录的 noteKey 与用户备注互斥地往返`() = runTest {
+        val takeMed = seedMed("环孢素", listOf("08:00"))
+        val skipMed = seedMed("新赛斯平", listOf("08:00"))
+        val slots = db.doseSlotDao().getSlotsForDate(today.toString())
+        service.takeDose(
+            slots.first { it.medicationId == takeMed }.id,
+            noteKey = RecordNoteKey.NOTIFICATION_TAKE.name
+        )
+        service.skipDose(slots.first { it.medicationId == skipMed }.id, reason = "出门在外")
+
+        DataExporter.restoreBackup(spare, DataExporter.buildBackup(db, now = now))
+
+        val records = spare.doseRecordDao().getAllRecords()
+        // 程序化路径：有 key、无载荷
+        assertThat(records.single { it.noteKey == RecordNoteKey.NOTIFICATION_TAKE.name }.note).isNull()
+        // 用户文本路径：有载荷、无 key —— 否则界面会显示"通知栏快捷打卡（出门在外）"
+        val userNote = records.single { it.note == "出门在外" }
+        assertThat(userNote.noteKey).isNull()
+        assertThat(userNote.status).isEqualTo(RecordStatus.SKIPPED)
     }
 
     // ==================== pausedUntil 三态 ====================

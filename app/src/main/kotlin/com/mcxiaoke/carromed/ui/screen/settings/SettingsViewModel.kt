@@ -198,7 +198,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             showLocalBackupPicker = false
         )
         viewModelScope.launch(Dispatchers.IO) {
-            val result = DataExporter.inspectLocalBackup(file)
+            val result = DataExporter.inspectLocalBackup(getApplication(), file)
             _uiState.value = _uiState.value.copy(
                 isInspectingBackup = false,
                 pendingRestore = result.fold(

@@ -55,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -711,6 +712,9 @@ private fun CompletedDoseCard(
                     }
                 }
                 Spacer(Modifier.height(2.dp))
+                val recNote = item.record?.let { r ->
+                    MedVocab.recordNoteDisplay(LocalContext.current, r.noteKey, r.note)
+                }
                 Text(
                     text = buildString {
                         append(stringResource(R.string.today_completed_at, item.slot.scheduledTime))
@@ -722,8 +726,8 @@ private fun CompletedDoseCard(
                                     med?.unit ?: stringResource(R.string.today_default_unit)
                                 )
                             )
-                            if (!r.note.isNullOrBlank()) {
-                                append(stringResource(R.string.today_completed_note_part, r.note))
+                            if (recNote != null) {
+                                append(stringResource(R.string.today_completed_note_part, recNote))
                             }
                         }
                     },

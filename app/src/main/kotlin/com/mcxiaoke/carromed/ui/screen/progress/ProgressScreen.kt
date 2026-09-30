@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -52,6 +53,7 @@ import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
+import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
@@ -562,9 +564,15 @@ private fun TimelineRow(item: TimelineItem, onOpenDose: (Long?, Long) -> Unit) {
                         if (isNotEmpty()) append(" · ")
                         append(retrospectiveLabel)
                     }
-                    if (!item.record.note.isNullOrBlank()) {
+                    if (!item.record.note.isNullOrBlank() || item.record.noteKey != null) {
                         if (isNotEmpty()) append(" · ")
-                        append(item.record.note)
+                        append(
+                            MedVocab.recordNoteDisplay(
+                                LocalContext.current,
+                                item.record.noteKey,
+                                item.record.note
+                            ).orEmpty()
+                        )
                     }
                 }
                 if (subtitle.isNotEmpty()) {

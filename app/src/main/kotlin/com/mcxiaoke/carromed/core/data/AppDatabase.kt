@@ -68,7 +68,9 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
         AppSettingEntity::class,
         ReminderSettingsEntity::class
     ],
-    version = 7,
+    // v8：inventory_transactions 增加 note_key 列（B5 流水备注 key 化，PLAN-I18N-20260930 D-C）。
+    // 未发布不写迁移：schema 变更一律删库重装。
+    version = 8,
     exportSchema = false
 )
 @TypeConverters(AppConverters::class)

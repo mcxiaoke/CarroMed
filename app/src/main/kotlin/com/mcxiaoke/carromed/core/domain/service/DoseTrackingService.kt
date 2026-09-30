@@ -12,9 +12,12 @@ import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
+import com.mcxiaoke.carromed.core.domain.model.LedgerNoteKey
+import com.mcxiaoke.carromed.core.domain.model.RecordNoteKey
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Locale
 
 /**
  * 手动补录的时间窗：只能补录**最近 7 个自然日**内的服药（含撤销窗口）。
@@ -126,7 +129,8 @@ class DoseTrackingService(
         recordId: Long?,
         changeAmount: Dose,
         txType: TransactionType,
-        note: String?
+        note: String?,
+        noteKey: String? = null
     ) {
         val balanceAfter = balanceOf(medicationId) + changeAmount.milli
         inventoryDao.insert(
@@ -136,7 +140,8 @@ class DoseTrackingService(
                 changeAmount = changeAmount.milli,
                 balanceAfter = balanceAfter,
                 txType = txType,
-                note = note
+                note = note,
+                noteKey = noteKey
             )
         )
         // 台账审计线（PLAN-LOGGING G1）：余额出问题时，这条 INFO 与
@@ -161,7 +166,8 @@ class DoseTrackingService(
         slotId: Long,
         actualTs: Long = System.currentTimeMillis(),
         takenAmount: Float? = null,
-        note: String? = null
+        note: String? = null,
+        noteKey: String? = null
     ): Boolean = db.withTransaction {
         // 显式传入的剂量同样必须为正（M2-2）。
         // 负剂量打卡 = 扣减变成**加**库存，是这条路径上最恶劣的失败模式。
@@ -200,7 +206,8 @@ class DoseTrackingService(
             doseTaken = finalDose.milli,
             status = RecordStatus.COMPLETED,
             isRetrospective = false,
-            note = note
+            note = note,
+            noteKey = noteKey
         )
         val recordId = recordDao.insert(record)
 
@@ -211,7 +218,8 @@ class DoseTrackingService(
                 recordId = recordId,
                 changeAmount = -finalDose,
                 txType = TransactionType.TAKEN_DEDUCT,
-                note = note ?: "按时服药打卡扣减"
+                note = note,
+                noteKey = LedgerNoteKey.TAKE_DEDUCT.name
             )
         }
 
@@ -227,7 +235,8 @@ class DoseTrackingService(
     /** 原子事务：更新槽位状态为 SKIPPED → 插入 SKIPPED 事实记录。不影响库存。 */
     suspend fun skipDose(
         slotId: Long,
-        reason: String? = null
+        reason: String? = null,
+        noteKey: String? = null
     ): Boolean = db.withTransaction {
         val slot = slotDao.getSlotById(slotId) ?: run {
             AppLog.w(TAG, "skipDose rejected slot=$slotId reason=slot-missing")
@@ -251,7 +260,11 @@ class DoseTrackingService(
             actualTs = now,
             doseTaken = 0,
             status = RecordStatus.SKIPPED,
-            note = reason ?: "主动跳过本次服药"
+            note = reason,
+            // reason 为空时给一个程序化分类，界面据此显示本地化标签（B5）。
+            // 用户自己填了原因就不挂 key —— 否则会显示成"主动跳过本次服药（出门在外）"，
+            // 把用户的话降格成程序化标签的附注。
+            noteKey = noteKey ?: if (reason == null) RecordNoteKey.SKIP.name else null
         )
         val recordId = recordDao.insert(record)
         AppLog.i(TAG, "skipDose ok slot=$slotId med=${slot.medicationId} record=$recordId")
@@ -355,7 +368,8 @@ class DoseTrackingService(
                 recordId = recordId,
                 changeAmount = amount,
                 txType = TransactionType.REVERT_ROLLBACK,
-                note = "用户误触打卡撤销冲正"
+                note = null,
+                noteKey = LedgerNoteKey.UNDO_TAKE_REVERT.name
             )
         }
         AppLog.i(
@@ -456,7 +470,8 @@ class DoseTrackingService(
                     doseTaken = slot.doseAmount,
                     status = RecordStatus.COMPLETED,
                     isRetrospective = false,
-                    note = note
+                    note = note,
+                    noteKey = if (note == null) RecordNoteKey.REJUDGE_TAKEN.name else null
                 )
                 val recordId = recordDao.insert(record)
 
@@ -467,7 +482,8 @@ class DoseTrackingService(
                         recordId = recordId,
                         changeAmount = -Dose(slot.doseAmount),
                         txType = TransactionType.TAKEN_DEDUCT,
-                        note = note ?: "改判为已服"
+                        note = note,
+                        noteKey = LedgerNoteKey.REJUDGE_TAKEN.name
                     )
                 }
             }
@@ -484,7 +500,8 @@ class DoseTrackingService(
                         actualTs = restatedTs,
                         doseTaken = 0,
                         status = RecordStatus.SKIPPED,
-                        note = note ?: "主动跳过本次服药"
+                        note = note,
+                        noteKey = if (note == null) RecordNoteKey.SKIP.name else null
                     )
                 )
             }
@@ -541,7 +558,8 @@ class DoseTrackingService(
                 recordId = recordId,
                 changeAmount = Dose(-net),
                 txType = TransactionType.REVERT_ROLLBACK,
-                note = "临时服药记录撤销冲正"
+                note = null,
+                noteKey = LedgerNoteKey.UNDO_TEMP_REVERT.name
             )
         }
         AppLog.i(TAG, "undoManual ok record=$recordId med=${record.medicationId} rolledBackMilli=$(-net.coerceAtMost(0))")
@@ -661,7 +679,8 @@ class DoseTrackingService(
                             recordId = recordId,
                             changeAmount = delta,
                             txType = TransactionType.DOSE_EDIT_ADJUST,
-                            note = "修改服药剂量：${Dose(record.doseTaken).asFloat} → ${newDose.asFloat}"
+                            note = "${fmtQty(Dose(record.doseTaken).asFloat)} → ${fmtQty(newDose.asFloat)}",
+                            noteKey = LedgerNoteKey.DOSE_EDIT.name
                         )
                     }
                 }
@@ -736,7 +755,8 @@ class DoseTrackingService(
             doseTaken = Dose.of(doseAmount).milli,
             status = RecordStatus.COMPLETED,
             isRetrospective = isRetrospective,
-            note = note
+            note = note,
+            noteKey = if (note == null) RecordNoteKey.MANUAL_BACKFILL.name else null
         )
         val recordId = recordDao.insert(record)
 
@@ -746,7 +766,12 @@ class DoseTrackingService(
                 recordId = recordId,
                 changeAmount = -Dose.of(doseAmount),
                 txType = TransactionType.TAKEN_DEDUCT,
-                note = note ?: if (isRetrospective) "事后补录服药扣减" else "按需/临时服药扣减"
+                note = note,
+                noteKey = if (isRetrospective) {
+                    LedgerNoteKey.RETRO_DEDUCT.name
+                } else {
+                    LedgerNoteKey.PRN_DEDUCT.name
+                }
             )
         }
 
@@ -794,7 +819,11 @@ class DoseTrackingService(
             recordId = null,
             changeAmount = delta,
             txType = TransactionType.CALIBRATION_ADJUST,
-            note = note ?: "库存盘点校准 (账面 ${Dose(currentBalance).asFloat} → 实物 ${Dose.of(actualStock).asFloat})"
+            note = listOfNotNull(
+                "${fmtQty(Dose(currentBalance).asFloat)} → ${fmtQty(Dose.of(actualStock).asFloat)}",
+                note?.takeIf { it.isNotBlank() }
+            ).joinToString(" · "),
+            noteKey = LedgerNoteKey.CALIBRATE.name
         )
         AppLog.i(
             TAG,
@@ -834,7 +863,8 @@ class DoseTrackingService(
                     recordId = null,
                     changeAmount = target,
                     txType = TransactionType.CALIBRATION_ADJUST,
-                    note = "开启库存追踪建档"
+                    note = null,
+                    noteKey = LedgerNoteKey.TRACKING_INIT.name
                 )
                 AppLog.i(TAG, "setStockTracking ok med=$medicationId enabled=true branch=create-from-zero targetMilli=${target.milli}")
             } else if (target.milli != current) {
@@ -844,7 +874,8 @@ class DoseTrackingService(
                     recordId = null,
                     changeAmount = Dose(target.milli - current),
                     txType = TransactionType.CALIBRATION_ADJUST,
-                    note = "开启库存追踪建档校准"
+                    note = null,
+                    noteKey = LedgerNoteKey.TRACKING_INIT_CALIBRATE.name
                 )
                 AppLog.i(TAG, "setStockTracking ok med=$medicationId enabled=true branch=calibrate fromMilli=$current targetMilli=${target.milli}")
             } else {
@@ -885,7 +916,8 @@ class DoseTrackingService(
                 changeAmount = Dose.of(addedAmount).milli,
                 balanceAfter = balanceAfter,
                 txType = TransactionType.REFILL,
-                note = note ?: "采购入库补货",
+                note = note,
+                noteKey = LedgerNoteKey.REFILL.name,
                 batchNumber = batchNumber,
                 expiryDate = expiryDate
             )
@@ -1068,8 +1100,25 @@ class DoseTrackingService(
 
     // ==================== 工具 ====================
 
-    // ⚠️ `private fun fmtQty` 已删除（M8-1）：零调用方，且与
-    // `com.mcxiaoke.carromed.ui.component.Quantity.fmt` 是**同一件事的第二份实现**。
-    // 两份格式化规则必然漂移（`%.2f` vs 去掉尾零），而"同一个数字在四页显示成四种样子"
-    // 正是当初抽出 `Quantity` 的原因 —— 留着一个私有的影子副本等于把问题放回去。
+    /**
+     * 流水 note 载荷里的数量格式化（B5：DOSE_EDIT / CALIBRATE 的 `a → b` 载荷）。
+     *
+     * 规则与 `ui.component.Quantity.fmt` **必须逐字一致**（整数去尾零、
+     * 非整数 `%.2f`），但它住在 ui 层，`core/domain` 零依赖铁律不允许反向 import，
+     * 只能在这里保留同规则实现 —— 由 `QuantityTest` 钉住的那条规则是唯一权威，
+     * 改它时这里必须同步。
+     */
+    private fun fmtQty(value: Float): String =
+        if (value == 0f) "0"
+        else if (value % 1f == 0f) value.toInt().toString()
+        else String.format(Locale.getDefault(), "%.2f", value)
+
+    // ⚠️ M8-1 曾删除过一个同名的 `private fun fmtQty`（零调用方 + 与
+    // `com.mcxiaoke.carromed.ui.component.Quantity.fmt` 重复）。B5 把它请了回来，
+    // 但理由与 M8-1 不同：**不是**为了展示，而是为了写进 `note` 载荷列
+    // （DOSE_EDIT / CALIBRATE 的 `a → b`）。
+    //
+    // 展示层归 `Quantity`，载荷层归这里 —— `core/domain` 零 `android.*` 依赖铁律
+    // 不允许反向 import ui 层，只能保留同规则实现。漂移风险由 `QuantityTest`
+    // 钉住的那条规则兜底：**改 `Quantity.fmt` 必须同步改这里**。
 }
