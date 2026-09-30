@@ -18,9 +18,9 @@
 
     <!-- 药品信息 -->
     <string name="medit_label_med_name">药品名称 *</string>
-    <string name="medit_placeholder_med_name">例如: 阿司匹林肠溶片</string>
+    <string name="medit_placeholder_med_name">例如：阿司匹林肠溶片</string>
     <string name="medit_label_alias">别名 / 通用名 (选填)</string>
-    <string name="medit_placeholder_alias">例如: 赛妥、西药名</string>
+    <string name="medit_placeholder_alias">例如：商品名、别名</string>
     <string name="medit_label_category">类别</string>
     <string name="medit_label_form">剂型</string>
     <string name="medit_label_unit">单位</string>
@@ -28,7 +28,7 @@
     <string name="medit_label_color">标识颜色</string>
 
     <!-- 初始库存 -->
-    <string name="medit_initial_stock_desc">填写后系统会记录一条建档流水，之后每次服药自动扣减，可随时在「库存管理」中盘点校准。</string>
+    <string name="medit_initial_stock_desc">设置后每次服药将自动扣减余量，可随时在「库存管理」中校准实际数量。</string>
     <string name="medit_label_current_stock">当前现有库存 (%1$s)</string>
     <string name="medit_placeholder_current_stock">不填则不追踪库存</string>
 
@@ -38,7 +38,7 @@
     <string name="medit_cd_collapse_precautions">收起注意事项</string>
     <string name="medit_precautions_collapsed_hint">点击展开查看与修改</string>
     <string name="medit_precautions_empty_hint">禁忌、饭后服用等医嘱建议写在这里，会在详情页高亮显示</string>
-    <string name="medit_label_common_tags">常用标签 (点击增删，会在详情页以醒目样式高亮)</string>
+    <string name="medit_label_common_tags">常用标签</string>
     <string name="medit_cd_remove">移除</string>
     <string name="medit_label_custom_precaution">自定义注意事项</string>
     <string name="medit_placeholder_custom_precaution">如: 忌与头孢类同用</string>
@@ -54,8 +54,8 @@
     <string name="medit_cd_clear_field">清除 %1$s</string>
 
     <!-- 模式提示 -->
-    <string name="medit_info_only_hint">ℹ️ 这里只编辑药品信息。提醒频次与时间请在药品详情页的「提醒设置」中调整，库存请在「库存管理」中管理。</string>
-    <string name="medit_low_friction_tip">✨ 只需填写【药品名称】即可保存。保存后进入药品详情页，在那里可以单独设置【提醒设置】与【库存】。</string>
+    <string name="medit_info_only_hint">此处仅编辑药品基本信息。服药计划与库存可在药品详情页中单独设置。</string>
+    <string name="medit_low_friction_tip">仅需填写药品名称即可保存，服药计划与余药管理可随后设置。</string>
 
     <!-- 步进器 -->
     <string name="medit_cd_decrease">减少</string>

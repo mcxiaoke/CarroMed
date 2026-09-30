@@ -11,7 +11,7 @@
     <string name="inv_stat_daily_consumption_label">日均消耗</string>
     <string name="inv_stat_alert_threshold_label">预警线</string>
     <string name="inv_low_runway_warning">按当前用量仅够约 %1$d 天，建议尽快补货</string>
-    <string name="inv_refill">补药入库</string>
+    <string name="inv_refill">补充余药</string>
 
     <string name="inv_expiry_card_title">有效期与临期提醒</string>
     <string name="inv_expiry_date_label">药品有效期至</string>
@@ -26,18 +26,18 @@
     <string name="inv_alert_threshold_placeholder">如 10</string>
     <string name="inv_alert_threshold_hint">余量低于该值时，今日清单顶部会出现告警横幅。</string>
     <string name="inv_tracking_toggle_title">库存追踪</string>
-    <string name="inv_tracking_on_desc">服药打卡时自动扣减库存</string>
-    <string name="inv_tracking_off_desc">关闭：每次服药需自行核对剩余量</string>
+    <string name="inv_tracking_on_desc">确认服药时自动扣减余量</string>
+    <string name="inv_tracking_off_desc">关闭：服药时不自动扣减余量</string>
 
-    <string name="inv_calibrate_card_title">库存盘点校准</string>
-    <string name="inv_calibrate_description">换了包装、之前漏记或首次建档时，把账面修正为实物真实数量。系统会写入一条盘点流水，保证账实可追溯。</string>
+    <string name="inv_calibrate_card_title">校准实际余量</string>
+    <string name="inv_calibrate_description">当实际药品数量与当前记录不一致时，可在此修正为实际数量。</string>
     <string name="inv_actual_remaining_label">实际剩余 (%1$s)</string>
     <string name="inv_calibrate_button">校准</string>
 
-    <string name="inv_ledger_card_title">出入库流水 (双向可追溯)</string>
-    <string name="inv_ledger_empty">暂无流水。首次补药入库或首次盘点后开始记录。</string>
-    <string name="inv_ledger_balance_rule">账面 = 全部流水变动之和，恒等于当前余量</string>
-    <string name="inv_export_ledger_csv">导出库存流水 CSV</string>
+    <string name="inv_ledger_card_title">余量变动记录</string>
+    <string name="inv_ledger_empty">暂无余量变动记录。首次添加或校准后开始显示。</string>
+    <string name="inv_ledger_balance_rule">记录每次服药扣减与添药明细</string>
+    <string name="inv_export_ledger_csv">导出余量变动明细 CSV</string>
 
     <string name="inv_tx_batch">批号 %1$s</string>
     <string name="inv_tx_expiry">效期 %1$s</string>
@@ -51,9 +51,9 @@
     <string name="inv_tracking_on">已开启库存追踪</string>
     <string name="inv_tracking_off">已关闭库存追踪（不再自动扣减）</string>
     <string name="inv_err_calibrate_invalid">请输入有效的实际库存数量（0 或正数）</string>
-    <string name="inv_calibrate_failed">盘点失败，请重试</string>
-    <string name="inv_calibrated">盘点已记录：账面调整为 %1$s</string>
-    <string name="inv_calibrate_no_change">账面与实物一致，无需调整</string>
+    <string name="inv_calibrate_failed">校准失败，请重试</string>
+    <string name="inv_calibrated">库存已校准为 %1$s</string>
+    <string name="inv_calibrate_no_change">输入数量与当前记录一致，无需调整</string>
     <string name="inv_err_alert_invalid">预警线无效：请输入 0 或正数（0 表示关闭低库存告警）</string>
     <string name="inv_save_failed">保存失败，请重试</string>
     <string name="inv_saved">已保存</string>
@@ -71,8 +71,8 @@
 
     <!-- 交易类型显示标签 -->
     <string name="inv_tx_taken_deduct">服药扣减</string>
-    <string name="inv_tx_refill">购药入库</string>
-    <string name="inv_tx_revert">撤销冲正</string>
-    <string name="inv_tx_calibrate">盘点调整</string>
+    <string name="inv_tx_refill">补充余药</string>
+    <string name="inv_tx_revert">撤销返还</string>
+    <string name="inv_tx_calibrate">库存校准</string>
     <string name="inv_tx_dose_edit">改剂量调整</string>
 </resources>

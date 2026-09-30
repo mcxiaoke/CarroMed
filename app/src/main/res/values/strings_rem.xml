@@ -26,7 +26,7 @@
     <!-- 服药频次 -->
     <string name="rem_section_frequency">服药频次</string>
     <string name="rem_type_daily">每天</string>
-    <string name="rem_type_interval">隔 N 天</string>
+    <string name="rem_type_interval">隔天</string>
     <string name="rem_type_weekly">每周</string>
     <string name="rem_type_cycle">周期</string>
     <string name="rem_type_prn">按需</string>
@@ -41,20 +41,20 @@
     <string name="rem_weekday_5">周五</string>
     <string name="rem_weekday_6">周六</string>
     <string name="rem_weekday_7">周日</string>
-    <string name="rem_cycle_desc">连续服 N 天后停药 M 天（如避孕药 21 服 / 7 停）</string>
+    <string name="rem_cycle_desc">周期性服药（例如服 21 天，停 7 天）</string>
     <string name="rem_cycle_on_label">连续服药</string>
     <string name="rem_cycle_on_hint">服 %1$d 天</string>
     <string name="rem_cycle_off_label">停药</string>
     <string name="rem_cycle_off_none">不设停药期</string>
     <string name="rem_cycle_off_hint">停 %1$d 天</string>
-    <string name="rem_prn_hint">按需服用：不设定时闹钟，也不会生成每日提醒。适合止痛药、晕车药等临时用药 —— 需要记录时在今日清单用「手动补录」写下实际时间与剂量即可。</string>
+    <string name="rem_prn_hint">按需服用不设定时提醒，适用于临时用药。服用时可通过「补录」记录实际时间与剂量。</string>
     <string name="rem_daily_hint">每天在下方设定的时点提醒服药。</string>
 
     <!-- 服药疗程 -->
     <string name="rem_section_duration">服药疗程</string>
     <string name="rem_start_date">开始日期</string>
     <string name="rem_set_end_date">设置结束日期</string>
-    <string name="rem_end_date_desc">到该日期后自动停止提醒（抗生素疗程）</string>
+    <string name="rem_end_date_desc">到达该日期后自动结束提醒（如短期疗程）</string>
     <string name="rem_no_end_date">长期服用：无限期</string>
     <string name="rem_end_date">结束日期</string>
 
@@ -63,7 +63,7 @@
     <string name="rem_times_per_day">每天 %1$d 次</string>
     <string name="rem_cd_delete">删除</string>
     <string name="rem_dose_label">剂量</string>
-    <string name="rem_add_time">添加一个提醒时点</string>
+    <string name="rem_add_time">添加提醒时间</string>
     <string name="rem_dose_advice">服药建议</string>
 
     <!-- 未来 7 天提醒预览 -->
@@ -84,7 +84,7 @@
     <string name="rem_advance_minutes">提前 %1$d 分钟</string>
 
     <!-- 底部说明 -->
-    <string name="rem_reschedule_note">ℹ️ 修改提醒只会调整「未来尚未执行」的提醒；已经打卡的历史记录永远不会被改动或删除。</string>
+    <string name="rem_reschedule_note">修改提醒仅影响未来的服药计划，已记录的历史数据不会被变动。</string>
 
     <!-- 步进器 -->
     <string name="rem_cd_decrease">减少</string>
@@ -94,7 +94,7 @@
     <string name="rem_delete_policy">删除提醒</string>
     <string name="rem_policy_deleted">提醒已删除</string>
     <string name="rem_delete_dialog_title">删除提醒？</string>
-    <string name="rem_delete_dialog_msg">删除后将取消此药品未来的全部服药提醒和闹钟。历史打卡记录将完整保留，药品档案与库存不受影响。</string>
+    <string name="rem_delete_dialog_msg">删除后将取消该药品未来的全部服药提醒。历史服药记录将完整保留，药品档案与余量不受影响。</string>
     <string name="rem_delete_dialog_confirm">删除提醒</string>
     <string name="rem_delete_dialog_cancel">取消</string>
     <string name="rem_error_delete_policy_failed">删除提醒失败，请重试</string>

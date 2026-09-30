@@ -2,7 +2,7 @@
 <resources>
     <!-- 通知渠道（Notifications.ensureChannel） -->
     <string name="notif_channel_name">服药提醒</string>
-    <string name="notif_channel_desc">到点吃药的浮动横幅与通知栏提醒</string>
+    <string name="notif_channel_desc">服药准点提醒与横幅通知</string>
     <string name="notif_channel_name_silent">服药提醒 (夜间静音)</string>
     <string name="notif_channel_desc_silent">夜间 23:00-07:00 的服药提醒，不响铃不震动</string>
 
@@ -14,12 +14,12 @@
 
     <!-- 通知标题（按闹钟种类 / 重要提醒选择） -->
     <string name="notif_title_critical">重要提醒：%1$s</string>
-    <string name="notif_title_advance">快到时间了：%1$s</string>
-    <string name="notif_title_snooze">该吃药了（推迟后）：%1$s</string>
-    <string name="notif_title_main">该吃药了：%1$s</string>
+    <string name="notif_title_advance">即将服药：%1$s</string>
+    <string name="notif_title_snooze">推迟提醒：%1$s</string>
+    <string name="notif_title_main">服药提醒：%1$s</string>
 
     <!-- 通知栏 Action 按钮文字 -->
-    <string name="notif_action_take">✅ 确认已吃</string>
-    <string name="notif_action_snooze">⏰ 推迟 %1$d 分钟</string>
-    <string name="notif_action_skip">⏭️ 跳过本次</string>
+    <string name="notif_action_take">确认已服</string>
+    <string name="notif_action_snooze">推迟 %1$d 分钟</string>
+    <string name="notif_action_skip">跳过本次</string>
 </resources>

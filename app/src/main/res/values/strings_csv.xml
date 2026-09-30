@@ -13,14 +13,14 @@
     <string name="csv_status_reverted">已撤销</string>
 
     <!-- ================= 服药明细：记录类型列 ================= -->
-    <string name="csv_record_type_planned">计划打卡</string>
-    <string name="csv_record_type_manual">手动记录</string>
+    <string name="csv_record_type_planned">计划服药</string>
+    <string name="csv_record_type_manual">补录服药</string>
 
     <!-- ================= 库存流水：类型列（TransactionType） ================= -->
     <string name="csv_tx_type_taken_deduct">服药扣减</string>
-    <string name="csv_tx_type_refill">购药入库</string>
-    <string name="csv_tx_type_revert_rollback">撤销冲正</string>
-    <string name="csv_tx_type_calibration_adjust">盘点调整</string>
+    <string name="csv_tx_type_refill">补充余药</string>
+    <string name="csv_tx_type_revert_rollback">撤销返还</string>
+    <string name="csv_tx_type_calibration_adjust">库存校准</string>
     <string name="csv_tx_type_dose_edit_adjust">改剂量调整</string>
 
     <!-- ================= CSV 单元格兜底值 ================= -->

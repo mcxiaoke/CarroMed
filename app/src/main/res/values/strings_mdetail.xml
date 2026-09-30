@@ -24,14 +24,14 @@
 
     <!-- 服药历史 -->
     <string name="mdetail_section_history">服药历史</string>
-    <string name="mdetail_history_empty">还没有服药记录。完成打卡或用「手动补录」记录后会显示在这里。</string>
+    <string name="mdetail_history_empty">暂无服药记录。确认服药或通过「补录」记录后将显示在这里。</string>
     <string name="mdetail_history_collapse">收起</string>
     <string name="mdetail_history_show_all">查看全部 %1$d 条</string>
 
-    <!-- 库存流水 -->
-    <string name="mdetail_section_transactions">库存流水</string>
-    <string name="mdetail_transactions_empty">暂无出入库记录</string>
-    <string name="mdetail_go_inventory_full">前往库存管理查看全部流水</string>
+    <!-- 库存明细 -->
+    <string name="mdetail_section_transactions">余量变动明细</string>
+    <string name="mdetail_transactions_empty">暂无余量变动记录</string>
+    <string name="mdetail_go_inventory_full">前往库存管理查看完整明细</string>
 
     <!-- 危险操作 -->
     <string name="mdetail_resume_active">恢复在服</string>
@@ -41,8 +41,8 @@
     <string name="mdetail_confirm">确认</string>
     <string name="mdetail_cancel">取消</string>
     <string name="mdetail_archive_confirm_resume">确认恢复为在服状态？其提醒设置将重新生效。</string>
-    <string name="mdetail_archive_confirm_archive">确认停药归档？未来提醒会被取消，历史打卡与库存流水完整保留，可随时恢复。</string>
-    <string name="mdetail_delete_confirm">确认删除「%1$s」？其全部提醒、打卡记录与库存流水将一并删除，且不可恢复。\n\n如只是不再服用，建议使用「停药归档」保留历史数据。</string>
+    <string name="mdetail_archive_confirm_archive">确认停药归档？未来提醒将被取消，历史服药记录与余量变动将完整保留，可随时恢复。</string>
+    <string name="mdetail_delete_confirm">确认删除「%1$s」？该药品的全部提醒、服药记录与余量明细将被永久删除且不可恢复。\n\n若仅为暂停服用，建议选择「停药归档」以保留历史数据。</string>
 
     <!-- 暂停提醒对话框 -->
     <string name="mdetail_pause_dialog_title">暂停提醒到什么时候？</string>
@@ -55,8 +55,8 @@
     <!-- 依从率卡片 -->
     <string name="mdetail_adherence_title">近 30 天用药</string>
     <string name="mdetail_adherence_rate">依从率 %1$.0f%%</string>
-    <string name="mdetail_adherence_none">暂无到期</string>
-    <string name="mdetail_adherence_summary">按时服药 %1$d 次 / 已到期 %2$d 次 · 近 30 天共消耗 %3$s %4$s</string>
+    <string name="mdetail_adherence_none">暂无计划</string>
+    <string name="mdetail_adherence_summary">按时服用 %1$d 次 / 计划 %2$d 次 · 近 30 天共消耗 %3$s %4$s</string>
 
     <!-- 服药记录状态徽标 -->
     <string name="mdetail_status_taken">已服</string>
@@ -73,7 +73,7 @@
     <string name="mdetail_sum_expiry">效期 %1$s</string>
     <string name="mdetail_sum_notice_short_set">通知简述已设</string>
     <string name="mdetail_sum_defaults">%1$s · %2$s · 默认 %3$s %4$s/次</string>
-    <string name="mdetail_sum_no_plan">尚未设置提醒 · 这味药不会自动提醒 → 点击设置</string>
+    <string name="mdetail_sum_no_plan">尚未设置服药计划 · 无自动提醒 → 点击设置</string>
     <string name="mdetail_sum_freq_daily">每天 %1$d 次</string>
     <string name="mdetail_sum_freq_interval_short">隔天</string>
     <string name="mdetail_sum_freq_interval">每隔 %1$d 天</string>
@@ -87,14 +87,14 @@
     <string name="mdetail_sum_flag_snooze">推迟 %1$d 分</string>
     <string name="mdetail_sum_flag_advance">提前 %1$d 分</string>
     <string name="mdetail_sum_stock_off">未开启库存追踪</string>
-    <string name="mdetail_sum_stock_negative">账面 %1$s %2$s，已超出记录库存，请盘点校准</string>
+    <string name="mdetail_sum_stock_negative">记录余量为负（%1$s %2$s），请校准库存</string>
     <string name="mdetail_sum_stock_remaining">%1$s %2$s 剩余</string>
     <string name="mdetail_sum_runway">" · 约可用 %1$d 天"</string>
 
     <!-- 库存流水类型标签 -->
     <string name="mdetail_tx_taken">服药扣减</string>
-    <string name="mdetail_tx_refill">购药入库</string>
-    <string name="mdetail_tx_revert">撤销冲正</string>
-    <string name="mdetail_tx_calibrate">盘点调整</string>
+    <string name="mdetail_tx_refill">补充余药</string>
+    <string name="mdetail_tx_revert">撤销返还</string>
+    <string name="mdetail_tx_calibrate">库存校准</string>
     <string name="mdetail_tx_dose_edit">改剂量调整</string>
 </resources>

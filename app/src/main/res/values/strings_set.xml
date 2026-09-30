@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- SettingsScreen（系统设置） -->
-    <string name="set_title">系统设置</string>
+    <!-- SettingsScreen（设置） -->
+    <string name="set_title">设置</string>
     <string name="set_back_cd">返回</string>
 
     <!-- 覆盖式恢复二次确认对话框 -->
@@ -30,23 +30,23 @@
     <string name="set_night_dnd_desc">23:00 至 07:00 之间改为静默渠道，不响铃不震动；标记为「重要提醒」的药品不受影响</string>
 
     <!-- 2. 提醒防漏与系统保活 -->
-    <string name="set_section_keepalive">提醒防漏与系统保活</string>
+    <string name="set_section_keepalive">防漏提醒与后台运行</string>
     <string name="set_permission_check_desc">排查精确闹钟、系统白名单与自启权限，确保灭屏休眠零漏报。</string>
-    <string name="set_permission_check_button">查看 4 项系统特权自检与保活指引 &gt;</string>
+    <string name="set_permission_check_button">后台保活与防漏提醒指引 &gt;</string>
 
     <!-- 3. 数据管理与本地导出 -->
     <string name="set_section_data">数据管理与本地导出</string>
     <string name="set_export_csv_title">导出服药明细报表 (CSV)</string>
     <string name="set_export_csv_desc">明文数据，可用 Excel / WPS 打开分析</string>
     <string name="set_export_csv_button">导出 CSV</string>
-    <string name="set_export_backup_title">备份全量数据库 (JSON)</string>
-    <string name="set_export_backup_desc">包含药品、计划、打卡与库存流水完整存档</string>
+    <string name="set_export_backup_title">备份全部数据 (JSON)</string>
+    <string name="set_export_backup_desc">包含药品、计划、服药记录与余量明细完整存档</string>
     <string name="set_create_backup_button">生成备份</string>
-    <string name="set_restore_title">从备份恢复 (覆盖式)</string>
-    <string name="set_restore_desc">整库快照替换还原，当前数据将被完全覆盖</string>
+    <string name="set_restore_title">从备份文件恢复</string>
+    <string name="set_restore_desc">导入备份文件，当前数据将被完整替换</string>
     <string name="set_pick_file_button">选择文件</string>
     <string name="set_local_restore_title">从本机备份恢复</string>
-    <string name="set_local_restore_desc">直接选用 App 刚生成的备份（系统文件选择器看不到这个目录）</string>
+    <string name="set_local_restore_desc">从应用内置的历史备份中选择恢复</string>
     <string name="set_local_backup_button">本机备份</string>
     <string name="set_export_csv_done">已导出 %1$s，请选择保存或分享方式</string>
     <string name="set_backup_done">备份已生成 %1$s</string>
@@ -57,7 +57,7 @@
     <string name="set_restore_no_snapshot">（未能生成恢复前快照）</string>
     <string name="set_restore_failed">恢复失败：%1$s</string>
     <string name="set_export_log_title">导出诊断日志</string>
-    <string name="set_export_log_desc">最近 7 天的运行日志，排查提醒与记账问题用</string>
+    <string name="set_export_log_desc">最近 7 天的运行日志，用于排查提醒与记录问题</string>
     <string name="set_share_log_title">分享诊断日志</string>
     <string name="set_no_log_files">还没有日志文件</string>
     <string name="set_export_failed">导出失败: %1$s</string>

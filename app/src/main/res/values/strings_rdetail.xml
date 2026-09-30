@@ -31,17 +31,17 @@
 
     <!-- 服用剂量卡 -->
     <string name="rdetail_dose_title">服用剂量</string>
-    <string name="rdetail_dose_edit_hint">改剂量会自动补一条差额流水，库存台账保持对得上。</string>
+    <string name="rdetail_dose_edit_hint">修改剂量将自动同步调整对应的库存余量。</string>
     <string name="rdetail_dose_readonly_hint">超过 %1$d 天的记录只读，备注仍可修改。</string>
-    <string name="rdetail_dose_locked_conclusion">定时服药不能改剂量与时间 —— 它要和「提醒设置」里的剂量保持一致。实际吃了多少可以写在备注里；记错了请用「撤销」回到未确认。</string>
-    <string name="rdetail_dose_locked_no_conclusion">剂量来自「提醒设置」，不能在这里单独修改。实际吃了多少可以写在备注里。</string>
+    <string name="rdetail_dose_locked_conclusion">计划服药的剂量与时间须与「提醒设置」保持一致。如有实际差异可在备注中说明，误操作可点击「撤销」。</string>
+    <string name="rdetail_dose_locked_no_conclusion">剂量来自「提醒设置」，不能在这里单独修改。实际服用情况可记录在备注中。</string>
 
     <!-- 备注卡 -->
     <string name="rdetail_note_title">备注</string>
     <string name="rdetail_note_empty">（无）</string>
     <string name="rdetail_note_placeholder">例如：随餐温水送服</string>
     <string name="rdetail_note_actionable_hint">备注会随「确认服用」一起保存；只填不确认不会留下记录。</string>
-    <string name="rdetail_note_future_hint">到达当天才能确认服用，备注会在那时一起保存；现在填写的内容不会落库。</string>
+    <string name="rdetail_note_future_hint">到达当天方可确认服用，备注将届时一同保存。</string>
 
     <!-- 单位兜底（med.unit 为空时的展示，由 ViewModel 填入状态） -->
     <string name="rdetail_unit_default">片</string>
@@ -60,20 +60,20 @@
 
     <!-- 动作区 -->
     <string name="rdetail_confirm">确认服用</string>
-    <string name="rdetail_confirm_rejudged">确认服用（改判）</string>
+    <string name="rdetail_confirm_rejudged">更改为已服</string>
     <string name="rdetail_snooze_label">稍后提醒</string>
-    <string name="rdetail_skip">跳过本次（不扣库存）</string>
-    <string name="rdetail_skip_rejudged">跳过（改判）</string>
-    <string name="rdetail_undo">撤销（回到未确认）</string>
+    <string name="rdetail_skip">跳过本次</string>
+    <string name="rdetail_skip_rejudged">更改为跳过</string>
+    <string name="rdetail_undo">撤销记录</string>
     <string name="rdetail_minutes">%1$d 分</string>
 
     <!-- 页脚说明 -->
-    <string name="rdetail_footnote_future">这是未来的服药时间：到达当天才能确认、推迟或跳过。现在可以在这里预览计划剂量与余量。</string>
-    <string name="rdetail_footnote_reverted">这条记录已撤销，不再计入依从率与消耗统计。服药事实不会被删除，所以历史永远可追溯、库存台账也不会出现悬空引用。</string>
+    <string name="rdetail_footnote_future">这是未来的服药时间，到达当天方可确认、推迟或跳过。当前可预览计划剂量与余量。</string>
+    <string name="rdetail_footnote_reverted">该记录已撤销，不再计入依从率与余量消耗统计。历史变更记录将保留以备查阅。</string>
     <string name="rdetail_footnote_manual_readonly">超过 %1$d 天的记录只读：剂量、时间与撤销入口都不再提供，但备注仍可修改。</string>
-    <string name="rdetail_footnote_completed_no_undo">只有当天服用的记录可以撤销。更早的记录已经计入那几天的依从率，只能在「跳过」与「确认」之间改判。</string>
-    <string name="rdetail_footnote_skipped_no_undo">只有当天的记录可以撤销。这条已经计入统计，可以在「确认」与「跳过」之间改判。</string>
-    <string name="rdetail_footnote_expired">这条超过了计划时间且尚未确认。现在补记仍然有效：确认按实际服用记，跳过则不扣减库存。</string>
+    <string name="rdetail_footnote_completed_no_undo">仅支持撤销当日的服药记录。更早的记录已计入历史统计，可在「已服」与「跳过」之间切换状态。</string>
+    <string name="rdetail_footnote_skipped_no_undo">仅支持撤销当日的记录。该记录已计入统计，可在「已服」与「跳过」之间切换状态。</string>
+    <string name="rdetail_footnote_expired">该记录已超过计划时间且尚未确认。补记依然有效：确认后按实际服用记录，跳过则不扣减余量。</string>
 
     <!-- 日期说明 -->
     <string name="rdetail_date_md">%1$d月%2$d日</string>

@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="man_title">手动补录服药</string>
+    <string name="man_title">补录服药</string>
     <string name="man_cancel">取消</string>
-    <string name="man_backfill_hint">忘记打卡或未带手机？支持补记过去任意时刻，系统会保留真实服药事实，并按需联动扣减库存。</string>
+    <string name="man_backfill_hint">忘记记录或未带手机？支持补记过去的服药记录，并可同步扣减相应库存。</string>
     <string name="man_error_with_icon">⚠️ %1$s</string>
     <string name="man_select_medication">选择药品</string>
     <string name="man_please_select_medication">请选择药品</string>
-    <string name="man_stock_negative">%1$s (账面 %2$s %3$s，将扣成负数)</string>
+    <string name="man_stock_negative">%1$s（当前余量 %2$s %3$s，余量将不足）</string>
     <string name="man_stock_remaining">%1$s (剩 %2$s %3$s)</string>
     <string name="man_medication_label">药品 *</string>
     <string name="man_no_medications">暂无在服药品，请先在药箱添加</string>
     <string name="man_actual_time_title">实际服药时间</string>
-    <string name="man_backfill_window">补录最常用于「忘记打卡」场景，因此必须能指定过去时刻；只能补录最近 %1$d 天内的服药。</string>
+    <string name="man_backfill_window">支持补录最近 %1$d 天内的服药记录。</string>
     <string name="man_date_label">日期</string>
     <string name="man_cd_pick_date">选择日期</string>
     <string name="man_time_label">时间</string>
