@@ -7,10 +7,14 @@ import android.widget.Toast
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.AppLog
+import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
+import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
+import com.mcxiaoke.carromed.core.domain.service.DoseActionResult
 import com.mcxiaoke.carromed.core.domain.service.DoseEntryActions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 /**
  * 通知栏快捷操作接收器 (极速直写，无需打开 App)
@@ -47,24 +51,38 @@ class DoseActionReceiver : BroadcastReceiver() {
                 val db = AppDatabase.getInstance(appContext)
                 val actions = DoseEntryActions(appContext, db)
                 val slot = db.doseSlotDao().getSlotById(slotId)
-                // 幂等守卫：仅待服/推迟中的槽位允许快捷操作，防止双击连击重复扣减。
+                // 幂等守卫：仅待服/推迟中、且**计划日不晚于今天**的槽位允许快捷操作
+                // —— 防止双击连击重复扣减，也防止对未来的槽位表态。
                 //
                 // 比 `markCompletedIfOpen` 更严：后者允许对 EXPIRED 补记，
                 // 而通知栏按钮的语义是"对刚响过的那条提醒表态" ——
                 // 一条早已结算的提醒不该再被这里的按钮改判。
+                //
+                // 日期判据此前**只靠约定**（通知只为当天闹钟弹出）撑着；
+                // 约定不是保证：任何把旧通知留在托盘上、或进程隔夜被拉起的场景，
+                // 都会让这里的按钮对一条未来的槽位生效。
                 val isStillOpen = slot != null &&
-                    (slot.status == SlotStatus.PENDING || slot.status == SlotStatus.SNOOZED)
+                    (slot.status == SlotStatus.PENDING || slot.status == SlotStatus.SNOOZED) &&
+                    SlotActionPolicy.isActionableOn(
+                        slot.scheduledDate,
+                        LocalDate.now().format(SlotProjectionEngine.DATE_FORMATTER)
+                    )
 
                 when (action) {
                     Notifications.ACTION_TAKE -> {
-                        val ok = isStillOpen && actions.confirm(
-                            slotId = slotId,
-                            note = "通知栏快捷打卡"
-                        )
+                        // ⚠️ 不要把这个局部量命名成 `result`：外层 `result` 是
+                        // `goAsync()` 的句柄（`finally` 里要 finish 它）。
+                        // 同名遮蔽之下，"在分支里 finish 一下"会拿到枚举 —— 编译期就报错，
+                        // 但排查时会先怀疑协程，所以从一开始就别让两个东西同名。
+                        val applied = if (isStillOpen) {
+                            actions.confirm(slotId = slotId, note = "通知栏快捷打卡")
+                        } else {
+                            DoseActionResult.ALREADY_HANDLED
+                        }
                         // 成功动作必须留痕（G5）：这是并发风险最高的写入口——
                         // 通知栏直接写库，进程可能刚被闹钟拉起，事后工单只有这里有现场
-                        AppLog.i(TAG, "action=take slot=$slotId applied=$ok")
-                        notifyUser(appContext, if (ok) "已记录服药，库存已同步 💊" else "该提醒已处理过")
+                        AppLog.i(TAG, "action=take slot=$slotId result=$applied")
+                        notifyUser(appContext, applied.takeMessage())
                     }
 
                     Notifications.ACTION_SNOOZE -> {
@@ -75,9 +93,13 @@ class DoseActionReceiver : BroadcastReceiver() {
                     }
 
                     Notifications.ACTION_SKIP -> {
-                        val ok = isStillOpen && actions.skip(slotId, reason = "通知栏快捷跳过")
-                        AppLog.i(TAG, "action=skip slot=$slotId applied=$ok")
-                        notifyUser(appContext, if (ok) "已跳过本次，不扣减库存" else "该提醒已处理过")
+                        val applied = if (isStillOpen) {
+                            actions.skip(slotId, reason = "通知栏快捷跳过")
+                        } else {
+                            DoseActionResult.ALREADY_HANDLED
+                        }
+                        AppLog.i(TAG, "action=skip slot=$slotId result=$applied")
+                        notifyUser(appContext, applied.takeMessage(skip = true))
                     }
                 }
             } catch (t: Throwable) {
@@ -96,4 +118,19 @@ class DoseActionReceiver : BroadcastReceiver() {
             runCatching { Toast.makeText(context, message, Toast.LENGTH_SHORT).show() }
         }
     }
+}
+
+/**
+ * 托盘提示**必须说真话**。
+ *
+ * 对一条未来的槽位说"该提醒已处理过"是撒谎（事实是从未有机会处理），
+ * 而说"库存已同步"会让用户以为打卡生效了 —— 两者都会让用户以为
+ * "明天的药已经安排好了"，实际上明天的闹钟还在、药还没吃。
+ */
+private fun DoseActionResult.takeMessage(skip: Boolean = false): String = when (this) {
+    DoseActionResult.APPLIED ->
+        if (skip) "已跳过本次，不扣减库存" else "已记录服药，库存已同步 💊"
+
+    DoseActionResult.FUTURE_SLOT -> "未来的服药时间不能提前确认"
+    DoseActionResult.ALREADY_HANDLED -> "该提醒已处理过"
 }

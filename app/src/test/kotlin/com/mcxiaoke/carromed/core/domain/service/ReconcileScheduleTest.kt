@@ -196,7 +196,9 @@ class ReconcileScheduleTest {
         service.reconcileSchedule(medId, today, today.plusDays(3))
         val target = slotsOf(medId).first()
 
-        db.doseSlotDao().markCompletedIfOpen(target.id, System.currentTimeMillis())
+        // fixture：`todayStr` 传槽位自己的计划日 —— 本用例要构造的是"已完成的既成事实"，
+        // 与"这个槽位今天能不能被表态"无关（后者见 FutureSlotActionGuardTest）。
+        db.doseSlotDao().markCompletedIfOpen(target.id, System.currentTimeMillis(), target.scheduledDate)
         val completedId = target.id
 
         // 窗口后移 ⇒ 今天的槽位不再被投影命中
@@ -231,7 +233,7 @@ class ReconcileScheduleTest {
         val target = slotsOf(medId).first()
 
         val until = System.currentTimeMillis() + 30 * 60_000L
-        db.doseSlotDao().snoozeSlot(target.id, until)
+        db.doseSlotDao().snoozeSlot(target.id, until, target.scheduledDate)
 
         // 窗口后移使其不再被投影命中
         service.reconcileSchedule(medId, today.plusDays(2), today.plusDays(5))
@@ -266,7 +268,11 @@ class ReconcileScheduleTest {
         service.reconcileSchedule(medId, today, today.plusDays(10))
 
         val tail = slotsOf(medId).first { it.scheduledDate > today.plusDays(6).toString() }
-        db.doseSlotDao().markCompletedIfOpen(tail.id, System.currentTimeMillis())
+        // ⚠️ 这条 fixture 构造的是**未来区的已完成槽位** —— 自「未来不可表态」生效后，
+        // 生产路径再也造不出这个状态（服务层按今天判，未来槽位一律拒绝表态）。
+        // 所以这里刻意直接走 DAO 并传槽位自己的计划日，绕开日期守卫：
+        // 本用例守的不变量是"对账绝不删除已产生结论的槽位"，而不是"未来能不能打卡"。
+        db.doseSlotDao().markCompletedIfOpen(tail.id, System.currentTimeMillis(), tail.scheduledDate)
         val completedTailId = tail.id
 
         service.reconcileSchedule(medId, today, today.plusDays(6))

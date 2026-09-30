@@ -185,25 +185,42 @@ interface DoseSlotDao {
      * 补记已服没有理由被单独禁止，否则按钮存在却永远失败、toast 只能撒谎
      * （"该提醒已处理过"，事实是从未有机会处理）。补记后逾期转入已服，
      * 事实照常入库、库存照常扣减；撤销路径（[revertToPending]）随之可用。
+     *
+     * ## 为什么还要 `scheduled_date <= :todayStr`（未来槽位不可打卡）
+     *
+     * 只有 `status` 守卫时，**未来的待服槽位与今天的待服槽位长得一模一样**：
+     * 今日页翻到明天，卡片上的 ✓ 可点，点下去就凭空生成一条"明天已服"的事实、
+     * 扣一次库存，并撤掉当天的闹钟。判据必须落在**数据**上，而不是"调用方都记得先查日期"。
+     *
+     * 与 `status` 守卫并列、由 `SlotActionPolicy.isActionableOn` 同一份语义驱动：
+     * 字符串比较（零填充 `yyyy-MM-dd` 的字典序 == 时序），非规范串 fail-closed。
+     * 传 `todayStr` 而不是在 SQL 里取日期：SQLite 的 `date('now')` 是 **UTC**，
+     * 在东八区会把当天 08:00 之前的"今天"判成昨天。
+     * 撤销路径（[revertToPending]）**刻意不带这个守卫**：它是修复通道，
+     * 必须能清掉"未来已服"这类坏数据，否则用户被永久锁死。
      */
     @Query(
         """
         UPDATE dose_slots
         SET status = 'COMPLETED', actual_taken_ts = :actualTs
-        WHERE id = :slotId AND status IN ('PENDING', 'SNOOZED', 'EXPIRED')
+        WHERE id = :slotId
+          AND status IN ('PENDING', 'SNOOZED', 'EXPIRED')
+          AND scheduled_date <= :todayStr
         """
     )
-    suspend fun markCompletedIfOpen(slotId: Long, actualTs: Long): Int
+    suspend fun markCompletedIfOpen(slotId: Long, actualTs: Long, todayStr: String): Int
 
-    /** 幂等跳过：允许对已逾期(EXPIRED)的槽位补记跳过，但不允许覆盖已完成/已跳过。 */
+    /** 幂等跳过：允许对已逾期(EXPIRED)的槽位补记跳过，但不允许覆盖已完成/已跳过；同样拒未来。 */
     @Query(
         """
         UPDATE dose_slots
         SET status = 'SKIPPED', actual_taken_ts = :actualTs
-        WHERE id = :slotId AND status IN ('PENDING', 'SNOOZED', 'EXPIRED')
+        WHERE id = :slotId
+          AND status IN ('PENDING', 'SNOOZED', 'EXPIRED')
+          AND scheduled_date <= :todayStr
         """
     )
-    suspend fun markSkippedIfOpen(slotId: Long, actualTs: Long): Int
+    suspend fun markSkippedIfOpen(slotId: Long, actualTs: Long, todayStr: String): Int
 
     /**
      * 推迟：置 `SNOOZED` 并记下推迟到期时刻。
@@ -223,9 +240,23 @@ interface DoseSlotDao {
      *
      * 把守卫放进 SQL 而不是调用方，与那三条保持同一套风格：
      * 判据落在数据上，调用方不必也不能绕过。
+     *
+     * ## 未来的槽位为什么不能推迟
+     *
+     * `snooze_until_ts = now + N 分钟`。对一条**明天**的槽位"推迟 30 分钟"，
+     * 算出来的是**今天**的唤醒时刻 —— 等于凭空造出一个今天就响的"未来服药提醒"，
+     * 与「槽位存在 ⟺ 这个时点会响」的排班语义直接冲突。
      */
-    @Query("UPDATE dose_slots SET status = 'SNOOZED', snooze_until_ts = :snoozeUntilTs WHERE id = :slotId AND status IN ('PENDING', 'SNOOZED')")
-    suspend fun snoozeSlot(slotId: Long, snoozeUntilTs: Long): Int
+    @Query(
+        """
+        UPDATE dose_slots
+        SET status = 'SNOOZED', snooze_until_ts = :snoozeUntilTs
+        WHERE id = :slotId
+          AND status IN ('PENDING', 'SNOOZED')
+          AND scheduled_date <= :todayStr
+        """
+    )
+    suspend fun snoozeSlot(slotId: Long, snoozeUntilTs: Long, todayStr: String): Int
 
     /**
      * 撤销打卡：把槽位置回 PENDING 并清空实际服药时刻。

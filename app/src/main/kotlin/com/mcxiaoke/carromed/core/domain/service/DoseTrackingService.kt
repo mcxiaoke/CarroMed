@@ -9,6 +9,7 @@ import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
 import com.mcxiaoke.carromed.core.domain.AppLog
+import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import java.time.LocalDate
@@ -42,8 +43,45 @@ import java.time.ZoneId
  * 服药是物理事实，优先于库存记账。」
  * 因此本服务**不再有 `coerceAtLeast(0f)`** —— 那种钳制正是 P0-3 的直接成因
  * （账面钉在 0、流水记全额，守恒被打破）。
+ *
+ * ## 未来槽位不可表态（本服务是唯一不可省的一层）
+ *
+ * > 槽位可表态 ⇔ `scheduled_date <= 当前自然日`
+ *
+ * 服药是**已发生**的事实：一条明天的槽位被点 ✓ 会凭空生成"明天已服"的事实、
+ * 扣一次库存，并撤掉明天的闹钟。判据由 [SlotActionPolicy] 一处定义，
+ * 经 `dose_slots` 三个写入口的 SQL 守卫执行（[takeDose] / [skipDose] / [snoozeDose]），
+ * 服务层与 UI 层都用同一个函数做归因与渲染判断。
+ *
+ * **撤销与结算刻意不受此限**：撤销是修复坏数据的唯一通道，拦掉会让用户被永久锁死。
  */
-class DoseTrackingService(private val db: AppDatabase) {
+class DoseTrackingService(
+    private val db: AppDatabase,
+    /**
+     * "今天"的来源，**可注入**。
+     *
+     * 为什么不是直接在方法里写 `LocalDate.now()`：未来判据要进 SQL 的 `WHERE`，
+     * 一旦读挂钟，**每条测试的成败就随日历漂移** ——
+     * fixture 用写死日期的测试会在某几天突然变红、过几天又自己变绿
+     * （AGENTS.md §3「测试在下午全绿、早上全红」那一类）。
+     * 测试注入固定日期即可完全确定；生产用它拿真实的今天。
+     */
+    private val todayProvider: () -> LocalDate = { LocalDate.now() }
+) {
+
+    /** 当前自然日，规范格式 `yyyy-MM-dd`（与 [SlotProjectionEngine.DATE_FORMATTER] 同源）。 */
+    private fun todayStr(): String = todayProvider().format(SlotProjectionEngine.DATE_FORMATTER)
+
+    /**
+     * 写入口被拒的**归因**，只用于日志。
+     *
+     * 刻意不作为写决策：真正拦下这次写入的是 SQL 的 `WHERE`
+     * （判据落在数据上，任何调用方都绕不过）。这里只是把"是哪一条拦下的"说清楚 ——
+     * 否则 `false` 会把"未来槽位"和"已处理过"混成一句含糊的日志。
+     */
+    private fun rejectReason(slot: DoseSlotEntity, todayStr: String): String =
+        if (!SlotActionPolicy.isActionableOn(slot.scheduledDate, todayStr)) "future-slot" else "not-open"
+
 
     private companion object {
         const val TAG = "DoseTrackingService"
@@ -131,10 +169,15 @@ class DoseTrackingService(private val db: AppDatabase) {
 
         val finalDose: Dose = takenAmount?.let { Dose.of(it) } ?: Dose(slot.doseAmount)
 
-        // 幂等锚点下沉到 SQL：只有仍在等待的槽位才被置为 COMPLETED。
-        // 受影响行数为 0 ⇒ 已被处理过，直接放弃记账（连点不会重复扣库存）。
-        if (slotDao.markCompletedIfOpen(slotId, actualTs) == 0) {
-            AppLog.w(TAG, "takeDose rejected slot=$slotId reason=not-open status=${slot.status}")
+        // 幂等锚点下沉到 SQL：只有仍在等待、且**不是未来**的槽位才被置为 COMPLETED。
+        // 受影响行数为 0 ⇒ 已被处理过或尚未到计划日，直接放弃记账
+        // （连点不会重复扣库存；未来槽位不会凭空生成"已服"事实）。
+        val today = todayStr()
+        if (slotDao.markCompletedIfOpen(slotId, actualTs, today) == 0) {
+            AppLog.w(
+                TAG,
+                "takeDose rejected slot=$slotId reason=${rejectReason(slot, today)} status=${slot.status}"
+            )
             return@withTransaction false
         }
 
@@ -180,9 +223,13 @@ class DoseTrackingService(private val db: AppDatabase) {
         }
 
         val now = System.currentTimeMillis()
-        // 幂等锚点下沉到 SQL（允许对已逾期的槽位补记跳过）
-        if (slotDao.markSkippedIfOpen(slotId, now) == 0) {
-            AppLog.w(TAG, "skipDose rejected slot=$slotId reason=not-open status=${slot.status}")
+        // 幂等锚点下沉到 SQL（允许对已逾期的槽位补记跳过，但拒绝未来槽位）
+        val today = todayStr()
+        if (slotDao.markSkippedIfOpen(slotId, now, today) == 0) {
+            AppLog.w(
+                TAG,
+                "skipDose rejected slot=$slotId reason=${rejectReason(slot, today)} status=${slot.status}"
+            )
             return@withTransaction false
         }
 
@@ -207,11 +254,21 @@ class DoseTrackingService(private val db: AppDatabase) {
         // 下界 1 分钟则会让"立刻重响"成为可能。两端都收到与通知栏按钮一致的取值域。
         val safeMinutes = snoozeMinutes.coerceIn(1, 240)
         val snoozeUntilTs = System.currentTimeMillis() + (safeMinutes * 60 * 1000L)
-        val ok = slotDao.snoozeSlot(slotId, snoozeUntilTs) > 0
+        val today = todayStr()
+        val ok = slotDao.snoozeSlot(slotId, snoozeUntilTs, today) > 0
         if (ok) {
             AppLog.i(TAG, "snoozeDose ok slot=$slotId minutes=$safeMinutes until=$snoozeUntilTs")
         } else {
-            AppLog.w(TAG, "snoozeDose rejected slot=$slotId reason=slot-missing-or-settled")
+            // 失败归因要读一次槽位（只在失败路径上，代价可忽略）：
+            // "未来的槽位不能推迟"与"槽位已结算/不存在"是两件完全不同的事，
+            // 混成一句日志会让排查"为什么点了没反应"时无从下手。
+            val slot = slotDao.getSlotById(slotId)
+            val reason = when {
+                slot == null -> "slot-missing"
+                !SlotActionPolicy.isActionableOn(slot.scheduledDate, today) -> "future-slot"
+                else -> "settled status=${slot.status}"
+            }
+            AppLog.w(TAG, "snoozeDose rejected slot=$slotId reason=$reason")
         }
         return ok
     }
@@ -341,6 +398,19 @@ class DoseTrackingService(private val db: AppDatabase) {
             return@withTransaction false
         }
 
+        // ⚠️ 未来判据必须在 `revertSlotInternal` **之前**：改判是"先作废、再施加"，
+        // 而施加用的 `markCompletedIfOpen` / `markSkippedIfOpen` 已带未来守卫。
+        // 若把判断留给那一步，一条未来的已产生结论槽位（正是本缺陷留下的坏数据）
+        // 会走到"作废已完成、施加被拒"⇒ `return false` **提交**了作废
+        // （`withTransaction` 只在抛异常时回滚）⇒ 槽位停在 PENDING、
+        // 事实全标 REVERTED、台账已冲正，用户看到半截状态。
+        // 修复这种坏数据的正确入口是撤销（[undoDose]），不是改判。
+        val today = todayStr()
+        if (!SlotActionPolicy.isActionableOn(slot.scheduledDate, today)) {
+            AppLog.w(TAG, "restate rejected slot=$slotId reason=future-slot")
+            return@withTransaction false
+        }
+
         // 幂等：已经是目标结论 ⇒ 什么都不做
         if (target == RecordStatus.COMPLETED && slot.status == SlotStatus.COMPLETED) {
             AppLog.w(TAG, "restate rejected slot=$slotId reason=already-target target=COMPLETED")
@@ -363,7 +433,7 @@ class DoseTrackingService(private val db: AppDatabase) {
 
         when (target) {
             RecordStatus.COMPLETED -> {
-                if (slotDao.markCompletedIfOpen(slotId, restatedTs) == 0) {
+                if (slotDao.markCompletedIfOpen(slotId, restatedTs, today) == 0) {
                     AppLog.w(TAG, "restate rejected slot=$slotId reason=not-open-after-revert")
                     return@withTransaction false
                 }
@@ -391,7 +461,7 @@ class DoseTrackingService(private val db: AppDatabase) {
             }
 
             RecordStatus.SKIPPED -> {
-                if (slotDao.markSkippedIfOpen(slotId, restatedTs) == 0) {
+                if (slotDao.markSkippedIfOpen(slotId, restatedTs, today) == 0) {
                     AppLog.w(TAG, "restate rejected slot=$slotId reason=not-open-after-revert")
                     return@withTransaction false
                 }

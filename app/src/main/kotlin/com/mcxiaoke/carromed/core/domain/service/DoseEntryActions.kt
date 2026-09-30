@@ -6,6 +6,34 @@ import com.mcxiaoke.carromed.core.alarm.AlarmScheduler
 import com.mcxiaoke.carromed.core.alarm.Notifications
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
+import com.mcxiaoke.carromed.core.domain.AppLog
+import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
+import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
+import java.time.LocalDate
+
+/**
+ * 一次「施加结论」的动作结果（打卡 / 跳过）。
+ *
+ * ## 为什么不是 `Boolean`
+ *
+ * `false` 把两件**副作用处理恰好相反**的事压成同一个值：
+ *
+ * | 失败原因 | 槽位状态 | 该不该撤闹钟 | 该说什么 |
+ * | :--- | :--- | :--- | :--- |
+ * | `ALREADY_HANDLED` | 已 COMPLETED / SKIPPED（或槽位已不存在） | **要撤** —— 它不该再提醒 | "该服药记录已处理过" |
+ * | `FUTURE_SLOT` | 仍是 PENDING 的明天/更远的槽位 | **绝不能撤** —— 那是明天的提醒 | "未来的服药时间不能提前确认" |
+ *
+ * 若只有 `false`，调用方只能二选一：要么两处都撤（把明天的提醒弄丢）、
+ * 要么两处都不撤（"确认过了还在响"）。这正是 `DoseSlotDao` KDoc 里点名过的
+ * "按钮存在却永远失败、toast 只能撒谎"那一类缺陷。
+ */
+enum class DoseActionResult {
+    APPLIED,
+    ALREADY_HANDLED,
+    FUTURE_SLOT;
+
+    val isApplied: Boolean get() = this == APPLIED
+}
 
 /**
  * 用药条目的动作编排层：把「改数据 → 改闹钟 → 撤通知」三件事绑成一次调用。
@@ -23,42 +51,73 @@ import com.mcxiaoke.carromed.core.data.model.RecordStatus
  *
  * ## 职责边界
  *
- * 只做编排，不做校验：幂等锚点仍住在 `DoseTrackingService` 与 SQL 的 `WHERE` 里
- * （AGENTS.md §2 第 1 条）。所以本类的方法**返回底层服务的返回值**，
- * 调用方据此决定提示文案。
+ * 只做编排，不做校验：幂等锚点与「未来槽位不可表态」都住在
+ * `DoseTrackingService` 与 SQL 的 `WHERE` 里（AGENTS.md §2 第 1 条）。
+ * 本类**唯一**的判断是"失败之后要不要动闹钟"，而这个判断用的是同一个
+ * [SlotActionPolicy] —— 判据仍然只有一份。
  */
 class DoseEntryActions(
     private val context: Context,
-    private val db: AppDatabase
+    private val db: AppDatabase,
+    /**
+     * "今天"的来源，与 [DoseTrackingService] 共用同一个（可注入）。
+     *
+     * 必须共用：若这里读挂钟而服务层用注入值，两者的"今天"可能不同一天，
+     * 于是"服务层拒了、编排层判成已处理"⇒ 把一条**未来槽位的闹钟**撤掉。
+     * 测试注入固定日期时，两侧必须一起跟着走。
+     */
+    private val todayProvider: () -> LocalDate = { LocalDate.now() }
 ) {
 
-    private val tracking = DoseTrackingService(db)
+    private companion object {
+        const val TAG = "DoseEntryActions"
+    }
+
+    private val tracking = DoseTrackingService(db, todayProvider)
 
     /**
      * 确认服药：事务打卡（扣一次库存）→ 撤三种闹钟 → 撤托盘通知。
      *
-     * 无论底层是否成功都撤闹钟与通知：槽位已经不该再提醒了，
-     * 留着只会让"确认过了还在响"这条最坏的体验成真。
+     * 「已处理过」与「槽位不存在」这类**非未来**的失败照旧撤闹钟与通知：
+     * 槽位已经不该再提醒了，留着只会让"确认过了还在响"这条最坏的体验成真。
+     *
+     * ⚠️ 唯一的例外是**未来的槽位**：它仍然是 PENDING、仍然该在明天响，
+     * 撤掉之后 `AlarmReconciler` 也不会再排（闹钟身份是内容寻址的，已经 cancel 掉了）
+     * ⇒ 用户以为在提前处理，实际把明天的提醒弄丢了，且毫无察觉。
      */
     suspend fun confirm(
         slotId: Long,
         takenAmount: Float? = null,
         note: String? = null
-    ): Boolean {
+    ): DoseActionResult {
         val ok = tracking.takeDose(
             slotId = slotId,
             takenAmount = takenAmount,
             note = note
         )
+        if (!ok) {
+            val failure = classifyFailure(slotId)
+            if (failure == DoseActionResult.FUTURE_SLOT) {
+                AppLog.w(TAG, "confirm applied=false slot=$slotId reason=future-slot alarms-kept")
+                return failure
+            }
+        }
         cancelAlarmsAndNotification(slotId)
-        return ok
+        return if (ok) DoseActionResult.APPLIED else DoseActionResult.ALREADY_HANDLED
     }
 
-    /** 跳过本次：写跳过事实（不扣库存）→ 撤闹钟 → 撤通知 */
-    suspend fun skip(slotId: Long, reason: String? = null): Boolean {
+    /** 跳过本次：写跳过事实（不扣库存）→ 撤闹钟 → 撤通知（未来槽位同样不碰闹钟） */
+    suspend fun skip(slotId: Long, reason: String? = null): DoseActionResult {
         val ok = tracking.skipDose(slotId = slotId, reason = reason)
+        if (!ok) {
+            val failure = classifyFailure(slotId)
+            if (failure == DoseActionResult.FUTURE_SLOT) {
+                AppLog.w(TAG, "skip applied=false slot=$slotId reason=future-slot alarms-kept")
+                return failure
+            }
+        }
         cancelAlarmsAndNotification(slotId)
-        return ok
+        return if (ok) DoseActionResult.APPLIED else DoseActionResult.ALREADY_HANDLED
     }
 
     /**
@@ -113,6 +172,26 @@ class DoseEntryActions(
         // 静默失败等于"我推迟了、以为会提醒，其实没有"。
         AlarmScheduler.schedule(context, slot, triggerAt, AlarmScheduler.Kind.SNOOZE)
         return true
+    }
+
+    /**
+     * 一次拒绝的归因：未来槽位，还是"已被处理过 / 不存在"。
+     *
+     * 读一次槽位就够，且必须是**写失败之后**读 —— 归因依据的是"现在这条槽位是什么样"，
+     * 而不是"调用前是什么样"（并发下两者可能不同）。
+     *
+     * 归因偏保守的方向是安全的：只有当槽位**确实**仍然是一条未来的槽位时，
+     * 才会走"不撤闹钟"分支；其它一切情况（含槽位已消失）照旧撤闹钟，
+     * 与改动前的语义完全一致。
+     */
+    private suspend fun classifyFailure(slotId: Long): DoseActionResult {
+        val slot = db.doseSlotDao().getSlotById(slotId) ?: return DoseActionResult.ALREADY_HANDLED
+        val todayStr = todayProvider().format(SlotProjectionEngine.DATE_FORMATTER)
+        return if (SlotActionPolicy.isActionableOn(slot.scheduledDate, todayStr)) {
+            DoseActionResult.ALREADY_HANDLED
+        } else {
+            DoseActionResult.FUTURE_SLOT
+        }
     }
 
     /**

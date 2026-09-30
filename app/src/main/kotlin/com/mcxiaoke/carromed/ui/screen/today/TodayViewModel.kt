@@ -10,8 +10,10 @@ import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.MedicationOverview
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
+import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
+import com.mcxiaoke.carromed.core.domain.service.DoseActionResult
 import com.mcxiaoke.carromed.core.domain.service.DoseEntryActions
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -52,7 +54,22 @@ data class DoseSlotItem(
 
 data class TodayUiState(
     val selectedDate: LocalDate = LocalDate.now(),
+    /**
+     * 当前**自然日**（来自 `CurrentDateHolder`，不是本页的临时 `LocalDate.now()`）。
+     *
+     * 页面里所有"是不是今天 / 是不是未来"的判断都必须走它：
+     * 各写一份 `LocalDate.now()` 会让标题、日期格小圆点、只读判据在跨午夜那一分钟里
+     * 各说一套（AGENTS.md §3「测试在早上/下午变红」的同类根源：判据多份、口径不同）。
+     */
+    val today: LocalDate = LocalDate.now(),
     val weekDates: List<LocalDate> = emptyList(),
+    /**
+     * 选中日是否允许对被表态（`selectedDate <= today`）。
+     *
+     * 未来日**仍然可以选中**（预览排班是产品功能），但清单是只读的：
+     * 卡片上不渲染 ✓，改成一句"明天 10:30 服用"。
+     */
+    val isActionable: Boolean = true,
     /** 低库存告急药品（含台账聚合出的账面余额，可能为负 —— 见 FINAL-PRODUCT D-9） */
     val lowStockAlertMeds: List<MedicationOverview> = emptyList(),
     val pendingItems: List<DoseSlotItem> = emptyList(),
@@ -122,7 +139,7 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         db.appSettingDao().observeValue(
             com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES
         )
-    ) { selectedDate, _, overviews, slots, snoozeSetting ->
+    ) { selectedDate, today, overviews, slots, snoozeSetting ->
         val medMap = overviews.associateBy { it.id }
 
         val pending = mutableListOf<DoseSlotItem>()
@@ -169,6 +186,9 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
         TodayUiState(
             selectedDate = selectedDate,
+            today = today,
+            // 未来日只读：判据走领域层的同一份实现，UI 不自己写 `<=`（见 SlotActionPolicy）
+            isActionable = SlotActionPolicy.isActionableOn(selectedDate, today),
             weekDates = weekDates,
             lowStockAlertMeds = lowStock,
             pendingItems = pending.sortedBy { it.slot.scheduledTs },
@@ -194,7 +214,13 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
     fun takeDose(slotId: Long) {
         viewModelScope.launch {
-            if (!actions.confirm(slotId)) emitEvent("该服药记录已处理过，未重复扣减库存")
+            // 三种结果必须说三种话：未来槽位说"已处理过"是撒谎
+            // （事实是从未有机会处理），说"未重复扣减"也会让用户以为打卡生效了。
+            when (actions.confirm(slotId)) {
+                DoseActionResult.APPLIED -> Unit
+                DoseActionResult.FUTURE_SLOT -> emitEvent("未来的服药时间不能提前确认")
+                DoseActionResult.ALREADY_HANDLED -> emitEvent("该服药记录已处理过，未重复扣减库存")
+            }
         }
     }
 

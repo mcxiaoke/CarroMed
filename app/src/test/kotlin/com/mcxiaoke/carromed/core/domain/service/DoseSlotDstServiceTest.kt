@@ -247,7 +247,7 @@ class DoseSlotDstServiceTest {
         val medId = dailyMedication(from)
         tracking.reconcileSchedule(medId, from, springForward.plusDays(1), zoneId = newYork)
         val target = slotsOf(medId).first()
-        db.doseSlotDao().markCompletedIfOpen(target.id, actualTs = 1L)
+        db.doseSlotDao().markCompletedIfOpen(target.id, actualTs = 1L, todayStr = target.scheduledDate)
         val tsBefore = db.doseSlotDao().getSlotById(target.id)!!.scheduledTs
 
         val tokyo = ZoneId.of("Asia/Tokyo")

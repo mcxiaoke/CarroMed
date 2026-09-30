@@ -150,7 +150,8 @@ class SlotSettlementGuardTest {
     @Test
     fun `逾期槽位清干净 snooze_until_ts 不留脏值`() = runBlocking {
         val slot = anyOpenSlot()
-        db.doseSlotDao().snoozeSlot(slot.id, System.currentTimeMillis() + 600_000L)
+        // fixture：`todayStr` 传槽位自己的计划日，构造的是"已推迟"状态本身
+        db.doseSlotDao().snoozeSlot(slot.id, System.currentTimeMillis() + 600_000L, slot.scheduledDate)
         assertThat(db.doseSlotDao().getSlotById(slot.id)!!.snoozeUntilTs).isNotNull()
 
         assertThat(db.doseSlotDao().markExpired(slot.id)).isEqualTo(1)

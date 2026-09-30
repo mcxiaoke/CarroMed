@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.mcxiaoke.carromed.core.data.AppDatabase
+import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
@@ -93,6 +94,17 @@ class SnoozedSlotSettlementTest {
     private suspend fun slotOn(medId: Long, date: LocalDate) =
         db.doseSlotDao().getSlotsForDate(date.toString()).first { it.medicationId == medId }
 
+    /**
+     * 把槽位置成「已推迟」（**fixture**，不是被测行为）。
+     *
+     * `todayStr` 传**槽位自己的计划日**：本测试要构造的是一个"推迟状态"，
+     * 与"这个槽位今天能不能被推迟"无关 —— 后者由 `FutureSlotActionGuardTest` 覆盖。
+     * 传真实今天会让 fixture 里 `today+1` 那种槽位被 SQL 守卫拦下，
+     * 于是测试悄悄换成"没构造成功"的另一种场景。
+     */
+    private suspend fun forceSnooze(slot: DoseSlotEntity, until: Long) =
+        db.doseSlotDao().snoozeSlot(slot.id, until, slot.scheduledDate)
+
     // ================================================================
     // 1. 主线：推迟后没回访 ⇒ 被结算
     // ================================================================
@@ -105,7 +117,7 @@ class SnoozedSlotSettlementTest {
         // 推迟点落在昨日深夜（今日 0 点之前）—— 模拟"用户推迟后那天再没回来"。
         // 结算线是「当地当日 0 点」（PLAN-EXPIRE-WINDOW-20260929）：推迟点跨过
         // 0 点才定案；推迟点若还在今天（哪怕早已过去），今天全天不结算。
-        db.doseSlotDao().snoozeSlot(slot.id, startOfTodayMs() - 3600_000L)
+        forceSnooze(slot, startOfTodayMs() - 3600_000L)
         assertThat(db.doseSlotDao().getSlotById(slot.id)!!.status).isEqualTo(SlotStatus.SNOOZED)
 
         reconcil()
@@ -121,7 +133,7 @@ class SnoozedSlotSettlementTest {
         val medId = dailyMedication()
         val slot = slotOn(medId, today)
 
-        db.doseSlotDao().snoozeSlot(slot.id, System.currentTimeMillis() + 20 * 60_000L)
+        forceSnooze(slot, System.currentTimeMillis() + 20 * 60_000L)
         reconcil()
 
         // 仍在 SNOOZED，且推迟时刻**原样保留**（被读到就说明还是活的）
@@ -142,7 +154,7 @@ class SnoozedSlotSettlementTest {
         val oldSlot = slotOn(medId, today.minusDays(2))
         assertThat(oldSlot.scheduledTs).isLessThan(System.currentTimeMillis() - 3600_000L)
 
-        db.doseSlotDao().snoozeSlot(oldSlot.id, System.currentTimeMillis() + 10 * 60_000L)
+        forceSnooze(oldSlot, System.currentTimeMillis() + 10 * 60_000L)
         reconcil()
 
         assertThat(db.doseSlotDao().getSlotById(oldSlot.id)!!.status).isEqualTo(SlotStatus.SNOOZED)
@@ -167,7 +179,7 @@ class SnoozedSlotSettlementTest {
     fun `推迟窗口内打卡 槽位转已服且不再被结算`() = runTest {
         val medId = dailyMedication()
         val slot = slotOn(medId, today)
-        db.doseSlotDao().snoozeSlot(slot.id, System.currentTimeMillis() + 5 * 60_000L)
+        forceSnooze(slot, System.currentTimeMillis() + 5 * 60_000L)
 
         assertThat(tracking.takeDose(slotId = slot.id, note = "推迟后补打卡")).isTrue()
         assertThat(db.doseSlotDao().getSlotById(slot.id)!!.status).isEqualTo(SlotStatus.COMPLETED)
@@ -186,14 +198,18 @@ class SnoozedSlotSettlementTest {
     @Test
     fun `结算之外 不许任何路径清掉 snooze_until_ts`() = runTest {
         val medId = dailyMedication()
-        val a = slotOn(medId, today)
-        val b = slotOn(medId, today.plusDays(1))
+        // ⚠️ 两个槽位都必须落在**可表态**范围（过去 / 今天）：未来槽位现在会被
+        // `takeDose` / `skipDose` 的日期守卫拦下，那时这条测试会退化成
+        // "两个动作根本没执行、snooze_until_ts 当然没被清"的恒真断言。
+        // 返回值断言正是防这种退化的那道闸。
+        val a = slotOn(medId, today.minusDays(1))
+        val b = slotOn(medId, today)
         val far = System.currentTimeMillis() + 30 * 60_000L
 
-        db.doseSlotDao().snoozeSlot(a.id, far)
-        db.doseSlotDao().snoozeSlot(b.id, far)
-        tracking.takeDose(slotId = a.id)
-        tracking.skipDose(slotId = b.id, reason = "不吃了")
+        forceSnooze(a, far)
+        forceSnooze(b, far)
+        assertThat(tracking.takeDose(slotId = a.id)).isTrue()
+        assertThat(tracking.skipDose(slotId = b.id, reason = "不吃了")).isTrue()
 
         assertThat(db.doseSlotDao().getSlotById(a.id)!!.snoozeUntilTs).isEqualTo(far)
         assertThat(db.doseSlotDao().getSlotById(b.id)!!.snoozeUntilTs).isEqualTo(far)
@@ -223,7 +239,7 @@ class SnoozedSlotSettlementTest {
     fun `SNOOZED 但没有推迟时刻的脏行 不会被结算 也不崩`() = runTest {
         val medId = dailyMedication()
         val slot = slotOn(medId, today)
-        db.doseSlotDao().snoozeSlot(slot.id, System.currentTimeMillis())
+        forceSnooze(slot, System.currentTimeMillis())
         // 硬造脏数据：置 SNOOZED 但清掉推迟时刻
         clearSnoozeUntil(slot.id)
         assertThat(db.doseSlotDao().getSlotById(slot.id)!!.snoozeUntilTs).isNull()
@@ -238,7 +254,7 @@ class SnoozedSlotSettlementTest {
     fun `连续多次对账 结算结果稳定不反复横跳`() = runTest {
         val medId = dailyMedication()
         // 推迟点落在昨日深夜：跨过结算线 ⇒ 第一轮对账定案，其后必须稳定
-        db.doseSlotDao().snoozeSlot(slotOn(medId, today).id, startOfTodayMs() - 3600_000L)
+        forceSnooze(slotOn(medId, today), startOfTodayMs() - 3600_000L)
         reconcil()
         val first = db.doseSlotDao().getAllSlots()
             .filter { it.medicationId == medId }

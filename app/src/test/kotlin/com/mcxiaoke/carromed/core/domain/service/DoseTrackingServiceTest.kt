@@ -44,7 +44,12 @@ class DoseTrackingServiceTest {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        service = DoseTrackingService(db)
+        // 本类的 fixture 把「今天」写死在 2026-10-01（`scheduledDate = "2026-10-01"`
+        // 的槽位要在当天打卡）。注入固定时钟让判据与 fixture 的"今天"一致 ——
+        // 否则"未来槽位不可表态"这条守卫会随**真实日历**漂移：
+        // 真实日期早于 2026-10-01 时 fixture 被判成未来 ⇒ 红的，
+        // 过了 2026-10-01 同样的断言又自己变绿（AGENTS.md §3「早上全绿、下午全红」）。
+        service = DoseTrackingService(db, todayProvider = { LocalDate.of(2026, 10, 1) })
     }
 
     @After
@@ -305,8 +310,8 @@ class DoseTrackingServiceTest {
      *
      * ## 缺陷
      *
-     * `markCompletedIfOpen` 的 SQL 守卫是 `status IN ('PENDING','SNOOZED')`，
-     * EXPIRED 不在其中——但今日页的 `PendingDoseCard` **把确认按钮渲染给了 EXPIRED**
+     * `markCompletedIfOpen` 的 SQL 守卫是 `status IN ('PENDING','SNOOZED','EXPIRED')`
+     * 且 `scheduled_date <= :todayStr`，EXPIRED 在其中——但今日页的 `PendingDoseCard` **把确认按钮渲染给了 EXPIRED**
      * （徽标还写着"已逾期…尚未确认"），点击永远失败，且 toast 文案撒谎
      * （"该服药记录已处理过"——事实是从未有机会处理）。
      * 对称的证据是 `markSkippedIfOpen` **允许** EXPIRED ⇒ SKIPPED（"补记跳过"）：

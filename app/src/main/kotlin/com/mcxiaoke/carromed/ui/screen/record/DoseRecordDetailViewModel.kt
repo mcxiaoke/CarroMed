@@ -8,6 +8,8 @@ import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
+import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.domain.service.DoseEntryActions
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
@@ -72,6 +74,10 @@ fun isSameLocalDay(a: Long, b: Long): Boolean {
  * | 已跳过 | `SKIPPED` | 确认（改判）、撤销 |
  * | 手动补录 | `slot == null && record != null` | 撤销（2 天内）+ 改剂量 / 时间 / 备注 |
  *
+ * 另外有一维**与状态正交**：`isActionable`（槽位计划日不晚于今天）。
+ * 未来日即使状态是待服，也**不渲染**确认 / 推迟 / 跳过 —— 服药是已发生的事实。
+ * 这一维由 `SlotActionPolicy` 与服务层 SQL 守卫共用同一份判据。
+ *
  * `—` 的动作**不渲染按钮**，而不是置灰：置灰会让人以为"再等等就能用"，
  * 而"撤销一条昨天的记录"这类事永远不会变可用。
  */
@@ -90,6 +96,15 @@ data class DoseEntryUiState(
     /** 剂量输入（String，因为"正在输入 0."是合法中间态，见 M2-1） */
     val doseInput: String = "",
     val noteInput: String = "",
+    /**
+     * 这个槽位的**计划日**是否允许被表态（`scheduled_date <= 今天`）。
+     *
+     * 由 ViewModel 在刷新时按 `SlotActionPolicy` 算一次并**存下来**，
+     * 而不是在 getter 里读挂钟：getter 里读挂钟会让这个纯状态类的测试
+     * 随运行日期变色（本项目的 `DoseRecordDetailStateTest` 全部是纯状态测试）。
+     * 手动补录记录（`slot == null`）恒为 true —— 它没有排班日，不受此限。
+     */
+    val isActionable: Boolean = true,
     /**
      * 用户改过、但**还没保存**的服药时刻。
      *
@@ -124,9 +139,12 @@ data class DoseEntryUiState(
      * 开放槽位（PENDING / SNOOZED / EXPIRED）走打卡；`SKIPPED` 走**改判**——
      * 因为 `markCompletedIfOpen` 的守卫不含 `SKIPPED`（那是防连点重复扣库存的幂等锚点），
      * 直接打卡会静默返回 false。
+     *
+     * ⚠️ 未来槽位一律为 false：[isActionable] 为假时三个动作都不渲染，
+     * 服务层也会拒 —— 两层同源，不靠约定。
      */
     val canConfirm: Boolean
-        get() = when (slotStatus) {
+        get() = isActionable && when (slotStatus) {
             SlotStatus.PENDING, SlotStatus.SNOOZED, SlotStatus.EXPIRED -> true
             SlotStatus.SKIPPED -> true
             else -> false
@@ -139,13 +157,15 @@ data class DoseEntryUiState(
      * 推迟。`EXPIRED` 不在此列：`DoseSlotDao.snoozeSlot` 的守卫是
      * `status IN ('PENDING','SNOOZED')`，对逾期槽位必然失败 ——
      * 按钮存在却永远失败就是虚假承诺。
+     *
+     * 未来槽位同样不在此列：对明天的槽位"推迟 30 分钟"算出来的是**今天**的唤醒时刻。
      */
     val canSnooze: Boolean
-        get() = slotStatus == SlotStatus.PENDING || slotStatus == SlotStatus.SNOOZED
+        get() = isActionable && (slotStatus == SlotStatus.PENDING || slotStatus == SlotStatus.SNOOZED)
 
     /** 跳过本次。`COMPLETED` 走改判，`SKIPPED` 是当前状态、不显示 */
     val canSkip: Boolean
-        get() = when (slotStatus) {
+        get() = isActionable && when (slotStatus) {
             SlotStatus.PENDING, SlotStatus.SNOOZED, SlotStatus.EXPIRED -> true
             SlotStatus.COMPLETED -> true
             else -> false
@@ -156,14 +176,41 @@ data class DoseEntryUiState(
     /**
      * 撤销（回到未确认）。
      *
-     * - 计划内记录：**仅当天**（见 [EDITABLE_WINDOW_DAYS] 的说明）
+     * - 计划内记录：**仅当天**（见 [EDITABLE_WINDOW_DAYS] 的说明），
+     *   外加一个逃生口 [isContradictoryRecord]；
      * - 手动补录记录：2 天（它不退回任何待办，不产生"永远清不掉"的问题）
      */
     val canUndo: Boolean
         get() = when {
             isManual -> withinEditWindow
-            slotStatus == SlotStatus.COMPLETED || slotStatus == SlotStatus.SKIPPED -> isToday
+            slotStatus == SlotStatus.COMPLETED || slotStatus == SlotStatus.SKIPPED ->
+                isToday || isContradictoryRecord
+
             else -> false
+        }
+
+    /**
+     * 坏数据：事实发生的自然日**早于**所属槽位的计划日。
+     *
+     * 正常路径写不出这种行：`takeDose` 的 `actualTs` 恒为"现在"，
+     * 而槽位守卫要求 `scheduled_date <= 今天` ⇒ **事实日不可能早于计划日**。
+     * 反过来说明这条记录是「对未来的槽位打卡」留下的垃圾 ——
+     * 而「撤销仅当天」的判据（看 `actualTs`）到第二天就再也放不开它，
+     * 用户被自己造出来的垃圾**永久锁死**：界面写着已服、库存少了一片、
+     * 唯一的修复入口却不渲染。
+     *
+     * 这里用字符串比较（零填充 `yyyy-MM-dd` 的字典序 == 时序），
+     * 与 `SlotActionPolicy` 同一套口径、同样不抛异常。
+     */
+    val isContradictoryRecord: Boolean
+        get() {
+            val r = record ?: return false
+            val s = slot ?: return false
+            val actualDay = Instant.ofEpochMilli(r.actualTs)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+                .toString()
+            return actualDay < s.scheduledDate
         }
 
     /** 槽位来源的记录不许改剂量与时间（UX 方案 §3.3）：只有手动补录能改 */
@@ -279,11 +326,16 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
         val overview = medDao.getOverviewById(slot.medicationId)
         val med = overview?.medication
         val record = currentRecordFor(slot)
+        // 未来判据在**这里**算一次（而不是 getter 里读挂钟）：状态类是纯数据，
+        // 测试可以直接构造 isActionable = false / true，不受运行日期影响。
+        val todayStr = LocalDate.now().format(SlotProjectionEngine.DATE_FORMATTER)
+        val actionable = SlotActionPolicy.isActionableOn(slot.scheduledDate, todayStr)
         _uiState.update { state ->
             state.copy(
                 isLoading = false,
                 notFound = false,
                 slot = slot,
+                isActionable = actionable,
                 medication = med,
                 record = record,
                 stock = if (med?.isStockTracked == true) overview?.stock else null,
@@ -350,7 +402,8 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
             if (s.confirmNeedsRestate) {
                 actions.restate(sid, RecordStatus.COMPLETED, note)
             } else {
-                actions.confirm(sid, note = note)
+                // 未来槽位的按钮在 §4.3 之后不再渲染，这里只把"没成功"如实传回骨架
+                actions.confirm(sid, note = note).isApplied
             }
         }
     }
@@ -365,7 +418,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
             if (s.skipNeedsRestate) {
                 actions.restate(sid, RecordStatus.SKIPPED, note)
             } else {
-                actions.skip(sid, reason = note)
+                actions.skip(sid, reason = note).isApplied
             }
         }
     }
