@@ -62,6 +62,7 @@ import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreenContainer
 import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
 
@@ -265,8 +266,12 @@ private fun HeaderCard(state: DoseEntryUiState) {
 
             // 计划时点与实际时点**分开显示**：槽位来源的记录里，
             // 这两者本来就可能是不同的值，合成一个会让用户以为"就是那个时间吃的"
+            //
+            // 计划日必须带上：进展页 / 药箱历史点进来的记录可能属于**任何一天**，
+            // 只写"计划 10:30"时用户分不清这是哪天的那一剂
+            // （本缺陷产生的坏数据更是把"计划 10:30 · 实际 22:06"直接显示成自相矛盾）。
             val lines = buildList {
-                state.slot?.let { add("计划 ${it.scheduledTime}") }
+                state.slot?.let { add("计划 ${formatDayLabel(it.scheduledDate)} ${it.scheduledTime}") }
                 state.record?.let { add("实际 ${formatClock(it.actualTs)}") }
                 if (state.slot == null && state.record != null) {
                     add(formatDay(state.record.actualTs))
@@ -451,9 +456,15 @@ private fun NoteCard(state: DoseEntryUiState, onNoteChange: (String) -> Unit) {
                 if (state.noteJoinsConfirm) {
                     Spacer(Modifier.height(6.dp))
                     // ⚠️ 待服状态还没有服药事实，备注无处可存 —— 如实说明，
-                    // 不做"看起来保存了"的假提示（AGENTS.md §2 第 6 条）
+                    // 不做"看起来保存了"的假提示（AGENTS.md §2 第 6 条）。
+                    // 未来槽位更要把话说全：这一页**没有**确认按钮，
+                    // 说"会随确认服用一起保存"等于指着一个不存在的入口。
                     Text(
-                        text = "备注会随「确认服用」一起保存；只填不确认不会留下记录。",
+                        text = if (state.isActionable) {
+                            "备注会随「确认服用」一起保存；只填不确认不会留下记录。"
+                        } else {
+                            "到达当天才能确认服用，备注会在那时一起保存；现在填写的内容不会落库。"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 18.sp
@@ -553,6 +564,12 @@ private fun SnoozeRow(options: List<Int>, onPick: (Int) -> Unit) {
 @Composable
 private fun Footnote(state: DoseEntryUiState) {
     val text = when {
+        // ⚠️ 这一条必须在最前：未来槽位"没有按钮"是**正确行为**，
+        // 不能被下面的"只有当天可以撤销"之类文案误导成"这项功能不可用"。
+        !state.isActionable && !state.isManual ->
+            "这是未来的服药时间：到达当天才能确认、推迟或跳过。" +
+                "现在可以在这里预览计划剂量与余量。"
+
         state.isReverted ->
             "这条记录已撤销，不再计入依从率与消耗统计。服药事实不会被删除，" +
                 "所以历史永远可追溯、库存台账也不会出现悬空引用。"
@@ -596,6 +613,17 @@ private fun formatClock(ts: Long): String {
 
 private fun formatDay(ts: Long): String =
     Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+
+/**
+ * 计划日（库里是规范 `yyyy-MM-dd` 串）→「9月30日」。
+ *
+ * 解析失败时**原样回显**：这段代码渲染的是详情页顶部，
+ * 一条坏串不该把整页打成崩溃（AGENTS.md §2 第 7 条：坏数据只坏在一处）。
+ */
+private fun formatDayLabel(scheduledDate: String): String =
+    runCatching { LocalDate.parse(scheduledDate) }.getOrNull()
+        ?.let { "${it.monthValue}月${it.dayOfMonth}日" }
+        ?: scheduledDate
 
 /**
  * 日期 → 时间 两级选择器。

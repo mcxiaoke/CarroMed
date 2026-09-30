@@ -56,6 +56,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -157,6 +159,7 @@ fun TodayScreen(
                 DateSelectorRow(
                     dates = uiState.weekDates,
                     selectedDate = uiState.selectedDate,
+                    today = uiState.today,
                     onSelectDate = { viewModel.selectDate(it) }
                 )
             }
@@ -242,7 +245,13 @@ fun TodayScreen(
                     if (uiState.pendingItems.isNotEmpty()) {
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "点开可推迟或跳过",
+                            // 未来日是**只读预览**：如实说明"为什么没有 ✓"，
+                            // 而不是让用户以为卡片坏了 / App 卡了
+                            text = if (uiState.isActionable) {
+                                "点开可推迟或跳过"
+                            } else {
+                                "未来排班预览 · 到达当天才能打卡"
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -280,7 +289,7 @@ fun TodayScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = if (uiState.selectedDate == LocalDate.now()) {
+                                    text = if (uiState.selectedDate == uiState.today) {
                                         "这一天没有待服任务 🎉"
                                     } else {
                                         "这一天没有排班"
@@ -296,6 +305,8 @@ fun TodayScreen(
                 items(uiState.pendingItems, key = { "slot-${it.slot.id}" }) { item ->
                     PendingDoseCard(
                         item = item,
+                        isActionable = uiState.isActionable,
+                        today = uiState.today,
                         onTakeDose = { viewModel.takeDose(item.slot.id) },
                         onClick = { onOpenDose(item.slot.id) }
                     )
@@ -312,7 +323,14 @@ fun TodayScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "今日已服 (${uiState.completedItems.size})",
+                            // 翻到 9-30 时写"今日已服"是**事实错误**：那天的记录不是今天服的。
+                            // 与"今日清单"这个页名无关 —— 它标的是当前查看的那一天。
+                            text = if (uiState.selectedDate == uiState.today) {
+                                "今日已服 (${uiState.completedItems.size})"
+                            } else {
+                                "${uiState.selectedDate.monthValue}月${uiState.selectedDate.dayOfMonth}日已服" +
+                                    " (${uiState.completedItems.size})"
+                            },
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -351,6 +369,8 @@ fun TodayScreen(
 @Composable
 private fun PendingDoseCard(
     item: DoseSlotItem,
+    isActionable: Boolean,
+    today: LocalDate,
     onTakeDose: () -> Unit,
     onClick: () -> Unit
 ) {
@@ -471,24 +491,68 @@ private fun PendingDoseCard(
                 }
             }
 
-            IconButton(
-                onClick = onTakeDose,
-                modifier = Modifier
-                    .size(42.dp)
-                    .testTag(TestTags.doseConfirm(item.slot.id))
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-                    .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), CircleShape)
-            ) {
-                Icon(
-                    Icons.Default.Check,
-                    contentDescription = "确认服药",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
+            // 未来槽位：**不渲染 ✓**，换一句只读说明。
+            //
+            // 按本项目既有约定**不置灰**（`DoseRecordDetailViewModel` 的 KDoc 记了理由）：
+            // 置灰会让人以为"再等等就能用"，而这条槽位今天永远不会变可用 ——
+            // 它要等到自己那天。卡片本体仍可点开，进详情页预览。
+            if (isActionable) {
+                IconButton(
+                    onClick = onTakeDose,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .testTag(TestTags.doseConfirm(item.slot.id))
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                        .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), CircleShape)
+                ) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = "确认服药",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            } else {
+                // 两行而不是一行滚动的长句：单行「明天 10:30 服用」在 44dp 的
+                // 右侧位宽里必然折行，而折行点落在"服用"两个字上时看起来像个孤儿
+                // （2026-09-30 走查截图实测）。这里显式分两行：日期一行、时点一行。
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    modifier = Modifier
+                        .width(84.dp)
+                        .testTag(TestTags.doseFuture(item.slot.id))
+                ) {
+                    Text(
+                        text = futureDayLabel(item.slot.scheduledDate, today),
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.End
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "${item.slot.scheduledTime} 服用",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.End
+                    )
+                }
             }
         }
     }
+}
+
+/**
+ * 未来槽位的日期说明：「明天」/「9月30日」。
+ *
+ * 计划日串安全解析：库里理论上总是规范 `yyyy-MM-dd`，但这段代码会被渲染
+ * **每一条**未来卡片调用，一旦 `LocalDate.parse` 抛异常就是整页崩溃。
+ * 解析失败时原样回显计划日，绝不抛。
+ */
+private fun futureDayLabel(scheduledDate: String, today: LocalDate): String {
+    val date = runCatching { LocalDate.parse(scheduledDate) }.getOrNull() ?: return scheduledDate
+    return if (date == today.plusDays(1)) "明天" else "${date.monthValue}月${date.dayOfMonth}日"
 }
 
 /** 首启引导卡：药箱为空时给出明确的下一步，而不是干瘪一句"今天没有待服任务" */
@@ -684,9 +748,9 @@ private fun SkippedDoseCard(
 private fun DateSelectorRow(
     dates: List<LocalDate>,
     selectedDate: LocalDate,
+    today: LocalDate,
     onSelectDate: (LocalDate) -> Unit
 ) {
-    val today = LocalDate.now()
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween
@@ -707,6 +771,17 @@ private fun DateSelectorRow(
                         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     )
                     .clickable { onSelectDate(date) }
+                    // 语义描述（可访问性 + 走查脚本的定位锚点）：
+                    // 未来日**仍然可点**（预览排班是产品功能），所以刻意不写"已禁用"——
+                    // 只如实标注它是未来。日期格没有稳定文本（只有一个"30"这种数字），
+                    // uiautomator 按文本定位会命中一堆无关节点。
+                    .semantics {
+                        contentDescription = buildString {
+                            append("日期 ${date.monthValue}月${date.dayOfMonth}日 周$dayOfWeekChinese")
+                            if (isToday) append("，今天")
+                            if (date > today) append("，未来排班预览")
+                        }
+                    }
                     .padding(vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {

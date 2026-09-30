@@ -22,6 +22,7 @@ object TestTags {
     // ---- 今日清单 ----
     const val DOSE_CARD = "dose_card"
     const val DOSE_CONFIRM = "dose_confirm"
+    const val DOSE_FUTURE = "dose_future"
 
     // ---- 药箱 ----
     const val MED_CARD = "med_card"
@@ -36,6 +37,14 @@ object TestTags {
 
     /** 卡片上的「确认服药」按钮 */
     fun doseConfirm(slotId: Long) = "${DOSE_CONFIRM}_$slotId"
+
+    /**
+     * 未来槽位卡片上的**只读说明**（"明天 10:30 服用"）。
+     *
+     * 与 [doseConfirm] 成对：未来日**有它、没有**确认按钮，
+     * 走查脚本据此断言"未来不可操作"而不是靠肉眼看文案。
+     */
+    fun doseFuture(slotId: Long) = "${DOSE_FUTURE}_$slotId"
 
     /** 药箱列表的药品卡片 */
     fun medCard(medId: Long) = "${MED_CARD}_$medId"

@@ -93,7 +93,7 @@ TABS = ("今日", "药箱", "进展", "统计")
 # --------------------------------------------------------------------------- #
 @dataclass
 class Step:
-    action: str                     # home/tab/text/desc/back/scroll/shot/wait
+    action: str                     # home/tab/text/desc/back/scroll/shot/wait/present_desc/absent_desc
     arg: str = ""                   # 定位用的 text 或 content-desc
     index: int = 0                  # 同名节点取第几个
     expect: str = ""                # 跳转后必须出现的文本（断言）
@@ -115,6 +115,33 @@ PROGRAM: list[Step] = [
 
     # ---- 1. 今日清单 ------------------------------------------------------- #
     Step("shot", key="today", shots=2, note="待服 / 已服分区、库存告警横幅、手动补录 FAB"),
+
+    # ---- 1a. 未来日 = 只读预览（PLAN-FUTURE-SLOT-20260929）----------------- #
+    # 日期格的 contentDescription 形如「日期 10月1日 周四，未来排班预览」
+    # （今天之后的三格都带这句），所以匹配必须用 contains ——
+    # 精确匹配 "未来排班预览" 会永远找不到节点（2026-09-30 真实踩过：
+    # 该步静默失败 → 后面的 back 从根页面把 App 退到桌面 → 后续步骤全在桌面上滑通知栏）。
+    # 按文档顺序取第一个命中 = 明天。
+    #
+    # 这一段的**负向断言**（absent_desc）才是重点：
+    # 只断言"看到只读文案"证明不了 ✓ 没被渲染出来（两者可以同时存在）。
+    Step("desc", "未来排班预览", index=0, contains=True, note="切到明天（未来日只读预览）",
+         expect="未来排班预览 · 到达当天才能打卡"),
+    Step("shot", key="today_future", note="未来日：待服卡无 ✓，改为「明天 10:30 服用」只读说明"),
+    Step("absent_desc", "确认服药", note="未来日**不该**存在任何「确认服药」节点"),
+    Step("text", "明天", index=0, contains=True, note="点开未来日的待服卡（只读预览详情）",
+         expect="记录详情", requires_data=True),
+    Step("shot", key="dose_detail_future",
+         note="未来槽位详情：计划日期+剂量+余量，无确认/推迟/跳过，页脚说明原因",
+         requires_data=True),
+    Step("absent_desc", "确认服用", note="未来槽位详情页**不该**有「确认服用」按钮"),
+    # ⚠️ 这里**不能**用 back 回今日清单：该页就在根路由上，back 会把整个 App
+    # 退到桌面，而桌面上的 swipe 会拉下通知栏，之后所有步骤全拍通知栏。
+    # 用 home（冷启动）复位，代价是两秒，换的是"失败不会扩散"。
+    Step("home", note="冷启动回到今日清单（不用 back：会退出 App）", expect="今日清单"),
+    Step("desc", "，今天", contains=True, note="切回今天",
+         expect="点开可推迟或跳过"),
+    Step("present_desc", "确认服药", note="回到今天后 ✓ 又回来了（防修过头：不能把今天也锁死）"),
 
     # ---- 1b. 记录详情页（统一承载待服 / 已服 / 已跳过，非 sheet）----------- #
     # 点的是**卡片本体**（药名文本所在的可点击祖先），不是右侧的 ✓ 快捷打卡 ——
@@ -325,19 +352,42 @@ class Driver:
         # 不让它扩散到后面的步骤。
         self.collapse_shade_if_open()
 
+    def focus_window(self) -> str:
+        """当前焦点窗口那一行（`mCurrentFocus=Window{...}`）。
+
+        ⚠️ **必须把管道写成一条 shell 命令**，不能写成
+        `self.shell("dumpsys", "window", "grep", "mCurrentFocus")`：
+        adb 会把参数拼成一条命令，`dumpsys window` 把 `grep` 当成**窗口过滤条件**，
+        直接回 `Bad window command, or no windows match: grep` ——
+        于是"App 是否在前台"**永远为假**、通知栏也**永远收不起来**
+        （2026-09-30 实测：`collapse_shade_if_open` 的自愈分支因此是死代码，
+        而新加的返回键兜底把每次正常返回都误报成"App 已退出"）。
+        """
+        return self.shell("dumpsys window | grep mCurrentFocus")
+
     def collapse_shade_if_open(self) -> None:
         """通知栏/快捷设置被拉开时收起来，App 失焦时重新拉起。"""
-        focus = self.shell("dumpsys", "window", "grep", "mCurrentFocus")
+        focus = self.focus_window()
         if "StatusBar" not in focus and "NotificationShade" not in focus:
             return
         self.shell("cmd", "statusbar", "collapse")
         time.sleep(0.6)
         # 收起来之后系统可能停在桌面，把 App 拉回前台再继续，
         # 否则后续每一步都会在桌面上"找不到任何控件"。
-        focus = self.shell("dumpsys", "window", "grep", "mCurrentFocus")
-        if "carromed" not in focus:
+        if "carromed" not in self.focus_window():
             self.shell("am", "start", "-n", f"{PKG}/.MainActivity")
             time.sleep(2.0)
+
+    def app_in_foreground(self) -> bool:
+        """App 是否仍在焦点窗口上。
+
+        存在的理由：`back` 在**根路由**上会把 App 直接退到桌面，
+        而桌面上的 swipe 会拉下通知栏 —— 一次误按就能让后面二十几步
+        全部拍到通知栏/桌面，且断言失败的原因看起来与真正的原因毫无关系
+        （2026-09-30 真实踩过）。返回键之后立刻查一次焦点，就能把这种
+        "静默漂移到错误界面"变成一条**看得见的失败**。
+        """
+        return "carromed" in self.focus_window()
 
     def scroll_down(self, ratio: float = 0.55) -> None:
         w, h = self.screen_size()
@@ -373,6 +423,17 @@ class Driver:
                 return ET.fromstring(raw.decode("utf-8", "replace"))
             except Exception as exc:  # noqa: BLE001 - uiautomator 偶发 "could not get idle state"
                 last = exc
+                # ⚠️ 专门治 `mCurrentFocus=null` 这一种失败：窗口没有焦点时，
+                # uiautomator 拿不到 active window，会一直报
+                # `null root node returned by UiTestAutomationBridge` ——
+                # 重试多少次都没用，而**屏幕上 App 明明好好地显示着**。
+                # 现场是"从根页面按了返回 → App 退到桌面 → 桌面上下滑拉出通知栏"，
+                # 之后每一步都在跟桌面打交道（2026-09-30 真实踩过）。
+                # 自愈动作：把 App 拉回前台，再重试。
+                if i == 0 and not self.app_in_foreground():
+                    print("      !! 焦点不在 App 上（疑似被返回键退出/通知栏遮住），冷启动复位")
+                    self.collapse_shade_if_open()
+                    self.launch(cold=True)
                 time.sleep(1.0 + i)
         raise AdbError(f"uiautomator dump 连续 {retries} 次失败: {last}")
 
@@ -586,6 +647,30 @@ def run(driver: Driver, out: Path, only: set[str], dump_ui: bool,
             driver.back()
             if step.expect and not expect_text(driver, step.expect):
                 fail(step, f"返回后未回到含 {step.expect!r} 的页面")
+            # 兜底：从根页面按返回键会把 App 退到桌面，后续步骤就在桌面上
+            # 乱点、乱滑（会把通知栏一路拉下来）。这里立刻查焦点，
+            # 把"静默漂移到错误界面"变成一条看得见的失败 + 冷启动复位。
+            if not driver.app_in_foreground():
+                fail(step, "返回后 App 已不在前台（多半是从根页面按了返回）；已冷启动复位")
+                driver.launch(cold=True)
+
+        elif step.action in ("present_desc", "absent_desc"):
+            # 负向断言是"未来不可操作"唯一守得住的形式：
+            # 断言"看到了只读文案"并不能证明 ✓ 没被渲染出来（两者可以同时存在）。
+            # present_desc 是它的对偶，用来防"修过头"——
+            # 把今天也一起锁死时，只读文案照样在，只有这条会红。
+            want_present = step.action == "present_desc"
+            found = None
+            for _ in range(3):
+                root = driver.dump_ui()
+                found = find_by_desc(root, step.arg, step.index, step.contains)
+                if (found is not None) == want_present:
+                    break
+                time.sleep(0.8)
+            if want_present and found is None:
+                fail(step, f"本该出现的 {step.arg!r} 没有出现")
+            if not want_present and found is not None:
+                fail(step, f"本不该出现的 {step.arg!r} 出现了")
 
         elif step.action == "home":
             driver.launch(cold=True)
