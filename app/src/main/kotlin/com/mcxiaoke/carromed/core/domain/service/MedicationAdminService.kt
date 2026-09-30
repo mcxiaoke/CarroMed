@@ -333,6 +333,19 @@ class MedicationAdminService(private val db: AppDatabase) {
             newPolicyId
         }
 
+    /**
+     * 删除 / 清空提醒计划。
+     *
+     * 停用该药品名下的所有提醒策略（`is_active = 0`）并清空旧时点。
+     * 遵循「改计划不冲历史」：已打卡的历史事实 `dose_records` 绝不触碰；
+     * 调用的下游通过 `reconcileSchedule` 自动撤销未来尚未执行的待决槽位。
+     */
+    suspend fun deleteReminderPolicy(medicationId: Long) = db.withTransaction {
+        policyDao.deactivatePoliciesForMedication(medicationId)
+        policyDao.deleteTimesForMedication(medicationId)
+        AppLog.i(TAG, "deleteReminderPolicy med=$medicationId")
+    }
+
     // ⚠️ 已删除两个库存建档辅助（M8-1）：
     //   `ensureInitialStockLedger(medicationId, stock)` 与
     //   `enableStockTrackingIfNeeded(medicationId, stock)`。

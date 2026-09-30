@@ -12,9 +12,9 @@
     <string name="today_go_refill">去补药 &gt;</string>
     <string name="today_pending_title">待服药 (%1$d)</string>
     <string name="today_pending_hint_actionable">点开可推迟或跳过</string>
-    <string name="today_pending_hint_future">未来排班预览 · 到达当天才能打卡</string>
+    <string name="today_pending_hint_future">未来提醒预览 · 到达当天才能打卡</string>
     <string name="today_empty_all_done">这一天没有待服任务 🎉</string>
-    <string name="today_empty_no_schedule">这一天没有排班</string>
+    <string name="today_empty_no_schedule">这一天没有提醒</string>
     <string name="today_completed_title">今日已服 (%1$d)</string>
     <string name="today_completed_title_date">%1$d月%2$d日已服 (%3$d)</string>
     <string name="today_completed_hint">点开可撤销或改判</string>
@@ -30,7 +30,7 @@
     <string name="today_cd_confirm_dose">确认服药</string>
     <string name="today_future_take_at">%1$s 服用</string>
     <string name="today_first_run_title">药箱还是空的</string>
-    <string name="today_first_run_body">添加第一个药品后，系统会按你设定的时点自动排班并准时提醒；所有数据只存在本机，不联网、不上传。</string>
+    <string name="today_first_run_body">添加第一个药品后，系统会按你设定的时点准时提醒；所有数据只存在本机，不联网、不上传。</string>
     <string name="today_first_run_cta">添加第一个药品</string>
     <string name="today_cd_completed">已完成</string>
     <string name="today_fallback_medication">药品</string>
@@ -50,7 +50,7 @@
     <string name="today_weekday_7">日</string>
     <string name="today_cd_date">日期 %1$d月%2$d日 周%3$s</string>
     <string name="today_cd_today_suffix">，今天</string>
-    <string name="today_cd_future_suffix">，未来排班预览</string>
+    <string name="today_cd_future_suffix">，未来提醒预览</string>
 
     <!-- ViewModel 错误消息 -->
     <string name="today_err_future_slot">未来的服药时间不能提前确认</string>

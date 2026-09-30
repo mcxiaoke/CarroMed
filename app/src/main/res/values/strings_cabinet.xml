@@ -44,5 +44,5 @@
     <string name="cabinet_freq_cycle">周期 %1$d天服/%2$d天停 · %3$s</string>
     <string name="cabinet_freq_prn">按需服用 · 不设定时闹钟</string>
     <string name="cabinet_freq_daily_no_policy">每日 %1$s · %2$s</string>
-    <string name="cabinet_freq_no_schedule">暂无排班</string>
+    <string name="cabinet_freq_no_schedule">未设提醒</string>
 </resources>

@@ -55,7 +55,7 @@
 
     <!-- 模式提示 -->
     <string name="medit_info_only_hint">ℹ️ 这里只编辑药品信息。提醒频次与时间请在药品详情页的「提醒设置」中调整，库存请在「库存管理」中管理。</string>
-    <string name="medit_low_friction_tip">✨ 只需填写【药品名称】即可保存。保存后进入药品详情页，在那里可以单独设置【提醒计划】与【库存】。</string>
+    <string name="medit_low_friction_tip">✨ 只需填写【药品名称】即可保存。保存后进入药品详情页，在那里可以单独设置【提醒设置】与【库存】。</string>
 
     <!-- 步进器 -->
     <string name="medit_cd_decrease">减少</string>

@@ -57,6 +57,7 @@ data class ReminderTimeDraft(
 data class ReminderSettingsUiState(
     val medication: MedicationEntity? = null,
     val isLoading: Boolean = true,
+    val hasExistingPolicy: Boolean = false,
 
     // 频次
     val policyType: PolicyType = PolicyType.DAILY,
@@ -164,6 +165,7 @@ class ReminderSettingsViewModel(
             _uiState.value = s.copy(
                 medication = med,
                 isLoading = false,
+                hasExistingPolicy = policy != null,
                 policyType = policy?.policyType ?: PolicyType.DAILY,
                 intervalDays = (policy?.intervalDays ?: 2).coerceIn(2, 30),
                 daysOfWeek = policy?.daysOfWeek?.takeIf { it.isNotEmpty() } ?: emptyList(),
@@ -467,6 +469,39 @@ class ReminderSettingsViewModel(
             _uiState.value = _uiState.value.copy(isSaving = false, savedAt = System.currentTimeMillis())
             onSuccess()
             load()
+        }
+    }
+
+    /**
+     * 删除 / 清空该药品的提醒计划。
+     *
+     * 停用该药的排班策略、清理旧时点，并通过 `reconcileSchedule` 清理未来尚未执行的待决槽位，
+     * 撤销对应闹钟。历史打卡事实与药品档案保持完好。
+     */
+    fun deletePolicy(onDeleted: () -> Unit = {}) {
+        val s = _uiState.value
+        val app = getApplication<Application>()
+        if (s.isSaving) return
+
+        viewModelScope.launch {
+            _uiState.value = s.copy(isSaving = true, error = null)
+            val presnap = AlarmReconciler.snapshotOpenAlarms(db)
+
+            runCatching {
+                adminService.deleteReminderPolicy(medId)
+                trackingService.reconcileSchedule(medId)
+                runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db, presnap) }
+            }.onFailure { t ->
+                AppLog.e("ReminderSettingsVM", "deletePolicy failed med=$medId", t)
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = app.getString(R.string.rem_error_delete_policy_failed)
+                )
+                return@launch
+            }
+
+            _uiState.value = _uiState.value.copy(isSaving = false)
+            onDeleted()
         }
     }
 

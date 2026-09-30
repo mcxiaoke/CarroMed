@@ -8,6 +8,7 @@ import com.google.common.truth.Truth.assertThat
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
+import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService.TimeDraft
 import com.mcxiaoke.carromed.core.testing.assertLedgerBalance
 import kotlinx.coroutines.test.runTest
@@ -138,5 +139,49 @@ class MedicationWithoutPolicyTest {
         val medId = newMedWithoutPolicy()
         tracking.setStockTracking(medId, enabled = true, initialStock = 30f)
         db.assertLedgerBalance(medId, 30f)
+    }
+
+    @Test
+    fun `有计划的药删除计划后 状态干净回退为无计划且未来待决槽位被清空`() = runTest {
+        val medId = newMedWithoutPolicy("抗生素")
+        admin.saveReminderPolicy(
+            medicationId = medId,
+            draft = MedicationAdminService.PolicyDraft(
+                policyType = PolicyType.DAILY,
+                startDate = "2026-09-29",
+                times = listOf(TimeDraft("08:00", 1f, "早"), TimeDraft("20:00", 1f, "晚"))
+            )
+        )
+        tracking.reconcileSchedule(medId)
+
+        // 验证初始状态：有活跃计划，有生成的开放槽位
+        val activePolicy = db.schedulePolicyDao().getActivePolicyForMedication(medId)
+        assertThat(activePolicy).isNotNull()
+        val slotsBefore = db.doseSlotDao().getAllSlots().filter { it.medicationId == medId }
+        assertThat(slotsBefore).isNotEmpty()
+
+        // 模拟打卡一次：记录一条 COMPLETED 事实
+        val firstSlot = slotsBefore.first()
+        tracking.takeDose(firstSlot.id)
+        val recordsBefore = db.doseRecordDao().getRecordsForMedication(medId)
+        assertThat(recordsBefore).hasSize(1)
+
+        // 执行删除提醒计划
+        admin.deleteReminderPolicy(medId)
+        tracking.reconcileSchedule(medId)
+
+        // 守不变量：
+        // 1. active policy 为 null
+        assertThat(db.schedulePolicyDao().getActivePolicyForMedication(medId)).isNull()
+        // 2. 策略时点被清空
+        assertThat(db.schedulePolicyDao().getTimesForPolicy(activePolicy!!.id)).isEmpty()
+        // 3. reminder_settings 依然恰好有一行（A2 不变量）
+        assertThat(db.reminderSettingsDao().getAll().count { it.medicationId == medId }).isEqualTo(1)
+        // 4. 历史打卡事实完整无损
+        assertThat(db.doseRecordDao().getRecordsForMedication(medId)).hasSize(1)
+        // 5. 未来所有开放待决槽位（PENDING/SNOOZED）被彻底清空，仅保留已打卡事实槽位
+        val openSlotsAfter = db.doseSlotDao().getAllSlots()
+            .filter { it.medicationId == medId && (it.status == SlotStatus.PENDING || it.status == SlotStatus.SNOOZED) }
+        assertThat(openSlotsAfter).isEmpty()
     }
 }

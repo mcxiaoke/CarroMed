@@ -59,7 +59,7 @@
     <string name="inv_saved">已保存</string>
 
     <!-- 频次描述文案 -->
-    <string name="inv_freq_none">暂无排班</string>
+    <string name="inv_freq_none">未设提醒</string>
     <string name="inv_freq_daily">每天 %1$d 次 (%2$s)</string>
     <string name="inv_freq_day_everyday">每天</string>
     <string name="inv_freq_day_alternate">隔天</string>

@@ -47,7 +47,7 @@
     <string name="rem_cycle_off_label">停药</string>
     <string name="rem_cycle_off_none">不设停药期</string>
     <string name="rem_cycle_off_hint">停 %1$d 天</string>
-    <string name="rem_prn_hint">按需服用：不设定时闹钟，也不会生成每日排班。适合止痛药、晕车药等临时用药 —— 需要记录时在今日清单用「手动补录」写下实际时间与剂量即可。</string>
+    <string name="rem_prn_hint">按需服用：不设定时闹钟，也不会生成每日提醒。适合止痛药、晕车药等临时用药 —— 需要记录时在今日清单用「手动补录」写下实际时间与剂量即可。</string>
     <string name="rem_daily_hint">每天在下方设定的时点提醒服药。</string>
 
     <!-- 服药疗程 -->
@@ -66,9 +66,9 @@
     <string name="rem_add_time">添加一个提醒时点</string>
     <string name="rem_dose_advice">服药建议</string>
 
-    <!-- 未来 7 天排班预览 -->
-    <string name="rem_section_preview">未来 7 天排班预览</string>
-    <string name="rem_prn_no_preview">按需服用不产生排班，因此没有预览。</string>
+    <!-- 未来 7 天提醒预览 -->
+    <string name="rem_section_preview">未来 7 天提醒预览</string>
+    <string name="rem_prn_no_preview">按需服用不设定时提醒，因此没有预览。</string>
     <string name="rem_today_label">今天 %1$s</string>
 
     <!-- 提醒行为 -->
@@ -84,9 +84,18 @@
     <string name="rem_advance_minutes">提前 %1$d 分钟</string>
 
     <!-- 底部说明 -->
-    <string name="rem_reschedule_note">ℹ️ 修改提醒只会重排「未来尚未执行」的排班；已经打卡的历史记录永远不会被改动或删除。</string>
+    <string name="rem_reschedule_note">ℹ️ 修改提醒只会调整「未来尚未执行」的提醒；已经打卡的历史记录永远不会被改动或删除。</string>
 
     <!-- 步进器 -->
     <string name="rem_cd_decrease">减少</string>
     <string name="rem_cd_increase">增加</string>
+
+    <!-- 删除提醒 -->
+    <string name="rem_delete_policy">删除提醒</string>
+    <string name="rem_policy_deleted">提醒已删除</string>
+    <string name="rem_delete_dialog_title">删除提醒？</string>
+    <string name="rem_delete_dialog_msg">删除后将取消此药品未来的全部服药提醒和闹钟。历史打卡记录将完整保留，药品档案与库存不受影响。</string>
+    <string name="rem_delete_dialog_confirm">删除提醒</string>
+    <string name="rem_delete_dialog_cancel">取消</string>
+    <string name="rem_error_delete_policy_failed">删除提醒失败，请重试</string>
 </resources>
