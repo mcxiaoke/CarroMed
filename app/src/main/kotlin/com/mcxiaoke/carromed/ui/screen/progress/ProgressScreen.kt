@@ -27,9 +27,13 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -160,34 +164,29 @@ fun ProgressScreen(
 /** 距离列表末尾多少项时预取下一页（见 [ProgressScreen] 里的注释）。 */
 private const val LOAD_MORE_THRESHOLD = 5
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProgressTabSelector(selectedTab: Int, onSelect: (Int) -> Unit) {
     val tabs = listOf(stringResource(R.string.prog_tab_matrix), stringResource(R.string.prog_tab_timeline))
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    SingleChoiceSegmentedButtonRow(
+        modifier = Modifier.fillMaxWidth()
     ) {
         tabs.forEachIndexed { index, title ->
             val selected = selectedTab == index
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (selected) MaterialTheme.colorScheme.surface else Color.Transparent)
-                    .clickable { onSelect(index) }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center
+            SegmentedButton(
+                selected = selected,
+                onClick = { onSelect(index) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = tabs.size),
+                icon = {},
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             ) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (selected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
                 )
             }
         }

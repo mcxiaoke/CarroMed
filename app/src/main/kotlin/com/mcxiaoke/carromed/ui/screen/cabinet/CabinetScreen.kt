@@ -41,6 +41,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -156,40 +159,31 @@ fun CabinetScreen(
                 }
             }
 
-            // 3. Tab 分段胶囊选择器
+            // 3. Tab 分段胶囊选择器 (Material 3 标准规范)
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                val tabs = listOf(
+                    stringResource(R.string.cabinet_tab_active, uiState.activeList.size),
+                    stringResource(R.string.cabinet_tab_archived, uiState.archivedList.size)
+                )
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    val tabs = listOf(
-                        stringResource(R.string.cabinet_tab_active, uiState.activeList.size),
-                        stringResource(R.string.cabinet_tab_archived, uiState.archivedList.size)
-                    )
                     tabs.forEachIndexed { index, title ->
                         val selected = uiState.selectedTab == index
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(
-                                    if (selected) MaterialTheme.colorScheme.surface
-                                    else Color.Transparent
-                                )
-                                .clickable { viewModel.selectTab(index) }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
+                        SegmentedButton(
+                            selected = selected,
+                            onClick = { viewModel.selectTab(index) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = tabs.size),
+                            icon = {},
+                            colors = SegmentedButtonDefaults.colors(
+                                activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
                         ) {
                             Text(
                                 text = title,
                                 style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                color = if (selected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
                             )
                         }
                     }

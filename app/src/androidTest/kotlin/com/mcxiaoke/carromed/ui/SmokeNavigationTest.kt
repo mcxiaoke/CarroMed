@@ -262,14 +262,16 @@ class SmokeNavigationTest {
 
     @Test
     fun allRoutes_open_withoutCrash() {
-        // --- settings + permission_check（今日页右上角进入）---
-        composeRule.onNodeWithContentDescription(str(R.string.today_cd_settings)).performClick()
+        // --- settings + permission_check（统计页右上角进入）---
+        openTab(TestTags.TAB_STATS)
+        composeRule.onNodeWithContentDescription(str(R.string.stats_cd_settings)).performClick()
         waitByText(str(R.string.set_title))
         // 按钮实际文本带 " >" 后缀，必须 substring 匹配（首次运行踩过：全等匹配永远找不到）
         clickTextScrolling(str(R.string.set_permission_check_button), substring = true)
         waitByText(str(R.string.perm_title))
         pressBack()
         pressBack()
+        openTab(TestTags.TAB_TODAY)
 
         // --- manual_dose（今日页 FAB）---
         // ⚠️ ExtendedFAB 合并语义后 Text 不可见（本版本行为），用图标 desc 点它

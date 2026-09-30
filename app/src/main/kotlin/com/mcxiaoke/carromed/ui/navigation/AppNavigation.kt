@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.ui.navigation
 
 import android.app.Application
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.Box
@@ -42,14 +43,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
+import androidx.navigation.toRoute
+import kotlin.reflect.KClass
 import com.mcxiaoke.carromed.ui.screen.cabinet.CabinetScreen
 import com.mcxiaoke.carromed.ui.screen.cabinet.CabinetViewModel
 import com.mcxiaoke.carromed.ui.screen.detail.MedicationDetailScreen
@@ -77,25 +79,29 @@ import com.mcxiaoke.carromed.ui.screen.today.TodayScreen
 import com.mcxiaoke.carromed.ui.screen.today.TodayViewModel
 
 data class BottomNavItem(
-    val route: String,
+    val route: ScreenRoute,
+    val targetClass: KClass<out ScreenRoute>,
     val titleRes: Int,
-    val icon: ImageVector
+    val icon: ImageVector,
+    val testTag: String
 )
 
 val BottomNavItems = listOf(
-    BottomNavItem(Screen.Today.route, R.string.nav_tab_today, Icons.Default.Checklist),
-    BottomNavItem(Screen.Cabinet.route, R.string.nav_tab_cabinet, Icons.Default.Medication),
-    BottomNavItem(Screen.Progress.route, R.string.nav_tab_progress, Icons.Default.BarChart),
-    BottomNavItem(Screen.Stats.route, R.string.nav_tab_stats, Icons.Default.QueryStats)
+    BottomNavItem(ScreenRoute.Today, ScreenRoute.Today::class, R.string.nav_tab_today, Icons.Default.Checklist, TestTags.TAB_TODAY),
+    BottomNavItem(ScreenRoute.Cabinet, ScreenRoute.Cabinet::class, R.string.nav_tab_cabinet, Icons.Default.Medication, TestTags.TAB_CABINET),
+    BottomNavItem(ScreenRoute.Progress, ScreenRoute.Progress::class, R.string.nav_tab_progress, Icons.Default.BarChart, TestTags.TAB_PROGRESS),
+    BottomNavItem(ScreenRoute.Stats, ScreenRoute.Stats::class, R.string.nav_tab_stats, Icons.Default.QueryStats, TestTags.TAB_STATS)
 )
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
+    val currentDestination = navBackStackEntry?.destination
 
-    val isTopLevel = BottomNavItems.any { it.route == currentRoute }
+    val isTopLevel = BottomNavItems.any { item ->
+        currentDestination?.hasRoute(item.targetClass) == true
+    }
 
     val navBarBottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val navBarHeight = 80.dp + navBarBottomInset
@@ -116,42 +122,56 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
     ) {
         NavHost(
             navController = navController,
-            startDestination = Screen.Today.route,
+            startDestination = ScreenRoute.Today,
             modifier = Modifier.fillMaxSize(),
-            enterTransition = { EnterTransition.None },
-            exitTransition = { ExitTransition.None }
+            enterTransition = { MotionSpec.secondaryEnter },
+            exitTransition = { MotionSpec.secondaryExit },
+            popEnterTransition = { MotionSpec.secondaryPopEnter },
+            popExitTransition = { MotionSpec.secondaryPopExit }
         ) {
             // 1. 今日清单
-            composable(Screen.Today.route) {
+            composable<ScreenRoute.Today>(
+                enterTransition = { MotionSpec.tabEnter },
+                exitTransition = { MotionSpec.tabExit },
+                popEnterTransition = { EnterTransition.None }
+            ) {
                 val vm: TodayViewModel = viewModel()
                 MainTabContent(navBarHeight) {
                     TodayScreen(
                         viewModel = vm,
-                        onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
-                        onNavigateToAddMedication = { navController.navigate(Screen.AddEditMedication.createRoute()) },
-                        onNavigateToManualDose = { navController.navigate(Screen.ManualDose.createRoute()) },
-                        onNavigateToRefill = { medId -> navController.navigate(Screen.Refill.createRoute(medId)) },
-                        onNavigateToInventory = { medId -> navController.navigate(Screen.Inventory.createRoute(medId)) },
+                        onNavigateToSettings = { navController.navigate(ScreenRoute.Settings) },
+                        onNavigateToAddMedication = { navController.navigate(ScreenRoute.AddEditMedication()) },
+                        onNavigateToManualDose = { navController.navigate(ScreenRoute.ManualDose()) },
+                        onNavigateToRefill = { medId -> navController.navigate(ScreenRoute.Refill(medId)) },
+                        onNavigateToInventory = { medId -> navController.navigate(ScreenRoute.Inventory(medId)) },
                         // 今日清单的 item 一律进记录详情页（不再跳药品详情）
-                        onOpenDose = { slotId -> navController.navigate(Screen.DoseDetail.forSlot(slotId)) }
+                        onOpenDose = { slotId -> navController.navigate(ScreenRoute.DoseDetail(slotId = slotId)) }
                     )
                 }
             }
 
             // 2. 我的药箱
-            composable(Screen.Cabinet.route) {
+            composable<ScreenRoute.Cabinet>(
+                enterTransition = { MotionSpec.tabEnter },
+                exitTransition = { MotionSpec.tabExit },
+                popEnterTransition = { EnterTransition.None }
+            ) {
                 val vm: CabinetViewModel = viewModel()
                 MainTabContent(navBarHeight) {
                     CabinetScreen(
                         viewModel = vm,
-                        onNavigateToAddMedication = { navController.navigate(Screen.AddEditMedication.createRoute()) },
-                        onNavigateToMedDetail = { medId -> navController.navigate(Screen.MedicationDetail.createRoute(medId)) }
+                        onNavigateToAddMedication = { navController.navigate(ScreenRoute.AddEditMedication()) },
+                        onNavigateToMedDetail = { medId -> navController.navigate(ScreenRoute.MedicationDetail(medId)) }
                     )
                 }
             }
 
             // 3. 进展追踪
-            composable(Screen.Progress.route) {
+            composable<ScreenRoute.Progress>(
+                enterTransition = { MotionSpec.tabEnter },
+                exitTransition = { MotionSpec.tabExit },
+                popEnterTransition = { EnterTransition.None }
+            ) {
                 val vm: ProgressViewModel = viewModel()
                 MainTabContent(navBarHeight) {
                     ProgressScreen(
@@ -160,35 +180,36 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                             navController.navigate(doseDetailRoute(slotId, recordId))
                         },
                         onNavigateToMedHistory = { medId ->
-                            navController.navigate(Screen.MedHistory.createRoute(medId))
+                            navController.navigate(ScreenRoute.MedHistory(medId))
                         }
                     )
                 }
             }
 
             // 4. 统计报表
-            composable(Screen.Stats.route) {
+            composable<ScreenRoute.Stats>(
+                enterTransition = { MotionSpec.tabEnter },
+                exitTransition = { MotionSpec.tabExit },
+                popEnterTransition = { EnterTransition.None }
+            ) {
                 val vm: StatsViewModel = viewModel()
                 MainTabContent(navBarHeight) {
                     StatsScreen(
                         viewModel = vm,
-                        onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
+                        onNavigateToSettings = { navController.navigate(ScreenRoute.Settings) }
                     )
                 }
             }
 
             // 5. 药品专属详情页 (二级全屏)
-            composable(
-                route = Screen.MedicationDetail.route,
-                arguments = listOf(navArgument("medId") { type = NavType.LongType })
-            ) { backStackEntry ->
-                val medId = backStackEntry.arguments?.getLong("medId") ?: 0L
+            composable<ScreenRoute.MedicationDetail> { backStackEntry ->
+                val route = backStackEntry.toRoute<ScreenRoute.MedicationDetail>()
                 val vm: MedicationDetailViewModel = viewModel(
                     factory = viewModelFactory {
                         initializer {
                             MedicationDetailViewModel(
                                 application = this[APPLICATION_KEY] as Application,
-                                medId = medId
+                                medId = route.medId
                             )
                         }
                     }
@@ -196,24 +217,21 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 MedicationDetailScreen(
                     viewModel = vm,
                     onNavigateBack = { navController.popBackStack() },
-                    onNavigateToEditInfo = { id -> navController.navigate(Screen.AddEditMedication.createRoute(id)) },
-                    onNavigateToReminder = { id -> navController.navigate(Screen.ReminderSettings.createRoute(id)) },
-                    onNavigateToInventory = { id -> navController.navigate(Screen.Inventory.createRoute(id)) }
+                    onNavigateToEditInfo = { id -> navController.navigate(ScreenRoute.AddEditMedication(id)) },
+                    onNavigateToReminder = { id -> navController.navigate(ScreenRoute.ReminderSettings(id)) },
+                    onNavigateToInventory = { id -> navController.navigate(ScreenRoute.Inventory(id)) }
                 )
             }
 
             // 5b. 提醒设置 (二级全屏) —— 与药品信息、库存完全分离
-            composable(
-                route = Screen.ReminderSettings.route,
-                arguments = listOf(navArgument("medId") { type = NavType.LongType })
-            ) { backStackEntry ->
-                val medId = backStackEntry.arguments?.getLong("medId") ?: 0L
+            composable<ScreenRoute.ReminderSettings> { backStackEntry ->
+                val route = backStackEntry.toRoute<ScreenRoute.ReminderSettings>()
                 val vm: ReminderSettingsViewModel = viewModel(
                     factory = viewModelFactory {
                         initializer {
                             ReminderSettingsViewModel(
                                 application = this[APPLICATION_KEY] as Application,
-                                medId = medId
+                                medId = route.medId
                             )
                         }
                     }
@@ -225,17 +243,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             }
 
             // 5c. 库存管理 (二级全屏) —— 与药品信息、提醒设置完全分离
-            composable(
-                route = Screen.Inventory.route,
-                arguments = listOf(navArgument("medId") { type = NavType.LongType })
-            ) { backStackEntry ->
-                val medId = backStackEntry.arguments?.getLong("medId") ?: 0L
+            composable<ScreenRoute.Inventory> { backStackEntry ->
+                val route = backStackEntry.toRoute<ScreenRoute.Inventory>()
                 val vm: InventoryViewModel = viewModel(
                     factory = viewModelFactory {
                         initializer {
                             InventoryViewModel(
                                 application = this[APPLICATION_KEY] as Application,
-                                medId = medId
+                                medId = route.medId
                             )
                         }
                     }
@@ -243,19 +258,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 InventoryScreen(
                     viewModel = vm,
                     onNavigateBack = { navController.popBackStack() },
-                    onNavigateToRefill = { id -> navController.navigate(Screen.Refill.createRoute(id)) }
+                    onNavigateToRefill = { id -> navController.navigate(ScreenRoute.Refill(id)) }
                 )
             }
 
             // 6. 添加/编辑用药与计划 (二级全屏)
-            composable(
-                route = Screen.AddEditMedication.route,
-                arguments = listOf(navArgument("medId") {
-                    type = NavType.LongType
-                    defaultValue = 0L
-                })
-            ) { backStackEntry ->
-                val medId = backStackEntry.arguments?.getLong("medId")?.takeIf { it > 0 }
+            composable<ScreenRoute.AddEditMedication> { backStackEntry ->
+                val route = backStackEntry.toRoute<ScreenRoute.AddEditMedication>()
+                val medId = route.medId.takeIf { it > 0 }
                 val vm: AddEditMedicationViewModel = viewModel(
                     factory = viewModelFactory {
                         initializer {
@@ -272,29 +282,17 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                     viewModel = vm,
                     onNavigateBack = { navController.popBackStack() },
                     onSavedSuccess = { newMedId ->
-                        // ⚠️ 新建后**直接进药品详情页**（2026-09-29 UX 改造）。
-                        //
-                        // 旧行为是 `popBackStack()` 退回药箱。现在新建页不再配提醒，
-                        // 用户存完就"消失"了 —— 他还没设提醒，而这味药从此不响。
-                        //
-                        // 进详情页之后，「提醒设置」入口就在眼前（详情页本来就有），
-                        // 顺手的事；而且详情页会在没有计划时显式提示
-                        // 「尚未设置服药计划」——**诚实的空缺好过虚假的完成感**。
+                        // ⚠️ 新建后直接进药品详情页（2026-09-29 UX 改造）。
                         navController.popBackStack()
-                        navController.navigate(Screen.MedicationDetail.createRoute(newMedId))
+                        navController.navigate(ScreenRoute.MedicationDetail(newMedId))
                     }
                 )
             }
 
             // 7. 手动补录服药 (二级全屏)
-            composable(
-                route = Screen.ManualDose.route,
-                arguments = listOf(navArgument("medId") {
-                    type = NavType.LongType
-                    defaultValue = 0L
-                })
-            ) { backStackEntry ->
-                val medId = backStackEntry.arguments?.getLong("medId")?.takeIf { it > 0 }
+            composable<ScreenRoute.ManualDose> { backStackEntry ->
+                val route = backStackEntry.toRoute<ScreenRoute.ManualDose>()
+                val medId = route.medId.takeIf { it > 0 }
                 val vm: ManualDoseViewModel = viewModel(
                     factory = viewModelFactory {
                         initializer {
@@ -312,35 +310,20 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             }
 
             // 7b. 记录详情 (二级全屏；统一承载待服 / 已逾期 / 已服 / 已跳过 / 手动补录)
-            composable(
-                route = Screen.DoseDetail.route,
-                arguments = listOf(
-                    // 两个参数都必须给 defaultValue，否则 "dose_detail?slotId=3"
-                    // 这种只带一个参数的实参匹配不上路由模板
-                    navArgument("slotId") {
-                        type = NavType.LongType
-                        defaultValue = 0L
-                    },
-                    navArgument("recordId") {
-                        type = NavType.LongType
-                        defaultValue = 0L
-                    }
-                )
-            ) { backStackEntry ->
+            composable<ScreenRoute.DoseDetail> { backStackEntry ->
+                val route = backStackEntry.toRoute<ScreenRoute.DoseDetail>()
                 DoseRecordDetailScreen(
-                    slotId = backStackEntry.arguments?.getLong("slotId")?.takeIf { it > 0 },
-                    recordId = backStackEntry.arguments?.getLong("recordId")?.takeIf { it > 0 },
+                    slotId = route.slotId.takeIf { it > 0 },
+                    recordId = route.recordId.takeIf { it > 0 },
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
 
             // 7c. 单个药品的服药历史 (二级全屏)
-            composable(
-                route = Screen.MedHistory.route,
-                arguments = listOf(navArgument("medId") { type = NavType.LongType })
-            ) {
+            composable<ScreenRoute.MedHistory> { backStackEntry ->
+                val route = backStackEntry.toRoute<ScreenRoute.MedHistory>()
                 MedHistoryScreen(
-                    medId = it.arguments?.getLong("medId") ?: 0L,
+                    medId = route.medId,
                     onNavigateBack = { navController.popBackStack() },
                     onOpenDose = { slotId, recordId ->
                         navController.navigate(doseDetailRoute(slotId, recordId))
@@ -349,17 +332,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             }
 
             // 8. 补药入库 (二级全屏)
-            composable(
-                route = Screen.Refill.route,
-                arguments = listOf(navArgument("medId") { type = NavType.LongType })
-            ) { backStackEntry ->
-                val medId = backStackEntry.arguments?.getLong("medId") ?: 0L
+            composable<ScreenRoute.Refill> { backStackEntry ->
+                val route = backStackEntry.toRoute<ScreenRoute.Refill>()
                 val vm: RefillViewModel = viewModel(
                     factory = viewModelFactory {
                         initializer {
                             RefillViewModel(
                                 application = this[APPLICATION_KEY] as Application,
-                                medId = medId
+                                medId = route.medId
                             )
                         }
                     }
@@ -371,43 +351,40 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             }
 
             // 9. 系统设置 (二级全屏)
-            composable(Screen.Settings.route) {
+            composable<ScreenRoute.Settings> {
                 val vm: SettingsViewModel = viewModel()
                 SettingsScreen(
                     viewModel = vm,
                     onNavigateBack = { navController.popBackStack() },
-                    onNavigateToPermissionCheck = { navController.navigate(Screen.PermissionCheck.route) }
+                    onNavigateToPermissionCheck = { navController.navigate(ScreenRoute.PermissionCheck) }
                 )
             }
 
             // 10. 系统特权自检与保活指引 (二级全屏)
-            composable(Screen.PermissionCheck.route) {
+            composable<ScreenRoute.PermissionCheck> {
                 PermissionCheckScreen(
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
         }
 
-        if (isTopLevel) {
+        AnimatedVisibility(
+            visible = isTopLevel,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = MotionSpec.navBarEnter,
+            exit = MotionSpec.navBarExit
+        ) {
             NavigationBar(
-                modifier = Modifier.align(Alignment.BottomCenter),
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.onSurface
             ) {
                 BottomNavItems.forEach { item ->
-                    val selected = currentRoute == item.route
-                    val tabTag = when (item.route) {
-                        Screen.Today.route -> TestTags.TAB_TODAY
-                        Screen.Cabinet.route -> TestTags.TAB_CABINET
-                        Screen.Progress.route -> TestTags.TAB_PROGRESS
-                        Screen.Stats.route -> TestTags.TAB_STATS
-                        else -> null
-                    }
+                    val selected = currentDestination?.hasRoute(item.targetClass) == true
                     NavigationBarItem(
-                        modifier = if (tabTag != null) Modifier.testTag(tabTag) else Modifier,
+                        modifier = Modifier.testTag(item.testTag),
                         selected = selected,
                         onClick = {
-                            if (currentRoute != item.route) {
+                            if (!selected) {
                                 navController.navigate(item.route) {
                                     popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
@@ -453,5 +430,5 @@ private fun MainTabContent(
  * 都由槽位承载，按事实打开就取不到"还没有事实"的待服形态；
  * 而手动补录（`slot_id == null`）没有槽位，只能按事实打开。
  */
-private fun doseDetailRoute(slotId: Long?, recordId: Long): String =
-    if (slotId != null) Screen.DoseDetail.forSlot(slotId) else Screen.DoseDetail.forRecord(recordId)
+private fun doseDetailRoute(slotId: Long?, recordId: Long): ScreenRoute.DoseDetail =
+    if (slotId != null) ScreenRoute.DoseDetail(slotId = slotId) else ScreenRoute.DoseDetail(recordId = recordId)
