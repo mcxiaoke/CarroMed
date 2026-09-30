@@ -9,10 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -44,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
+import com.mcxiaoke.carromed.ui.component.CarroMedTopAppBar
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
@@ -69,33 +68,23 @@ fun MedHistoryScreen(
 
     Scaffold(
         topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .height(56.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onNavigateBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.mhist_cd_back))
+            // 旧实现是手写 56dp Row（9 个二级页是 64dp），进入本页时顶栏会矮一截跳变。
+            // 归队到统一组件后高度/排版与其余页面一致；副标题由 labelSmall 改 bodySmall，
+            // 与提醒设置 / 库存管理两页的副标题规格对齐。
+            CarroMedTopAppBar(
+                title = uiState.medication?.name ?: stringResource(R.string.mhist_title),
+                // 副标题说明"这是一个什么页面"。只显示药名的话，
+                // 用户从进展页点进来会短暂困惑"这列是什么"。
+                subtitle = stringResource(R.string.mhist_title),
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.mhist_cd_back)
+                        )
+                    }
                 }
-                Spacer(Modifier.width(4.dp))
-                Column {
-                    Text(
-                        text = uiState.medication?.name ?: stringResource(R.string.mhist_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
-                    // 副标题说明"这是一个什么页面"。只显示药名的话，
-                    // 用户从进展页点进来会短暂困惑"这列是什么"。
-                    Text(
-                        text = stringResource(R.string.mhist_title),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+            )
         }
     ) { innerPadding ->
         // LazyListScope 块不是 composable 上下文，单位默认值先在 composable 侧解析。

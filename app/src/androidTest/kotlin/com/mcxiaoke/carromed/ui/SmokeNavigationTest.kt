@@ -3,6 +3,8 @@ package com.mcxiaoke.carromed.ui
 import android.Manifest
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
@@ -16,6 +18,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import com.mcxiaoke.carromed.MainActivity
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.AppDatabase
@@ -184,6 +187,78 @@ class SmokeNavigationTest {
         openTab(TestTags.TAB_TODAY)
         waitByText(str(R.string.today_title))
     }
+
+    /**
+     * 顶栏几何回归（PLAN-TITLEBAR-STANDARDIZATION-20260930.md §8.3）。
+     *
+     * ## 守的是什么
+     *
+     * 2026-09-27 起潜伏到 09-30 的那类缺陷：**主 Tab 的顶栏标题纵向位置与其他页面不一致**
+     * （当时"今日清单"比另外三个 Tab 低 63px = 一整个状态栏；根因是内层空壳
+     * `Scaffold` 的 `innerPadding` 与 `.statusBarsPadding()` 把状态栏计了两次）。
+     *
+     * ## 为什么只能在 instrumented 层守
+     *
+     * Robolectric 没有真实系统栏，`WindowInsets` 恒为 0 —— 同一个缺陷在
+     * Roborazzi 快照里两张图长得一模一样（2026-09-30 实测，见方案 §8.2）。
+     * 换句话说：**能看见这个 bug 的只有真机语义树坐标**。
+     *
+     * ## 三条断言
+     *
+     * 1. 四个主 Tab 的标题 top 必须一致（差值 ≤ 1dp）；
+     * 2. 二级页（官方 `TopAppBar`）与主 Tab 同高同位置 —— 这正是把全应用标题
+     *    统一到 `titleLarge`（22sp）的目的，字号一旦回退就会被抓；
+     * 3. 顶栏必须**吸顶**：滚动列表后标题位置不变（旧实现是列表第一个 item，
+     *    滚一屏后标题与右上按钮整条消失）。
+     */
+    @Test
+    fun topBarAligned_acrossTabs() {
+        val tabs = listOf(
+            TestTags.TAB_TODAY to R.string.today_title,
+            TestTags.TAB_CABINET to R.string.cabinet_title,
+            TestTags.TAB_PROGRESS to R.string.prog_title,
+            TestTags.TAB_STATS to R.string.stats_title
+        )
+
+        val tops = tabs.map { (tabTag, titleRes) ->
+            openTab(tabTag)
+            waitByText(str(titleRes))
+            waitByTagPrefix(TestTags.TOP_BAR_TITLE)
+            // tag 必须落在**本页**的标题上：否则量到的可能是上一页残留的节点
+            composeRule.onNodeWithTag(TestTags.TOP_BAR_TITLE).assertTextEquals(str(titleRes))
+            str(titleRes) to topBarTitleTop()
+        }
+
+        val spread = tops.maxOf { it.second } - tops.minOf { it.second }
+        assertWithMessage("四个主 Tab 的顶栏标题 top 必须一致，实测：$tops")
+            .that(spread).isAtMost(1f)
+
+        // ---- 2. 二级页与主 Tab 同高 ----
+        // 用"手动补录服药"（man_title 全工程只此一处使用，标题文本无歧义），
+        // 它走的是页面级 Scaffold + 官方 TopAppBar 的老链路。
+        openTab(TestTags.TAB_TODAY)
+        composeRule.onNodeWithContentDescription(str(R.string.today_cd_manual_log)).performClick()
+        waitByText(str(R.string.man_title))
+        val secondaryTop = composeRule.onNodeWithText(str(R.string.man_title))
+            .getUnclippedBoundsInRoot().top.value
+        assertWithMessage("二级页顶栏标题 top 应与主 Tab 一致（同一 titleLarge + 同一 topBar 槽位）")
+            .that(kotlin.math.abs(secondaryTop - tops[0].second)).isAtMost(1f)
+        pressBack()
+
+        // ---- 3. 顶栏吸顶 ----
+        waitByText(str(R.string.today_title))
+        val beforeScroll = topBarTitleTop()
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+            .swipe(540, 1800, 540, 700, 24)
+        composeRule.waitForIdle()
+        // onNodeWithTag 在节点消失时会直接抛错 —— 这本身就是"顶栏滚走了"的判据
+        assertWithMessage("顶栏必须吸顶：滚动列表后标题位置不得变化")
+            .that(kotlin.math.abs(topBarTitleTop() - beforeScroll)).isAtMost(1f)
+    }
+
+    /** 统一顶栏标题的纵向位置（相对根节点，单位 dp） */
+    private fun topBarTitleTop(): Float =
+        composeRule.onNodeWithTag(TestTags.TOP_BAR_TITLE).getUnclippedBoundsInRoot().top.value
 
     @Test
     fun allRoutes_open_withoutCrash() {

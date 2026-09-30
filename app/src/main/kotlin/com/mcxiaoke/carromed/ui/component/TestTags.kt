@@ -19,6 +19,16 @@ object TestTags {
     const val TAB_PROGRESS = "tab_progress"
     const val TAB_STATS = "tab_stats"
 
+    /**
+     * 统一顶栏的标题（`CarroMedTopAppBar`）。
+     *
+     * 存在的唯一理由是**几何回归断言**：顶栏标题的 `bounds.top` 是"页面之间
+     * 顶栏是否对齐"的唯一可测判据，而按文本定位会撞上正文里的同名文案。
+     * 2026-09-30 那次"今日清单比其他 Tab 偏下 63px"潜伏三天，就是因为
+     * 没有任何断言盯着这个坐标。见 `SmokeNavigationTest.topBarAligned_acrossTabs`。
+     */
+    const val TOP_BAR_TITLE = "top_bar_title"
+
     // ---- 今日清单 ----
     const val DOSE_CARD = "dose_card"
     const val DOSE_CONFIRM = "dose_confirm"

@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -41,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,7 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
-import com.mcxiaoke.carromed.ui.component.HomeTabHeader
+import com.mcxiaoke.carromed.ui.component.CarroMedTopAppBar
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
@@ -77,212 +77,213 @@ fun CabinetScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        // 1. 顶部 Header (与其他主 Tab 统一规格)
-        item {
-            HomeTabHeader(
+    Scaffold(
+        topBar = {
+            CarroMedTopAppBar(
                 title = stringResource(R.string.cabinet_title),
                 actionIcon = Icons.Default.Add,
                 actionContentDescription = stringResource(R.string.cabinet_add_medication),
                 onActionClick = onNavigateToAddMedication
             )
         }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // 1. 搜索 + 排序
+            item {
+                // ⚠️ `rememberSaveable`（M7-6）。写在 `LazyColumn` 的 `item {}` 内的
+                // `remember` 会随 item 滚出视口而销毁 —— 药品列表很长时这个 item
+                // 很容易被回收，用户点开排序菜单、往下滑两屏再回来，**菜单自己合上了**。
+                var sortExpanded by rememberSaveable { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = uiState.keyword,
+                        onValueChange = { viewModel.setKeyword(it) },
+                        placeholder = { Text(stringResource(R.string.cabinet_search_placeholder), fontSize = 13.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = stringResource(R.string.cabinet_cd_search), modifier = Modifier.size(18.dp))
+                        },
+                        trailingIcon = {
+                            if (uiState.keyword.isNotBlank()) {
+                                IconButton(onClick = { viewModel.setKeyword("") }) {
+                                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cabinet_cd_clear), modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
 
-        // 2. 搜索 + 排序
-        item {
-            // ⚠️ `rememberSaveable`（M7-6）。写在 `LazyColumn` 的 `item {}` 内的
-            // `remember` 会随 item 滚出视口而销毁 —— 药品列表很长时这个 item
-            // 很容易被回收，用户点开排序菜单、往下滑两屏再回来，**菜单自己合上了**。
-            var sortExpanded by rememberSaveable { mutableStateOf(false) }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = uiState.keyword,
-                    onValueChange = { viewModel.setKeyword(it) },
-                    placeholder = { Text(stringResource(R.string.cabinet_search_placeholder), fontSize = 13.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = stringResource(R.string.cabinet_cd_search), modifier = Modifier.size(18.dp))
-                    },
-                    trailingIcon = {
-                        if (uiState.keyword.isNotBlank()) {
-                            IconButton(onClick = { viewModel.setKeyword("") }) {
-                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cabinet_cd_clear), modifier = Modifier.size(16.dp))
+                    Box {
+                        IconButton(
+                            onClick = { sortExpanded = true },
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Icon(Icons.Default.Sort, contentDescription = stringResource(R.string.cabinet_cd_sort), modifier = Modifier.size(20.dp))
+                        }
+                        DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                            CabinetSortOrder.entries.forEach { order ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            stringResource(order.labelRes),
+                                            fontWeight = if (order == uiState.sortOrder) FontWeight.Bold
+                                            else FontWeight.Normal
+                                        )
+                                    },
+                                    onClick = {
+                                        viewModel.setSortOrder(order)
+                                        sortExpanded = false
+                                    }
+                                )
                             }
                         }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
-                )
-
-                Box {
-                    IconButton(
-                        onClick = { sortExpanded = true },
-                        modifier = Modifier
-                            .size(52.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Icon(Icons.Default.Sort, contentDescription = stringResource(R.string.cabinet_cd_sort), modifier = Modifier.size(20.dp))
-                    }
-                    DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
-                        CabinetSortOrder.entries.forEach { order ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        stringResource(order.labelRes),
-                                        fontWeight = if (order == uiState.sortOrder) FontWeight.Bold
-                                        else FontWeight.Normal
-                                    )
-                                },
-                                onClick = {
-                                    viewModel.setSortOrder(order)
-                                    sortExpanded = false
-                                }
-                            )
-                        }
                     }
                 }
             }
-        }
 
-        // 3. Tab 分段胶囊选择器
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                val tabs = listOf(
-                    stringResource(R.string.cabinet_tab_active, uiState.activeList.size),
-                    stringResource(R.string.cabinet_tab_archived, uiState.archivedList.size)
-                )
-                tabs.forEachIndexed { index, title ->
-                    val selected = uiState.selectedTab == index
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                if (selected) MaterialTheme.colorScheme.surface
-                                else Color.Transparent
-                            )
-                            .clickable { viewModel.selectTab(index) }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        // 3. 操作指引提示
-        item {
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-            ) {
+            // 3. Tab 分段胶囊选择器
+            item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Lightbulb,
-                        contentDescription = stringResource(R.string.cabinet_cd_hint),
-                        tint = MaterialTheme.colorScheme.tertiary,
-                        modifier = Modifier.size(16.dp)
+                    val tabs = listOf(
+                        stringResource(R.string.cabinet_tab_active, uiState.activeList.size),
+                        stringResource(R.string.cabinet_tab_archived, uiState.archivedList.size)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.cabinet_hint_text),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
-        // 4. 药品卡片列表
-        val displayList = if (uiState.selectedTab == 0) uiState.filteredActive else uiState.filteredArchived
-
-        if (uiState.isLoading) {
-            item {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(40.dp),
-                    contentAlignment = Alignment.Center
-                ) { CircularProgressIndicator() }
-            }
-        } else if (displayList.isEmpty()) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        val isSearchMiss = uiState.keyword.isNotBlank()
-                        Text(
-                            text = when {
-                                isSearchMiss && uiState.selectedTab == 0 ->
-                                    stringResource(R.string.cabinet_empty_search_active, uiState.keyword)
-                                isSearchMiss -> stringResource(R.string.cabinet_empty_search_archived)
-                                uiState.selectedTab == 0 && uiState.activeList.isEmpty() ->
-                                    stringResource(R.string.cabinet_empty_active)
-                                else -> stringResource(R.string.cabinet_empty_archived)
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                        if (!isSearchMiss && uiState.selectedTab == 0 && uiState.activeList.isEmpty()) {
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Button(
-                                onClick = onNavigateToAddMedication,
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(stringResource(R.string.cabinet_add_medication))
-                            }
+                    tabs.forEachIndexed { index, title ->
+                        val selected = uiState.selectedTab == index
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.surface
+                                    else Color.Transparent
+                                )
+                                .clickable { viewModel.selectTab(index) }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
             }
-        } else {
-            items(displayList, key = { it.medication.id }) { item ->
-                CabinetMedCard(
-                    item = item,
-                    onClick = { onNavigateToMedDetail(item.medication.id) }
-                )
+
+            // 3. 操作指引提示
+            item {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lightbulb,
+                            contentDescription = stringResource(R.string.cabinet_cd_hint),
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.cabinet_hint_text),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // 4. 药品卡片列表
+            val displayList = if (uiState.selectedTab == 0) uiState.filteredActive else uiState.filteredArchived
+
+            if (uiState.isLoading) {
+                item {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(40.dp),
+                        contentAlignment = Alignment.Center
+                    ) { CircularProgressIndicator() }
+                }
+            } else if (displayList.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            val isSearchMiss = uiState.keyword.isNotBlank()
+                            Text(
+                                text = when {
+                                    isSearchMiss && uiState.selectedTab == 0 ->
+                                        stringResource(R.string.cabinet_empty_search_active, uiState.keyword)
+                                    isSearchMiss -> stringResource(R.string.cabinet_empty_search_archived)
+                                    uiState.selectedTab == 0 && uiState.activeList.isEmpty() ->
+                                        stringResource(R.string.cabinet_empty_active)
+                                    else -> stringResource(R.string.cabinet_empty_archived)
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            if (!isSearchMiss && uiState.selectedTab == 0 && uiState.activeList.isEmpty()) {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Button(
+                                    onClick = onNavigateToAddMedication,
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(stringResource(R.string.cabinet_add_medication))
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                items(displayList, key = { it.medication.id }) { item ->
+                    CabinetMedCard(
+                        item = item,
+                        onClick = { onNavigateToMedDetail(item.medication.id) }
+                    )
+                }
             }
         }
     }

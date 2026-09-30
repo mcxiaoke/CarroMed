@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -30,6 +29,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
-import com.mcxiaoke.carromed.ui.component.HomeTabHeader
+import com.mcxiaoke.carromed.ui.component.CarroMedTopAppBar
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
@@ -60,230 +60,232 @@ fun StatsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item {
-            HomeTabHeader(
+    Scaffold(
+        topBar = {
+            CarroMedTopAppBar(
                 title = stringResource(R.string.stats_title),
                 actionIcon = Icons.Default.FileDownload,
                 actionContentDescription = stringResource(R.string.stats_export_report),
                 onActionClick = { viewModel.exportReport() }
             )
         }
-
-        // 周期切换
-        item {
-            val periods = StatsPeriod.entries
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                periods.forEachIndexed { index, p ->
-                    SegmentedButton(
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = periods.size),
-                        onClick = { viewModel.selectPeriod(index) },
-                        selected = uiState.selectedPeriod == index,
-                        icon = {}
-                    ) {
-                        Text(
-                            stringResource(p.labelRes),
-                            fontSize = 13.sp,
-                            fontWeight = if (uiState.selectedPeriod == index) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                }
-            }
-        }
-
-        if (uiState.isLoading) {
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // 周期切换
             item {
-                Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
-            return@LazyColumn
-        }
-
-        // Hero 统计
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
-            ) {
-                Column(Modifier.padding(20.dp)) {
-                    Text(
-                        text = stringResource(
-                            R.string.stats_period_total,
-                            stringResource(StatsPeriod.entries[uiState.selectedPeriod].labelRes)
-                        ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    // 跨单位不能求和（30 片 + 5 ml ≠ 35 片）。
-                    // 只有全部药品同单位时才给一个 36sp 总量大数字；多单位时逐单位列出。
-                    if (uiState.mixedUnits) {
-                        Text(
-                            text = stringResource(R.string.stats_mixed_units),
-                            style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        @OptIn(ExperimentalLayoutApi::class)
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            uiState.totalDosesByUnit.entries
-                                .sortedByDescending { it.value }
-                                .forEach { (unit, amount) ->
-                                    Text(
-                                        text = "${Quantity.fmt(amount)}${Quantity.unitSuffix(unit)}",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onPrimary
-                                    )
-                                }
+                val periods = StatsPeriod.entries
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    periods.forEachIndexed { index, p ->
+                        SegmentedButton(
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = periods.size),
+                            onClick = { viewModel.selectPeriod(index) },
+                            selected = uiState.selectedPeriod == index,
+                            icon = {}
+                        ) {
+                            Text(
+                                stringResource(p.labelRes),
+                                fontSize = 13.sp,
+                                fontWeight = if (uiState.selectedPeriod == index) FontWeight.Bold else FontWeight.Normal
+                            )
                         }
-                    } else {
-                        Text(
-                            text = "${Quantity.fmt(uiState.totalDoses)}${Quantity.unitSuffix(uiState.totalDoseUnit)}",
-                            style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-                    Text(
-                        text = stringResource(R.string.stats_plan_summary, uiState.scheduledDoseCount, uiState.activeMedCount),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    val decided = uiState.breakdown.completed +
-                        uiState.breakdown.skipped + uiState.breakdown.missed
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        StatTile(
-                            modifier = Modifier.weight(1f),
-                            // 无到期样本时显示 "—" 而不是 100%：空集的 100% 会误导用户
-                            value = if (decided > 0) {
-                                String.format(Locale.getDefault(), "%.1f%%", uiState.adherenceRate * 100)
-                            } else {
-                                "—"
-                            },
-                            label = stringResource(R.string.stats_adherence_label)
-                        )
-                        StatTile(
-                            modifier = Modifier.weight(1f),
-                            value = "${uiState.breakdown.completed}",
-                            label = stringResource(R.string.stats_completed_label)
-                        )
-                        StatTile(
-                            modifier = Modifier.weight(1f),
-                            value = "${uiState.breakdown.missed + uiState.breakdown.skipped}",
-                            label = stringResource(R.string.stats_missed_label)
-                        )
                     }
                 }
             }
-        }
 
-        // 依从率拆解条
-        item {
-            AdherenceBreakdownCard(uiState)
-        }
-
-        // 消耗排行榜
-        item {
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = stringResource(R.string.stats_consumption_title),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = stringResource(R.string.stats_by_actual),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            if (uiState.isLoading) {
+                item {
+                    Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
                     }
-                    Spacer(Modifier.height(12.dp))
+                }
+                return@LazyColumn
+            }
 
-                    if (uiState.rankings.isEmpty()) {
+            // Hero 统计
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Column(Modifier.padding(20.dp)) {
                         Text(
-                            text = stringResource(R.string.stats_empty_rankings),
+                            text = stringResource(
+                                R.string.stats_period_total,
+                                stringResource(StatsPeriod.entries[uiState.selectedPeriod].labelRes)
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            lineHeight = 20.sp
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                         )
-                    } else {
-                        val max = uiState.rankings.maxOf { it.totalDose }.coerceAtLeast(0.0001f)
-                        uiState.rankings.forEachIndexed { index, r ->
-                            Column(Modifier.padding(vertical = 6.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "${r.rank}. ${r.medicationName}",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        text = Quantity.withUnit(r.totalDose, r.unit),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
+                        Spacer(Modifier.height(8.dp))
+                        // 跨单位不能求和（30 片 + 5 ml ≠ 35 片）。
+                        // 只有全部药品同单位时才给一个 36sp 总量大数字；多单位时逐单位列出。
+                        if (uiState.mixedUnits) {
+                            Text(
+                                text = stringResource(R.string.stats_mixed_units),
+                                style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            @OptIn(ExperimentalLayoutApi::class)
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                uiState.totalDosesByUnit.entries
+                                    .sortedByDescending { it.value }
+                                    .forEach { (unit, amount) ->
+                                        Text(
+                                            text = "${Quantity.fmt(amount)}${Quantity.unitSuffix(unit)}",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onPrimary
+                                        )
+                                    }
+                            }
+                        } else {
+                            Text(
+                                text = "${Quantity.fmt(uiState.totalDoses)}${Quantity.unitSuffix(uiState.totalDoseUnit)}",
+                                style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.stats_plan_summary, uiState.scheduledDoseCount, uiState.activeMedCount),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        val decided = uiState.breakdown.completed +
+                            uiState.breakdown.skipped + uiState.breakdown.missed
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            StatTile(
+                                modifier = Modifier.weight(1f),
+                                // 无到期样本时显示 "—" 而不是 100%：空集的 100% 会误导用户
+                                value = if (decided > 0) {
+                                    String.format(Locale.getDefault(), "%.1f%%", uiState.adherenceRate * 100)
+                                } else {
+                                    "—"
+                                },
+                                label = stringResource(R.string.stats_adherence_label)
+                            )
+                            StatTile(
+                                modifier = Modifier.weight(1f),
+                                value = "${uiState.breakdown.completed}",
+                                label = stringResource(R.string.stats_completed_label)
+                            )
+                            StatTile(
+                                modifier = Modifier.weight(1f),
+                                value = "${uiState.breakdown.missed + uiState.breakdown.skipped}",
+                                label = stringResource(R.string.stats_missed_label)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 依从率拆解条
+            item {
+                AdherenceBreakdownCard(uiState)
+            }
+
+            // 消耗排行榜
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.stats_consumption_title),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = stringResource(R.string.stats_by_actual),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+
+                        if (uiState.rankings.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.stats_empty_rankings),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 20.sp
+                            )
+                        } else {
+                            val max = uiState.rankings.maxOf { it.totalDose }.coerceAtLeast(0.0001f)
+                            uiState.rankings.forEachIndexed { index, r ->
+                                Column(Modifier.padding(vertical = 6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "${r.rank}. ${r.medicationName}",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = Quantity.withUnit(r.totalDose, r.unit),
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    LinearProgressIndicator(
+                                        progress = { (r.totalDose / max).coerceIn(0f, 1f) },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp)
+                                            .clip(RoundedCornerShape(3.dp)),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant
                                     )
                                 }
-                                Spacer(Modifier.height(6.dp))
-                                LinearProgressIndicator(
-                                    progress = { (r.totalDose / max).coerceIn(0f, 1f) },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .clip(RoundedCornerShape(3.dp)),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
-                                )
-                            }
-                            if (index < uiState.rankings.size - 1) {
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                                )
+                                if (index < uiState.rankings.size - 1) {
+                                    HorizontalDivider(
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        item {
-            Button(
-                onClick = { viewModel.exportReport() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.stats_export_csv), fontWeight = FontWeight.Bold)
+            item {
+                Button(
+                    onClick = { viewModel.exportReport() },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.stats_export_csv), fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

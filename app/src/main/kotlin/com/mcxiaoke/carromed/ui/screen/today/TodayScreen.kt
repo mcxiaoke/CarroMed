@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -66,7 +65,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
-import com.mcxiaoke.carromed.ui.component.HomeTabHeader
+import com.mcxiaoke.carromed.ui.component.CarroMedTopAppBar
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
@@ -120,6 +119,19 @@ fun TodayScreen(
     }
 
     Scaffold(
+        // 顶栏必须走 Scaffold 的 topBar 槽位（PLAN-TITLEBAR-STANDARDIZATION-20260930.md）：
+        // 旧实现是本 Scaffold 不带 topBar、标题手绘在 LazyColumn 第一个 item 里，
+        // 于是 Scaffold 按「没有顶栏」把状态栏算进 innerPadding.top，
+        // 页面又自加 .statusBarsPadding() —— 状态栏被计两次，标题偏下 63px。
+        // 进了 topBar 槽位后 TopAppBar 自己吃掉状态栏，innerPadding.top 归零。
+        topBar = {
+            CarroMedTopAppBar(
+                title = stringResource(R.string.today_title),
+                actionIcon = Icons.Outlined.Settings,
+                actionContentDescription = stringResource(R.string.today_cd_settings),
+                onActionClick = onNavigateToSettings
+            )
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
@@ -135,20 +147,10 @@ fun TodayScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .statusBarsPadding()
                 .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item {
-                HomeTabHeader(
-                    title = stringResource(R.string.today_title),
-                    actionIcon = Icons.Outlined.Settings,
-                    actionContentDescription = stringResource(R.string.today_cd_settings),
-                    onActionClick = onNavigateToSettings
-                )
-            }
-
             item {
                 Text(
                     text = uiState.selectedDate.format(

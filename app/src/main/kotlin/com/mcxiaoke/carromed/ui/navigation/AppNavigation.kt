@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -149,7 +150,16 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         NavHost(
             navController = navController,
             startDestination = Screen.Today.route,
-            modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding()),
+            // 根 Scaffold 只管底部导航栏（顶栏归各页自己的 Scaffold.topBar，
+            // 见 PLAN-TITLEBAR-STANDARDIZATION-20260930.md），所以这里只要 bottom padding。
+            //
+            // consumeWindowInsets 必须补上：它把"根已经扣掉的量"告诉子树。
+            // 少了它，子页自带的 Scaffold 看不到底部 inset 已被消费，
+            // 会把导航栏高度再算一次（与 `Scaffold` 文档里那句
+            // "Scaffold 不会将边衬区应用于内容"是同一条因果）。
+            modifier = Modifier
+                .padding(bottom = innerPadding.calculateBottomPadding())
+                .consumeWindowInsets(innerPadding),
             enterTransition = { EnterTransition.None },
             exitTransition = { ExitTransition.None }
         ) {

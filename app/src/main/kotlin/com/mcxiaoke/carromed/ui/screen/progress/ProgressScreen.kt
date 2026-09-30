@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -30,6 +29,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,7 +52,7 @@ import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
-import com.mcxiaoke.carromed.ui.component.HomeTabHeader
+import com.mcxiaoke.carromed.ui.component.CarroMedTopAppBar
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
@@ -91,67 +91,69 @@ fun ProgressScreen(
             .collect { viewModel.loadMoreTimeline() }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 4.dp, bottom = 120.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        item(key = "header") {
-            HomeTabHeader(
+    Scaffold(
+        topBar = {
+            CarroMedTopAppBar(
                 title = stringResource(R.string.prog_title),
                 actionIcon = Icons.Default.FileDownload,
                 actionContentDescription = stringResource(R.string.prog_export_report),
                 onActionClick = { viewModel.exportReport() }
             )
         }
+    ) { innerPadding ->
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item(key = "tabs") { ProgressTabSelector(uiState.selectedTab, viewModel::selectTab) }
 
-        item(key = "tabs") { ProgressTabSelector(uiState.selectedTab, viewModel::selectTab) }
-
-        if (uiState.isLoading) {
-            item(key = "loading") {
-                Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+            if (uiState.isLoading) {
+                item(key = "loading") {
+                    Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                 }
+                return@LazyColumn
             }
-            return@LazyColumn
-        }
 
-        if (uiState.selectedTab == 0) {
-            if (uiState.matrixItems.isEmpty()) {
-                item(key = "matrix-empty") {
-                    EmptyStateCard(stringResource(R.string.prog_empty_matrix))
-                }
-            } else {
-                item(key = "overall") { OverallAdherenceCard(uiState.overallAdherence, uiState) }
-                items(
-                    count = uiState.matrixItems.size,
-                    key = { "m-${uiState.matrixItems[it].medication.id}" }
-                ) { idx ->
-                    MedicationMatrixCard(uiState.matrixItems[idx], onNavigateToMedHistory)
-                }
-            }
-        } else {
-            if (uiState.timelineDays.isEmpty()) {
-                item(key = "timeline-empty") {
-                    EmptyStateCard(stringResource(R.string.prog_empty_timeline))
-                }
-            } else {
-                uiState.timelineDays.forEach { day ->
-                    item(key = "day-${day.date}") { TimelineDayHeader(day) }
+            if (uiState.selectedTab == 0) {
+                if (uiState.matrixItems.isEmpty()) {
+                    item(key = "matrix-empty") {
+                        EmptyStateCard(stringResource(R.string.prog_empty_matrix))
+                    }
+                } else {
+                    item(key = "overall") { OverallAdherenceCard(uiState.overallAdherence, uiState) }
                     items(
-                        count = day.items.size,
-                        key = { "rec-${day.items[it].record.id}" }
-                    ) { idx -> TimelineRow(day.items[idx], onOpenDose) }
+                        count = uiState.matrixItems.size,
+                        key = { "m-${uiState.matrixItems[it].medication.id}" }
+                    ) { idx ->
+                        MedicationMatrixCard(uiState.matrixItems[idx], onNavigateToMedHistory)
+                    }
                 }
-                item(key = "timeline-tail") {
-                    TimelineFooter(
-                        loading = uiState.isTimelineLoadingMore,
-                        hasMore = uiState.hasMoreTimeline
-                    )
+            } else {
+                if (uiState.timelineDays.isEmpty()) {
+                    item(key = "timeline-empty") {
+                        EmptyStateCard(stringResource(R.string.prog_empty_timeline))
+                    }
+                } else {
+                    uiState.timelineDays.forEach { day ->
+                        item(key = "day-${day.date}") { TimelineDayHeader(day) }
+                        items(
+                            count = day.items.size,
+                            key = { "rec-${day.items[it].record.id}" }
+                        ) { idx -> TimelineRow(day.items[idx], onOpenDose) }
+                    }
+                    item(key = "timeline-tail") {
+                        TimelineFooter(
+                            loading = uiState.isTimelineLoadingMore,
+                            hasMore = uiState.hasMoreTimeline
+                        )
+                    }
                 }
             }
         }
