@@ -65,10 +65,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
@@ -113,10 +115,10 @@ fun MedicationDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("药品详情", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.mdetail_title), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.mdetail_cd_back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -133,7 +135,7 @@ fun MedicationDetailScreen(
                 contentAlignment = Alignment.Center
             ) {
                 if (uiState.isLoading) CircularProgressIndicator()
-                else Text(uiState.error ?: "正在加载药品信息...")
+                else Text(uiState.error ?: stringResource(R.string.mdetail_loading))
             }
             return@Scaffold
         }
@@ -157,10 +159,10 @@ fun MedicationDetailScreen(
         val pauseText = uiState.reminderSettings.pauseDescription(today)
         val isPaused = pauseText != null
         val statusText = when {
-            med.isArchived -> "已停药归档"
+            med.isArchived -> stringResource(R.string.mdetail_status_archived)
             isPaused -> pauseText!!
-            isPrn -> "按需服用 · 无定时提醒"
-            else -> "提醒进行中"
+            isPrn -> stringResource(R.string.mdetail_status_prn)
+            else -> stringResource(R.string.mdetail_status_active)
         }
         val statusColor = when {
             med.isArchived -> MaterialTheme.colorScheme.outline
@@ -250,7 +252,7 @@ fun MedicationDetailScreen(
             // ---------- 2. 三个维度入口 (MyTherapy 式分节) ----------
             item {
                 Text(
-                    text = "药品设置",
+                    text = stringResource(R.string.mdetail_section_settings),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -264,14 +266,14 @@ fun MedicationDetailScreen(
                 ) {
                     DetailEntryRow(
                         icon = Icons.Default.Medication,
-                        title = "药品信息",
+                        title = stringResource(R.string.mdetail_entry_profile),
                         subtitle = buildProfileSummary(uiState),
                         testTag = TestTags.DETAIL_ROW_EDIT,
                         onClick = { onNavigateToEditInfo(med.id) }
                     )
                     DetailEntryRow(
                         icon = Icons.Default.Schedule,
-                        title = "提醒设置",
+                        title = stringResource(R.string.mdetail_entry_reminder),
                         subtitle = buildReminderSummary(uiState),
                         // ⚠️ 没有计划时高亮。理由见 buildReminderSummary：
                         // 这一行不能长得和"已配置"一样，否则用户以为设好了而药永远不响。
@@ -281,7 +283,7 @@ fun MedicationDetailScreen(
                     )
                     DetailEntryRow(
                         icon = Icons.Default.Inventory2,
-                        title = "库存管理",
+                        title = stringResource(R.string.mdetail_entry_inventory),
                         subtitle = buildInventorySummary(uiState),
                         highlight = uiState.isStockAlert && med.isStockTracked,
                         testTag = TestTags.DETAIL_ROW_INVENTORY,
@@ -312,7 +314,7 @@ fun MedicationDetailScreen(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(if (isPaused) "恢复提醒" else "暂停提醒")
+                    Text(if (isPaused) stringResource(R.string.mdetail_resume_reminder) else stringResource(R.string.mdetail_pause_reminder))
                 }
             }
 
@@ -337,7 +339,7 @@ fun MedicationDetailScreen(
                     ) {
                         Column(Modifier.padding(16.dp)) {
                             Text(
-                                "详细说明 / 医嘱",
+                                stringResource(R.string.mdetail_section_description),
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -370,7 +372,7 @@ fun MedicationDetailScreen(
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
-                                    "注意事项与禁忌",
+                                    stringResource(R.string.mdetail_section_precautions),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = OnWarningAmberContainer
@@ -406,14 +408,14 @@ fun MedicationDetailScreen(
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text(
-                            "服药历史",
+                            stringResource(R.string.mdetail_section_history),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(Modifier.height(10.dp))
                         if (uiState.recentRecords.isEmpty()) {
                             Text(
-                                "还没有服药记录。完成打卡或用「手动补录」记录后会显示在这里。",
+                                stringResource(R.string.mdetail_history_empty),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 lineHeight = 18.sp
@@ -464,7 +466,7 @@ fun MedicationDetailScreen(
                                     onClick = { showAllRecords = !showAllRecords },
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(if (showAllRecords) "收起" else "查看全部 ${uiState.recentRecords.size} 条")
+                                    Text(if (showAllRecords) stringResource(R.string.mdetail_history_collapse) else stringResource(R.string.mdetail_history_show_all, uiState.recentRecords.size))
                                 }
                             }
                         }
@@ -481,14 +483,14 @@ fun MedicationDetailScreen(
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text(
-                            "库存流水",
+                            stringResource(R.string.mdetail_section_transactions),
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(Modifier.height(10.dp))
                         if (uiState.transactions.isEmpty()) {
                             Text(
-                                "暂无出入库记录",
+                                stringResource(R.string.mdetail_transactions_empty),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -519,7 +521,7 @@ fun MedicationDetailScreen(
                             TextButton(
                                 onClick = { onNavigateToInventory(med.id) },
                                 modifier = Modifier.fillMaxWidth()
-                            ) { Text("前往库存管理查看全部流水") }
+                            ) { Text(stringResource(R.string.mdetail_go_inventory_full)) }
                         }
                     }
                 }
@@ -540,7 +542,7 @@ fun MedicationDetailScreen(
                     ) {
                         Icon(Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (med.isArchived) "恢复在服" else "停药归档")
+                        Text(if (med.isArchived) stringResource(R.string.mdetail_resume_active) else stringResource(R.string.mdetail_archive))
                     }
                     Button(
                         onClick = { showDeleteDialog = true },
@@ -557,7 +559,7 @@ fun MedicationDetailScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text("删除药品", color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text(stringResource(R.string.mdetail_delete), color = MaterialTheme.colorScheme.onErrorContainer)
                     }
                 }
             }
@@ -570,7 +572,7 @@ fun MedicationDetailScreen(
         // 猜一个时长比让用户明确选更危险。
         AlertDialog(
             onDismissRequest = { showPauseDialog = false },
-            title = { Text("暂停提醒到什么时候？", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.mdetail_pause_dialog_title), fontWeight = FontWeight.Bold) },
             text = {
                 Column {
                     // ⚠️ `paused_until` 的语义是「暂停**含**这一天」
@@ -586,15 +588,15 @@ fun MedicationDetailScreen(
                     //
                     // 三个地方必须同一条规则：[isPausedOn]（投影）、
                     // [ReminderSettingsEntity.daysUntilResume]（徽标）、这里的按钮。
-                    PauseOptionRow("暂停到明天") {
+                    PauseOptionRow(stringResource(R.string.mdetail_pause_until_tomorrow)) {
                         showPauseDialog = false
                         viewModel.pauseReminderUntil(LocalDate.now())
                     }
-                    PauseOptionRow("暂停到一周后") {
+                    PauseOptionRow(stringResource(R.string.mdetail_pause_until_week)) {
                         showPauseDialog = false
                         viewModel.pauseReminderUntil(LocalDate.now().plusDays(6))
                     }
-                    PauseOptionRow("暂停到指定日期") {
+                    PauseOptionRow(stringResource(R.string.mdetail_pause_until_date)) {
                         showPauseDialog = false
                         val cal = Calendar.getInstance()
                         DatePickerDialog(
@@ -612,60 +614,59 @@ fun MedicationDetailScreen(
                             datePicker.minDate = System.currentTimeMillis() - 1000
                         }.show()
                     }
-                    PauseOptionRow("无限期暂停（需手动恢复）") {
+                    PauseOptionRow(stringResource(R.string.mdetail_pause_indefinite)) {
                         showPauseDialog = false
                         viewModel.pauseReminderUntil(null)
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "暂停期间不排闹钟；到期后自动恢复，历史服药记录与库存流水完整保留。",
+                        stringResource(R.string.mdetail_pause_dialog_note),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { showPauseDialog = false }) { Text("取消") } }
+            dismissButton = { TextButton(onClick = { showPauseDialog = false }) { Text(stringResource(R.string.mdetail_cancel)) } }
         )
     }
 
     if (showArchiveDialog && med != null) {
         AlertDialog(
             onDismissRequest = { showArchiveDialog = false },
-            title = { Text(if (med.isArchived) "恢复在服" else "停药归档", fontWeight = FontWeight.Bold) },
+            title = { Text(if (med.isArchived) stringResource(R.string.mdetail_resume_active) else stringResource(R.string.mdetail_archive), fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    if (med.isArchived) "确认恢复为在服状态？其提醒计划将重新生效。"
-                    else "确认停药归档？未来提醒会被取消，历史打卡与库存流水完整保留，可随时恢复。"
+                    if (med.isArchived) stringResource(R.string.mdetail_archive_confirm_resume)
+                    else stringResource(R.string.mdetail_archive_confirm_archive)
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     showArchiveDialog = false
                     viewModel.toggleArchive()
-                }) { Text("确认", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
+                }) { Text(stringResource(R.string.mdetail_confirm), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
             },
-            dismissButton = { TextButton(onClick = { showArchiveDialog = false }) { Text("取消") } }
+            dismissButton = { TextButton(onClick = { showArchiveDialog = false }) { Text(stringResource(R.string.mdetail_cancel)) } }
         )
     }
 
     if (showDeleteDialog && med != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("删除药品", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.mdetail_delete), fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "确认删除「${med.name}」？其全部排班槽位、打卡记录与库存流水将一并删除，且不可恢复。\n\n" +
-                        "如只是不再服用，建议使用「停药归档」保留历史数据。"
+                    stringResource(R.string.mdetail_delete_confirm, med.name)
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteDialog = false
                     viewModel.deleteMedication(onNavigateBack)
-                }) { Text("永久删除", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
+                }) { Text(stringResource(R.string.mdetail_delete_forever), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) }
             },
-            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("取消") } }
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text(stringResource(R.string.mdetail_cancel)) } }
         )
     }
 }
@@ -815,19 +816,19 @@ private fun AdherenceCard(rate: Float, completed: Int, decided: Int, doseSum: Fl
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("近 30 天用药", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.mdetail_adherence_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 // 分母为 0 时显示"暂无到期"：0/0 在统计上等于 100%，
                 // 但对用户是误导 —— 看起来像"表现完美"，实际是"还没有样本"
                 if (decided > 0) {
                     Text(
-                        String.format(Locale.getDefault(), "依从率 %.0f%%", rate * 100),
+                        stringResource(R.string.mdetail_adherence_rate, rate * 100),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = if (rate >= 0.8f) SuccessGreen else WarningAmber
                     )
                 } else {
                     Text(
-                        "暂无到期",
+                        stringResource(R.string.mdetail_adherence_none),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -835,7 +836,7 @@ private fun AdherenceCard(rate: Float, completed: Int, decided: Int, doseSum: Fl
             }
             Spacer(Modifier.height(10.dp))
             Text(
-                text = "按时服药 $completed 次 / 已到期 $decided 次 · 近 30 天共消耗 ${Quantity.fmt(doseSum)} $unit",
+                text = stringResource(R.string.mdetail_adherence_summary, completed, decided, Quantity.fmt(doseSum), unit),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 18.sp
@@ -871,11 +872,11 @@ private fun RecordStatusChip(status: RecordStatus, isRetrospective: Boolean) {
         // "系统算错了" —— 而实际上是他自己刚点的撤销没生效。
         //
         // `REVERTED` 显示为灰色"已撤销"，与 `SKIPPED` 同族（都不是有效服药）。
-        RecordStatus.REVERTED -> "已撤销" to MaterialTheme.colorScheme.outline
-        RecordStatus.SKIPPED -> "已跳过" to MaterialTheme.colorScheme.outline
+        RecordStatus.REVERTED -> stringResource(R.string.mdetail_status_reverted) to MaterialTheme.colorScheme.outline
+        RecordStatus.SKIPPED -> stringResource(R.string.mdetail_status_skipped) to MaterialTheme.colorScheme.outline
         RecordStatus.COMPLETED ->
-            if (isRetrospective) "补录" to MaterialTheme.colorScheme.tertiary
-            else "已服" to SuccessGreen
+            if (isRetrospective) stringResource(R.string.mdetail_status_retro) to MaterialTheme.colorScheme.tertiary
+            else stringResource(R.string.mdetail_status_taken) to SuccessGreen
     }
     Surface(shape = RoundedCornerShape(6.dp), color = color.copy(alpha = 0.14f)) {
         Text(

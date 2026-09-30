@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SettingsScreen（系统设置） -->
+    <string name="set_title">系统设置</string>
+    <string name="set_back_cd">返回</string>
+
+    <!-- 覆盖式恢复二次确认对话框 -->
+    <string name="set_restore_confirm_title">确认覆盖当前数据？</string>
+    <string name="set_restore_selected_file">所选文件：%1$s</string>
+    <string name="set_restore_exported_at">生成时间：%1$s</string>
+    <string name="set_restore_contains">包含 %1$d 种药品、%2$d 条服药记录</string>
+    <string name="set_restore_warning">当前数据将被完全替换，此操作不可撤销。</string>
+    <string name="set_restore_snapshot_note">覆盖前会自动保存一份当前数据的快照。</string>
+    <string name="set_restore_warnings">注意：%1$s</string>
+    <string name="set_restore_confirm_button">确认覆盖</string>
+    <string name="set_cancel">取消</string>
+
+    <!-- 本机备份选择对话框 -->
+    <string name="set_local_backup_picker_title">选择本机备份</string>
+    <string name="set_local_backup_empty">还没有本机备份。请先用上面的「生成备份」。</string>
+    <string name="set_close">关闭</string>
+
+    <!-- 1. 通知与提醒行为 -->
+    <string name="set_section_notification">通知与提醒行为</string>
+    <string name="set_snooze_title">默认推迟时长</string>
+    <string name="set_snooze_desc">通知栏与今日清单长按菜单的默认推迟分钟数（单个药品可在「提醒设置」中单独覆盖）</string>
+    <string name="set_snooze_minutes_fmt">%1$d 分钟</string>
+    <string name="set_snooze_minutes_custom">%1$d 分钟 (自定义)</string>
+    <string name="set_night_dnd_title">夜间免打扰 (静音)</string>
+    <string name="set_night_dnd_desc">23:00 至 07:00 之间改为静默渠道，不响铃不震动；标记为「重要提醒」的药品不受影响</string>
+
+    <!-- 2. 提醒防漏与系统保活 -->
+    <string name="set_section_keepalive">提醒防漏与系统保活</string>
+    <string name="set_permission_check_desc">排查精确闹钟、系统白名单与自启权限，确保灭屏休眠零漏报。</string>
+    <string name="set_permission_check_button">查看 4 项系统特权自检与保活指引 &gt;</string>
+
+    <!-- 3. 数据管理与本地导出 -->
+    <string name="set_section_data">数据管理与本地导出</string>
+    <string name="set_export_csv_title">导出服药明细报表 (CSV)</string>
+    <string name="set_export_csv_desc">明文数据，可用 Excel / WPS 打开分析</string>
+    <string name="set_export_csv_button">导出 CSV</string>
+    <string name="set_export_backup_title">备份全量数据库 (JSON)</string>
+    <string name="set_export_backup_desc">包含药品、计划、打卡与库存流水完整存档</string>
+    <string name="set_create_backup_button">生成备份</string>
+    <string name="set_restore_title">从备份恢复 (覆盖式)</string>
+    <string name="set_restore_desc">整库快照替换还原，当前数据将被完全覆盖</string>
+    <string name="set_pick_file_button">选择文件</string>
+    <string name="set_local_restore_title">从本机备份恢复</string>
+    <string name="set_local_restore_desc">直接选用 App 刚生成的备份（系统文件选择器看不到这个目录）</string>
+    <string name="set_local_backup_button">本机备份</string>
+    <string name="set_export_log_title">导出诊断日志</string>
+    <string name="set_export_log_desc">最近 7 天的运行日志，排查提醒与记账问题用</string>
+    <string name="set_share_log_title">分享诊断日志</string>
+    <string name="set_no_log_files">还没有日志文件</string>
+    <string name="set_export_failed">导出失败: %1$s</string>
+    <string name="set_export_log_button">导出日志</string>
+
+    <!-- 4. 关于 CarroMed -->
+    <string name="set_section_about">关于 CarroMed</string>
+    <string name="set_about_text">CarroMed v%1$s (Native Compose)\n• 100%% 纯本地离线单机运行，零网络权限申请\n• 免账号登录、无后台云端追踪、无广告干扰\n• 数据完全受控于您本人的手机私有沙箱存储</string>
+</resources>

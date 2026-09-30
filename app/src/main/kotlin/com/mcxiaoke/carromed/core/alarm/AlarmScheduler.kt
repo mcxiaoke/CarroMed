@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import androidx.annotation.StringRes
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.domain.AppLog
 
@@ -247,15 +249,15 @@ object AlarmScheduler {
      * 现在它是一个**可查询的事实**，供系统特权自检页如实显示。
      * 任何降级都必须对用户可见 —— 见 `docs/CODE-REVIEW-20260929-ds.md` P0-1。
      */
-    enum class Precision(val label: String) {
+    enum class Precision(@StringRes val labelRes: Int) {
         /** 精确闹钟：到点必响，Doze 下也不延迟 */
-        EXACT("精确闹钟（到点必响）"),
+        EXACT(R.string.alarm_precision_exact),
 
         /** 闹钟应用通道：走系统闹钟通道，仍是准点的 */
-        ALARM_CLOCK("闹钟应用通道（准点）"),
+        ALARM_CLOCK(R.string.alarm_precision_alarm_clock),
 
         /** 不精确：系统可对齐到窗口边界，**可能晚约 1 小时** */
-        INEXACT("不精确提醒（可能延迟约 1 小时）");
+        INEXACT(R.string.alarm_precision_inexact);
 
         val isDegraded: Boolean get() = this != EXACT
     }

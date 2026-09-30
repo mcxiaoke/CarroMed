@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 药品详情页（MedicationDetailScreen） -->
+    <string name="mdetail_title">药品详情</string>
+    <string name="mdetail_cd_back">返回</string>
+    <string name="mdetail_loading">正在加载药品信息...</string>
+
+    <!-- 状态徽标 -->
+    <string name="mdetail_status_archived">已停药归档</string>
+    <string name="mdetail_status_prn">按需服用 · 无定时提醒</string>
+    <string name="mdetail_status_active">提醒进行中</string>
+
+    <!-- 分节入口 -->
+    <string name="mdetail_section_settings">药品设置</string>
+    <string name="mdetail_entry_profile">药品信息</string>
+    <string name="mdetail_entry_reminder">提醒设置</string>
+    <string name="mdetail_entry_inventory">库存管理</string>
+    <string name="mdetail_resume_reminder">恢复提醒</string>
+    <string name="mdetail_pause_reminder">暂停提醒</string>
+
+    <!-- 说明与注意事项 -->
+    <string name="mdetail_section_description">详细说明 / 医嘱</string>
+    <string name="mdetail_section_precautions">注意事项与禁忌</string>
+
+    <!-- 服药历史 -->
+    <string name="mdetail_section_history">服药历史</string>
+    <string name="mdetail_history_empty">还没有服药记录。完成打卡或用「手动补录」记录后会显示在这里。</string>
+    <string name="mdetail_history_collapse">收起</string>
+    <string name="mdetail_history_show_all">查看全部 %1$d 条</string>
+
+    <!-- 库存流水 -->
+    <string name="mdetail_section_transactions">库存流水</string>
+    <string name="mdetail_transactions_empty">暂无出入库记录</string>
+    <string name="mdetail_go_inventory_full">前往库存管理查看全部流水</string>
+
+    <!-- 危险操作 -->
+    <string name="mdetail_resume_active">恢复在服</string>
+    <string name="mdetail_archive">停药归档</string>
+    <string name="mdetail_delete">删除药品</string>
+    <string name="mdetail_delete_forever">永久删除</string>
+    <string name="mdetail_confirm">确认</string>
+    <string name="mdetail_cancel">取消</string>
+    <string name="mdetail_archive_confirm_resume">确认恢复为在服状态？其提醒计划将重新生效。</string>
+    <string name="mdetail_archive_confirm_archive">确认停药归档？未来提醒会被取消，历史打卡与库存流水完整保留，可随时恢复。</string>
+    <string name="mdetail_delete_confirm">确认删除「%1$s」？其全部排班槽位、打卡记录与库存流水将一并删除，且不可恢复。\n\n如只是不再服用，建议使用「停药归档」保留历史数据。</string>
+
+    <!-- 暂停提醒对话框 -->
+    <string name="mdetail_pause_dialog_title">暂停提醒到什么时候？</string>
+    <string name="mdetail_pause_until_tomorrow">暂停到明天</string>
+    <string name="mdetail_pause_until_week">暂停到一周后</string>
+    <string name="mdetail_pause_until_date">暂停到指定日期</string>
+    <string name="mdetail_pause_indefinite">无限期暂停（需手动恢复）</string>
+    <string name="mdetail_pause_dialog_note">暂停期间不排闹钟；到期后自动恢复，历史服药记录与库存流水完整保留。</string>
+
+    <!-- 依从率卡片 -->
+    <string name="mdetail_adherence_title">近 30 天用药</string>
+    <string name="mdetail_adherence_rate">依从率 %1$.0f%%</string>
+    <string name="mdetail_adherence_none">暂无到期</string>
+    <string name="mdetail_adherence_summary">按时服药 %1$d 次 / 已到期 %2$d 次 · 近 30 天共消耗 %3$s %4$s</string>
+
+    <!-- 服药记录状态徽标 -->
+    <string name="mdetail_status_taken">已服</string>
+    <string name="mdetail_status_retro">补录</string>
+    <string name="mdetail_status_skipped">已跳过</string>
+    <string name="mdetail_status_reverted">已撤销</string>
+</resources>

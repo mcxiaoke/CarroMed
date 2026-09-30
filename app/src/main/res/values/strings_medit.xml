@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 新增/编辑药品页 (AddEditMedicationScreen) -->
+
+    <!-- 顶部栏 -->
+    <string name="medit_cancel">取消</string>
+    <string name="medit_save">保存</string>
+    <string name="medit_error_prefix">⚠️ %1$s</string>
+
+    <!-- 分节标题 -->
+    <string name="medit_section_medication_info">药品信息</string>
+    <string name="medit_section_basic_info">基本信息</string>
+    <string name="medit_section_initial_stock">初始库存 (选填)</string>
+    <string name="medit_section_precautions">注意事项 / 医嘱 (选填)</string>
+
+    <!-- 药品信息 -->
+    <string name="medit_label_med_name">药品名称 *</string>
+    <string name="medit_placeholder_med_name">例如: 阿司匹林肠溶片</string>
+    <string name="medit_label_alias">别名 / 通用名 (选填)</string>
+    <string name="medit_placeholder_alias">例如: 赛妥、西药名</string>
+    <string name="medit_label_category">类别</string>
+    <string name="medit_label_form">剂型</string>
+    <string name="medit_label_unit">单位</string>
+    <string name="medit_label_default_dose">默认单次剂量</string>
+    <string name="medit_label_color">标识颜色</string>
+
+    <!-- 初始库存 -->
+    <string name="medit_initial_stock_desc">填写后系统会记录一条建档流水，之后每次服药自动扣减，可随时在「库存管理」中盘点校准。</string>
+    <string name="medit_label_current_stock">当前现有库存 (%1$s)</string>
+    <string name="medit_placeholder_current_stock">不填则不追踪库存</string>
+
+    <!-- 注意事项与医嘱 -->
+    <string name="medit_precautions_filled_count">已填 %1$d 条</string>
+    <string name="medit_cd_expand_precautions">展开注意事项</string>
+    <string name="medit_cd_collapse_precautions">收起注意事项</string>
+    <string name="medit_precautions_collapsed_hint">点击展开查看与修改</string>
+    <string name="medit_precautions_empty_hint">禁忌、饭后服用等医嘱建议写在这里，会在详情页高亮显示</string>
+    <string name="medit_label_common_tags">常用标签 (点击增删，会在详情页以醒目样式高亮)</string>
+    <string name="medit_cd_remove">移除</string>
+    <string name="medit_label_custom_precaution">自定义注意事项</string>
+    <string name="medit_placeholder_custom_precaution">如: 忌与头孢类同用</string>
+    <string name="medit_cd_add_tag">添加标签</string>
+    <string name="medit_label_description">详细说明 / 医嘱描述</string>
+    <string name="medit_placeholder_description">如: 饭后温水吞服，整粒吞服禁嚼碎</string>
+    <string name="medit_label_notice_short">通知栏简述 (选填)</string>
+    <string name="medit_placeholder_notice_short">如: 温水吞服 · 禁葡萄柚</string>
+    <string name="medit_hint_notice_short">显示在到点提醒通知的第二行</string>
+    <string name="medit_label_expiry_date">药品有效期至 (选填)</string>
+    <string name="medit_date_not_set">未设置</string>
+    <string name="medit_cd_clear_field">清除 %1$s</string>
+
+    <!-- 模式提示 -->
+    <string name="medit_info_only_hint">ℹ️ 这里只编辑药品信息。提醒频次与时间请在药品详情页的「提醒设置」中调整，库存请在「库存管理」中管理。</string>
+    <string name="medit_low_friction_tip">✨ 只需填写【药品名称】即可保存。保存后进入药品详情页，在那里可以单独设置【提醒计划】与【库存】。</string>
+
+    <!-- 步进器 -->
+    <string name="medit_cd_decrease">减少</string>
+    <string name="medit_cd_increase">增加</string>
+</resources>

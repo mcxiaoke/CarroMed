@@ -64,12 +64,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.ui.screen.edit.MedicationFormOptions
 import com.mcxiaoke.carromed.ui.screen.edit.ReadOnlyDateField
@@ -95,7 +97,7 @@ fun ReminderSettingsScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("提醒设置", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.rem_title), fontWeight = FontWeight.Bold)
                         uiState.medication?.let {
                             Text(
                                 it.name,
@@ -107,7 +109,7 @@ fun ReminderSettingsScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.rem_cd_back))
                     }
                 },
                 actions = {
@@ -124,7 +126,7 @@ fun ReminderSettingsScreen(
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                         } else {
-                            Text("保存", fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.rem_save), fontWeight = FontWeight.Bold)
                         }
                     }
                 },
@@ -157,7 +159,7 @@ fun ReminderSettingsScreen(
                         color = MaterialTheme.colorScheme.errorContainer
                     ) {
                         Text(
-                            text = "⚠️ $err",
+                            text = stringResource(R.string.rem_error_with_icon, err),
                             modifier = Modifier.fillMaxWidth().padding(12.dp),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onErrorContainer
@@ -173,17 +175,17 @@ fun ReminderSettingsScreen(
             // 暂停（含恢复与期限调整）是排期语义，唯一入口在药品详情页；
             // 本页只如实展示当前状态，避免两个入口互相覆盖。
             item {
-                SettingsCard(title = "暂停状态") {
+                SettingsCard(title = stringResource(R.string.rem_section_pause)) {
                     Text(
                         if (uiState.isPaused) {
                             val until = uiState.pausedUntil
                             if (until.isNullOrBlank()) {
-                                "已暂停（无恢复日期）——暂停与恢复请到药品详情页操作"
+                                stringResource(R.string.rem_paused_no_date)
                             } else {
-                                "已暂停，恢复日期：$until —— 暂停与恢复请到药品详情页操作"
+                                stringResource(R.string.rem_paused_until, until)
                             }
                         } else {
-                            "提醒进行中。临时停药请在药品详情页「暂停提醒」"
+                            stringResource(R.string.rem_not_paused)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -193,13 +195,13 @@ fun ReminderSettingsScreen(
 
             // 2. 频次
             item {
-                SettingsCard(title = "服药频次") {
+                SettingsCard(title = stringResource(R.string.rem_section_frequency)) {
                     val types = listOf(
-                        PolicyType.DAILY to "每天",
-                        PolicyType.INTERVAL to "隔 N 天",
-                        PolicyType.DAYS_OF_WEEK to "每周",
-                        PolicyType.CYCLE to "周期",
-                        PolicyType.PRN to "按需"
+                        PolicyType.DAILY to stringResource(R.string.rem_type_daily),
+                        PolicyType.INTERVAL to stringResource(R.string.rem_type_interval),
+                        PolicyType.DAYS_OF_WEEK to stringResource(R.string.rem_type_weekly),
+                        PolicyType.CYCLE to stringResource(R.string.rem_type_cycle),
+                        PolicyType.PRN to stringResource(R.string.rem_type_prn)
                     )
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                         types.forEachIndexed { i, (t, label) ->
@@ -215,9 +217,9 @@ fun ReminderSettingsScreen(
 
                     when (uiState.policyType) {
                         PolicyType.INTERVAL -> Stepper(
-                            label = "服药间隔",
-                            hint = if (uiState.intervalDays == 2) "隔天一次"
-                            else "每隔 ${uiState.intervalDays - 1} 天一次",
+                            label = stringResource(R.string.rem_interval_label),
+                            hint = if (uiState.intervalDays == 2) stringResource(R.string.rem_interval_every_other_day)
+                            else stringResource(R.string.rem_interval_days, uiState.intervalDays - 1),
                             value = uiState.intervalDays,
                             canDec = uiState.intervalDays > 2,
                             canInc = uiState.intervalDays < 30,
@@ -227,7 +229,7 @@ fun ReminderSettingsScreen(
 
                         PolicyType.DAYS_OF_WEEK -> {
                             Text(
-                                "选择每周固定服药日",
+                                stringResource(R.string.rem_pick_weekdays),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -236,7 +238,15 @@ fun ReminderSettingsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                val labels = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+                                val labels = listOf(
+                                    stringResource(R.string.rem_weekday_1),
+                                    stringResource(R.string.rem_weekday_2),
+                                    stringResource(R.string.rem_weekday_3),
+                                    stringResource(R.string.rem_weekday_4),
+                                    stringResource(R.string.rem_weekday_5),
+                                    stringResource(R.string.rem_weekday_6),
+                                    stringResource(R.string.rem_weekday_7)
+                                )
                                 (1..7).forEach { day ->
                                     FilterChip(
                                         selected = day in uiState.daysOfWeek,
@@ -255,14 +265,14 @@ fun ReminderSettingsScreen(
 
                         PolicyType.CYCLE -> {
                             Text(
-                                "连续服 N 天后停药 M 天（如避孕药 21 服 / 7 停）",
+                                stringResource(R.string.rem_cycle_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.height(10.dp))
                             Stepper(
-                                label = "连续服药",
-                                hint = "服 ${uiState.cycleOnDays} 天",
+                                label = stringResource(R.string.rem_cycle_on_label),
+                                hint = stringResource(R.string.rem_cycle_on_hint, uiState.cycleOnDays),
                                 value = uiState.cycleOnDays,
                                 canDec = uiState.cycleOnDays > 1,
                                 canInc = uiState.cycleOnDays < 90,
@@ -271,8 +281,8 @@ fun ReminderSettingsScreen(
                             )
                             Spacer(Modifier.height(10.dp))
                             Stepper(
-                                label = "停药",
-                                hint = if (uiState.cycleOffDays == 0) "不设停药期" else "停 ${uiState.cycleOffDays} 天",
+                                label = stringResource(R.string.rem_cycle_off_label),
+                                hint = if (uiState.cycleOffDays == 0) stringResource(R.string.rem_cycle_off_none) else stringResource(R.string.rem_cycle_off_hint, uiState.cycleOffDays),
                                 value = uiState.cycleOffDays,
                                 canDec = uiState.cycleOffDays > 0,
                                 canInc = uiState.cycleOffDays < 30,
@@ -281,21 +291,18 @@ fun ReminderSettingsScreen(
                             )
                         }
 
-                        PolicyType.PRN -> HintCard(
-                            "按需服用：不设定时闹钟，也不会生成每日排班。" +
-                                "适合止痛药、晕车药等临时用药 —— 需要记录时在今日清单用「手动补录」写下实际时间与剂量即可。"
-                        )
+                        PolicyType.PRN -> HintCard(stringResource(R.string.rem_prn_hint))
 
-                        PolicyType.DAILY -> HintCard("每天在下方设定的时点提醒服药。")
+                        PolicyType.DAILY -> HintCard(stringResource(R.string.rem_daily_hint))
                     }
                 }
             }
 
             // 3. 疗程
             item {
-                SettingsCard(title = "服药疗程") {
+                SettingsCard(title = stringResource(R.string.rem_section_duration)) {
                     ReadOnlyDateField(
-                        label = "开始日期",
+                        label = stringResource(R.string.rem_start_date),
                         dateStr = uiState.startDate,
                         onDateChange = { viewModel.onStartDateChange(it) }
                     )
@@ -307,15 +314,15 @@ fun ReminderSettingsScreen(
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                "设置结束日期",
+                                stringResource(R.string.rem_set_end_date),
                                 style = MaterialTheme.typography.bodyLarge,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 if (uiState.hasEndDate && uiState.endDate != null) {
-                                    "到该日期后自动停止提醒（抗生素疗程）"
+                                    stringResource(R.string.rem_end_date_desc)
                                 } else {
-                                    "长期服用：无限期"
+                                    stringResource(R.string.rem_no_end_date)
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -326,7 +333,7 @@ fun ReminderSettingsScreen(
                     if (uiState.hasEndDate) {
                         Spacer(Modifier.height(12.dp))
                         ReadOnlyDateField(
-                            label = "结束日期",
+                            label = stringResource(R.string.rem_end_date),
                             dateStr = uiState.endDate.orEmpty(),
                             onDateChange = { viewModel.onEndDateChange(it) },
                             onClear = { viewModel.onEndDateChange(null) }
@@ -338,7 +345,7 @@ fun ReminderSettingsScreen(
             // 4. 时点
             if (uiState.policyType != PolicyType.PRN) {
                 item {
-                    SettingsCard(title = "提醒时点与剂量") {
+                    SettingsCard(title = stringResource(R.string.rem_section_times)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf(1, 2, 3, 4).forEach { n ->
                                 OutlinedButton(
@@ -346,7 +353,7 @@ fun ReminderSettingsScreen(
                                     modifier = Modifier.weight(1f),
                                     contentPadding = PaddingValues(vertical = 6.dp),
                                     shape = RoundedCornerShape(8.dp)
-                                ) { Text("每天 $n 次", fontSize = 12.sp) }
+                                ) { Text(stringResource(R.string.rem_times_per_day, n), fontSize = 12.sp) }
                             }
                         }
                         Spacer(Modifier.height(14.dp))
@@ -394,7 +401,7 @@ fun ReminderSettingsScreen(
                                             IconButton(onClick = { viewModel.removeTime(index) }) {
                                                 Icon(
                                                     Icons.Default.DeleteOutline,
-                                                    contentDescription = "删除",
+                                                    contentDescription = stringResource(R.string.rem_cd_delete),
                                                     tint = MaterialTheme.colorScheme.error
                                                 )
                                             }
@@ -405,7 +412,7 @@ fun ReminderSettingsScreen(
                                         OutlinedTextField(
                                             value = t.dose,
                                             onValueChange = { viewModel.updateTime(index, doseText = it) },
-                                            label = { Text("剂量") },
+                                            label = { Text(stringResource(R.string.rem_dose_label)) },
                                             modifier = Modifier.width(100.dp),
                                             singleLine = true,
                                             // ⭐ `Decimal` 而非 `Number`（M2-1）：
@@ -433,7 +440,7 @@ fun ReminderSettingsScreen(
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("添加一个提醒时点", fontSize = 13.sp)
+                            Text(stringResource(R.string.rem_add_time), fontSize = 13.sp)
                         }
                     }
                 }
@@ -444,10 +451,10 @@ fun ReminderSettingsScreen(
 
             // 6. 提醒行为
             item {
-                SettingsCard(title = "提醒行为") {
+                SettingsCard(title = stringResource(R.string.rem_section_behavior)) {
                     SwitchRow(
-                        title = "重要提醒",
-                        subtitle = "到点时不静音、不受夜间免打扰限制，响铃 + 强提醒横幅",
+                        title = stringResource(R.string.rem_critical_title),
+                        subtitle = stringResource(R.string.rem_critical_subtitle),
                         checked = uiState.isCriticalReminder,
                         onChange = { viewModel.onCriticalChange(it) }
                     )
@@ -455,7 +462,7 @@ fun ReminderSettingsScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     Spacer(Modifier.height(14.dp))
                     Stepper(
-                        label = "推迟时长",
+                        label = stringResource(R.string.rem_snooze_label),
                         // ⭐ 显式的「跟随全局」档位（M7-5）。
                         //
                         // 旧实现把哨兵 0 显示成 30，于是：
@@ -468,9 +475,9 @@ fun ReminderSettingsScreen(
                         // 现在把"跟随全局"做成一个看得见、点得回的档位：
                         // 显示全局实际生效的分钟数，并标明来源，让两者不可能再分叉。
                         hint = if (uiState.snoozeMinutes == 0) {
-                            "跟随全局设置（当前 ${uiState.globalSnoozeMinutes} 分钟）"
+                            stringResource(R.string.rem_snooze_follow_global, uiState.globalSnoozeMinutes)
                         } else {
-                            "通知栏「稍后提醒」的分钟数（本药专属）"
+                            stringResource(R.string.rem_snooze_custom)
                         },
                         value = if (uiState.snoozeMinutes == 0) uiState.globalSnoozeMinutes
                         else uiState.snoozeMinutes,
@@ -495,8 +502,8 @@ fun ReminderSettingsScreen(
                     )
                     Spacer(Modifier.height(10.dp))
                     Stepper(
-                        label = "提前提醒",
-                        hint = if (uiState.advanceMinutes == 0) "准点提醒" else "提前 ${uiState.advanceMinutes} 分钟",
+                        label = stringResource(R.string.rem_advance_label),
+                        hint = if (uiState.advanceMinutes == 0) stringResource(R.string.rem_advance_none) else stringResource(R.string.rem_advance_minutes, uiState.advanceMinutes),
                         value = uiState.advanceMinutes,
                         canDec = uiState.advanceMinutes > 0,
                         // ⭐ 上界 120，与 VM 的 `coerceIn(0, 120)` **逐字对齐**（M7-7）。
@@ -516,7 +523,7 @@ fun ReminderSettingsScreen(
                     color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
                 ) {
                     Text(
-                        text = "ℹ️ 修改提醒只会重排「未来尚未执行」的排班；已经打卡的历史记录永远不会被改动或删除。",
+                        text = stringResource(R.string.rem_reschedule_note),
                         modifier = Modifier.padding(12.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -530,9 +537,9 @@ fun ReminderSettingsScreen(
 
 @Composable
 private fun PreviewCard(uiState: ReminderSettingsUiState) {
-    SettingsCard(title = "未来 7 天排班预览") {
+    SettingsCard(title = stringResource(R.string.rem_section_preview)) {
         if (uiState.policyType == PolicyType.PRN) {
-            HintCard("按需服用不产生排班，因此没有预览。")
+            HintCard(stringResource(R.string.rem_prn_no_preview))
             return@SettingsCard
         }
         uiState.preview.forEach { d ->
@@ -545,7 +552,7 @@ private fun PreviewCard(uiState: ReminderSettingsUiState) {
             ) {
                 Column(Modifier.width(76.dp)) {
                     Text(
-                        text = if (d.date == java.time.LocalDate.now()) "今天 ${d.dayLabel}" else "${d.date.monthValue}/${d.date.dayOfMonth} ${d.dayLabel}",
+                        text = if (d.date == java.time.LocalDate.now()) stringResource(R.string.rem_today_label, d.dayLabel) else "${d.date.monthValue}/${d.date.dayOfMonth} ${d.dayLabel}",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = if (d.date == java.time.LocalDate.now()) FontWeight.Bold else FontWeight.Normal,
                         color = MaterialTheme.colorScheme.onSurface
@@ -651,7 +658,7 @@ private fun Stepper(
                     onClick = onResetToGlobal,
                     contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
                 ) {
-                    Text("跟随全局", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    Text(stringResource(R.string.rem_follow_global), fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -662,7 +669,7 @@ private fun Stepper(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onDec, enabled = canDec) {
-                Icon(Icons.Default.Remove, contentDescription = "减少", modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.rem_cd_decrease), modifier = Modifier.size(18.dp))
             }
             Text(
                 text = "$value",
@@ -672,7 +679,7 @@ private fun Stepper(
                 textAlign = TextAlign.Center
             )
             IconButton(onClick = onInc, enabled = canInc) {
-                Icon(Icons.Default.Add, contentDescription = "增加", modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.rem_cd_increase), modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -693,7 +700,7 @@ private fun LabelDropdown(
             value = value,
             onValueChange = {},
             readOnly = true,
-            label = { Text("服药建议") },
+            label = { Text(stringResource(R.string.rem_dose_advice)) },
             singleLine = true,
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier = Modifier.fillMaxWidth().menuAnchor()

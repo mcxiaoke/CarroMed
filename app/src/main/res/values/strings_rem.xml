@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ReminderSettingsScreen（提醒设置页）-->
+    <string name="rem_title">提醒设置</string>
+    <string name="rem_save">保存</string>
+    <string name="rem_cd_back">返回</string>
+    <string name="rem_error_with_icon">⚠️ %1$s</string>
+
+    <!-- 暂停状态（只读展示）-->
+    <string name="rem_section_pause">暂停状态</string>
+    <string name="rem_paused_no_date">已暂停（无恢复日期）——暂停与恢复请到药品详情页操作</string>
+    <string name="rem_paused_until">已暂停，恢复日期：%1$s —— 暂停与恢复请到药品详情页操作</string>
+    <string name="rem_not_paused">提醒进行中。临时停药请在药品详情页「暂停提醒」</string>
+
+    <!-- 服药频次 -->
+    <string name="rem_section_frequency">服药频次</string>
+    <string name="rem_type_daily">每天</string>
+    <string name="rem_type_interval">隔 N 天</string>
+    <string name="rem_type_weekly">每周</string>
+    <string name="rem_type_cycle">周期</string>
+    <string name="rem_type_prn">按需</string>
+    <string name="rem_interval_label">服药间隔</string>
+    <string name="rem_interval_every_other_day">隔天一次</string>
+    <string name="rem_interval_days">每隔 %1$d 天一次</string>
+    <string name="rem_pick_weekdays">选择每周固定服药日</string>
+    <string name="rem_weekday_1">周一</string>
+    <string name="rem_weekday_2">周二</string>
+    <string name="rem_weekday_3">周三</string>
+    <string name="rem_weekday_4">周四</string>
+    <string name="rem_weekday_5">周五</string>
+    <string name="rem_weekday_6">周六</string>
+    <string name="rem_weekday_7">周日</string>
+    <string name="rem_cycle_desc">连续服 N 天后停药 M 天（如避孕药 21 服 / 7 停）</string>
+    <string name="rem_cycle_on_label">连续服药</string>
+    <string name="rem_cycle_on_hint">服 %1$d 天</string>
+    <string name="rem_cycle_off_label">停药</string>
+    <string name="rem_cycle_off_none">不设停药期</string>
+    <string name="rem_cycle_off_hint">停 %1$d 天</string>
+    <string name="rem_prn_hint">按需服用：不设定时闹钟，也不会生成每日排班。适合止痛药、晕车药等临时用药 —— 需要记录时在今日清单用「手动补录」写下实际时间与剂量即可。</string>
+    <string name="rem_daily_hint">每天在下方设定的时点提醒服药。</string>
+
+    <!-- 服药疗程 -->
+    <string name="rem_section_duration">服药疗程</string>
+    <string name="rem_start_date">开始日期</string>
+    <string name="rem_set_end_date">设置结束日期</string>
+    <string name="rem_end_date_desc">到该日期后自动停止提醒（抗生素疗程）</string>
+    <string name="rem_no_end_date">长期服用：无限期</string>
+    <string name="rem_end_date">结束日期</string>
+
+    <!-- 提醒时点与剂量 -->
+    <string name="rem_section_times">提醒时点与剂量</string>
+    <string name="rem_times_per_day">每天 %1$d 次</string>
+    <string name="rem_cd_delete">删除</string>
+    <string name="rem_dose_label">剂量</string>
+    <string name="rem_add_time">添加一个提醒时点</string>
+    <string name="rem_dose_advice">服药建议</string>
+
+    <!-- 未来 7 天排班预览 -->
+    <string name="rem_section_preview">未来 7 天排班预览</string>
+    <string name="rem_prn_no_preview">按需服用不产生排班，因此没有预览。</string>
+    <string name="rem_today_label">今天 %1$s</string>
+
+    <!-- 提醒行为 -->
+    <string name="rem_section_behavior">提醒行为</string>
+    <string name="rem_critical_title">重要提醒</string>
+    <string name="rem_critical_subtitle">到点时不静音、不受夜间免打扰限制，响铃 + 强提醒横幅</string>
+    <string name="rem_snooze_label">推迟时长</string>
+    <string name="rem_snooze_follow_global">跟随全局设置（当前 %1$d 分钟）</string>
+    <string name="rem_snooze_custom">通知栏「稍后提醒」的分钟数（本药专属）</string>
+    <string name="rem_follow_global">跟随全局</string>
+    <string name="rem_advance_label">提前提醒</string>
+    <string name="rem_advance_none">准点提醒</string>
+    <string name="rem_advance_minutes">提前 %1$d 分钟</string>
+
+    <!-- 底部说明 -->
+    <string name="rem_reschedule_note">ℹ️ 修改提醒只会重排「未来尚未执行」的排班；已经打卡的历史记录永远不会被改动或删除。</string>
+
+    <!-- 步进器 -->
+    <string name="rem_cd_decrease">减少</string>
+    <string name="rem_cd_increase">增加</string>
+</resources>

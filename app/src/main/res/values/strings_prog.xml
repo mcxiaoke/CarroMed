@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 进展追踪页 -->
+    <string name="prog_title">进展追踪</string>
+    <string name="prog_export_report">导出报告</string>
+    <string name="prog_tab_matrix">7 天打卡矩阵</string>
+    <string name="prog_tab_timeline">服药流水</string>
+    <string name="prog_empty_matrix">还没有在服药品。添加第一个药品后，这里会显示近 7 天的真实打卡情况。</string>
+    <string name="prog_empty_timeline">还没有服药记录。在今日清单点「手动补录」可记录临时用药，或从提醒里确认服药。</string>
+    <string name="prog_overall_adherence_title">近 7 天整体依从率</string>
+    <string name="prog_overall_adherence_detail">按时服药 %1$d 次 / 已到期 %2$d 次</string>
+    <string name="prog_overall_no_due">近 7 天还没有到期的服药任务</string>
+    <string name="prog_dose_count">%1$d/%2$d 次</string>
+    <string name="prog_no_due_short">暂无到期</string>
+    <string name="prog_cd_taken_summary">，近 7 天按时服药 %1$d/%2$d 次</string>
+    <string name="prog_cd_no_due_task">，暂无到期任务</string>
+    <string name="prog_cd_view_detail">，查看详情</string>
+    <string name="prog_cd_fully_taken">全部完成</string>
+    <string name="prog_cd_missed">逾期漏服</string>
+    <string name="prog_cd_skipped">主动跳过</string>
+    <string name="prog_today_header">今天 · %1$s</string>
+    <string name="prog_unit_tablet">片</string>
+    <string name="prog_deleted_medication">已删除的药品</string>
+    <string name="prog_manual_dose">临时用药</string>
+    <string name="prog_retrospective">补录</string>
+    <string name="prog_status_taken">已服</string>
+    <string name="prog_status_skipped">已跳过</string>
+    <string name="prog_status_reverted">已撤销</string>
+    <string name="prog_timeline_more">继续下滑查看更早的记录</string>
+    <string name="prog_timeline_end">没有更早的记录了</string>
+</resources>

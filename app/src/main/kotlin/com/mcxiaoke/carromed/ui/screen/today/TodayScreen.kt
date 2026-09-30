@@ -56,12 +56,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
 import com.mcxiaoke.carromed.ui.component.Quantity
@@ -120,8 +122,8 @@ fun TodayScreen(
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onNavigateToManualDose,
-                icon = { Icon(Icons.Default.Add, contentDescription = "补录") },
-                text = { Text("手动补录", fontWeight = FontWeight.Bold) },
+                icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.today_cd_manual_log)) },
+                text = { Text(stringResource(R.string.today_manual_log), fontWeight = FontWeight.Bold) },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
             )
@@ -138,9 +140,9 @@ fun TodayScreen(
         ) {
             item {
                 HomeTabHeader(
-                    title = "今日清单",
+                    title = stringResource(R.string.today_title),
                     actionIcon = Icons.Outlined.Settings,
-                    actionContentDescription = "系统设置",
+                    actionContentDescription = stringResource(R.string.today_cd_settings),
                     onActionClick = onNavigateToSettings
                 )
             }
@@ -148,7 +150,10 @@ fun TodayScreen(
             item {
                 Text(
                     text = uiState.selectedDate.format(
-                        DateTimeFormatter.ofPattern("yyyy年M月d日 EEEE", Locale.CHINESE)
+                        DateTimeFormatter.ofPattern(
+                            stringResource(R.string.today_date_pattern),
+                            Locale.CHINESE
+                        )
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -198,16 +203,21 @@ fun TodayScreen(
                             ) {
                                 Icon(
                                     Icons.Default.WarningAmber,
-                                    contentDescription = "库存告警",
+                                    contentDescription = stringResource(R.string.today_cd_stock_alert),
                                     tint = WarningAmber
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     text = if (isOverspent) {
-                                        "${med.name} 账面 ${Quantity.fmt(stock)} $unit，已超出记录库存，请盘点校准"
+                                        stringResource(
+                                            R.string.today_stock_overspent,
+                                            med.name, Quantity.fmt(stock), unit
+                                        )
                                     } else {
-                                        "${med.name} 仅剩 ${Quantity.fmt(stock)} $unit" +
-                                            " (低于警戒线 ${Quantity.fmt(alert)})"
+                                        stringResource(
+                                            R.string.today_stock_low,
+                                            med.name, Quantity.fmt(stock), unit, Quantity.fmt(alert)
+                                        )
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
@@ -221,7 +231,11 @@ fun TodayScreen(
                                 contentPadding = PaddingValues(0.dp)
                             ) {
                                 Text(
-                                    text = if (isOverspent) "去盘点 >" else "去补药 >",
+                                    text = if (isOverspent) {
+                                        stringResource(R.string.today_go_inventory)
+                                    } else {
+                                        stringResource(R.string.today_go_refill)
+                                    },
                                     fontWeight = FontWeight.Bold,
                                     color = WarningAmber
                                 )
@@ -237,7 +251,7 @@ fun TodayScreen(
                     modifier = Modifier.padding(top = 4.dp)
                 ) {
                     Text(
-                        text = "待服药 (${uiState.pendingItems.size})",
+                        text = stringResource(R.string.today_pending_title, uiState.pendingItems.size),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground
@@ -248,9 +262,9 @@ fun TodayScreen(
                             // 未来日是**只读预览**：如实说明"为什么没有 ✓"，
                             // 而不是让用户以为卡片坏了 / App 卡了
                             text = if (uiState.isActionable) {
-                                "点开可推迟或跳过"
+                                stringResource(R.string.today_pending_hint_actionable)
                             } else {
-                                "未来排班预览 · 到达当天才能打卡"
+                                stringResource(R.string.today_pending_hint_future)
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -290,9 +304,9 @@ fun TodayScreen(
                             ) {
                                 Text(
                                     text = if (uiState.selectedDate == uiState.today) {
-                                        "这一天没有待服任务 🎉"
+                                        stringResource(R.string.today_empty_all_done)
                                     } else {
-                                        "这一天没有排班"
+                                        stringResource(R.string.today_empty_no_schedule)
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -326,17 +340,21 @@ fun TodayScreen(
                             // 翻到 9-30 时写"今日已服"是**事实错误**：那天的记录不是今天服的。
                             // 与"今日清单"这个页名无关 —— 它标的是当前查看的那一天。
                             text = if (uiState.selectedDate == uiState.today) {
-                                "今日已服 (${uiState.completedItems.size})"
+                                stringResource(R.string.today_completed_title, uiState.completedItems.size)
                             } else {
-                                "${uiState.selectedDate.monthValue}月${uiState.selectedDate.dayOfMonth}日已服" +
-                                    " (${uiState.completedItems.size})"
+                                stringResource(
+                                    R.string.today_completed_title_date,
+                                    uiState.selectedDate.monthValue,
+                                    uiState.selectedDate.dayOfMonth,
+                                    uiState.completedItems.size
+                                )
                             },
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "点开可撤销或改判",
+                            text = stringResource(R.string.today_completed_hint),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -350,7 +368,7 @@ fun TodayScreen(
             if (uiState.skippedItems.isNotEmpty()) {
                 item {
                     Text(
-                        text = "已跳过 (${uiState.skippedItems.size})",
+                        text = stringResource(R.string.today_skipped_section, uiState.skippedItems.size),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.outline,
@@ -375,7 +393,7 @@ private fun PendingDoseCard(
     onClick: () -> Unit
 ) {
     val med = item.medication
-    val unit = med?.unit ?: "片"
+    val unit = med?.unit ?: stringResource(R.string.today_default_unit)
     val medColor = med?.colorHex?.let {
         runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
     } ?: MaterialTheme.colorScheme.primary
@@ -414,7 +432,7 @@ private fun PendingDoseCard(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = med?.name ?: "未知药品",
+                        text = med?.name ?: stringResource(R.string.today_unknown_medication),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -437,13 +455,18 @@ private fun PendingDoseCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Default.Schedule,
-                        contentDescription = "计划时间",
+                        contentDescription = stringResource(R.string.today_cd_scheduled_time),
                         modifier = Modifier.size(14.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = "${item.slot.scheduledTime} · ${Quantity.fmt(Dose(item.slot.doseAmount).asFloat)} $unit",
+                        text = stringResource(
+                            R.string.today_dose_time_amount,
+                            item.slot.scheduledTime,
+                            Quantity.fmt(Dose(item.slot.doseAmount).asFloat),
+                            unit
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -455,9 +478,9 @@ private fun PendingDoseCard(
                         val isLow = isOverspent || (alert > 0f && stock <= alert)
                         Text(
                             text = if (isOverspent) {
-                                "· 账面 ${Quantity.fmt(stock)} $unit (待盘点)"
+                                stringResource(R.string.today_stock_overspent_inline, Quantity.fmt(stock), unit)
                             } else {
-                                "· 剩 ${Quantity.fmt(stock)} $unit"
+                                stringResource(R.string.today_stock_low_inline, Quantity.fmt(stock), unit)
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = if (isLow) FontWeight.Bold else FontWeight.Normal,
@@ -473,7 +496,7 @@ private fun PendingDoseCard(
                         Spacer(Modifier.height(4.dp))
                         StatusBadge(
                             icon = Icons.Default.Alarm,
-                            text = "已推迟至 ${formatSnooze(item.slot.snoozeUntilTs)}",
+                            text = stringResource(R.string.today_snoozed_until, formatSnooze(item.slot.snoozeUntilTs)),
                             color = MaterialTheme.colorScheme.tertiary
                         )
                     }
@@ -482,7 +505,11 @@ private fun PendingDoseCard(
                         Spacer(Modifier.height(4.dp))
                         StatusBadge(
                             icon = Icons.Default.WarningAmber,
-                            text = "已逾期 ${Quantity.fmt(Dose(item.slot.doseAmount).asFloat)} $unit，尚未确认",
+                            text = stringResource(
+                                R.string.today_expired_unconfirmed,
+                                Quantity.fmt(Dose(item.slot.doseAmount).asFloat),
+                                unit
+                            ),
                             color = WarningAmber
                         )
                     }
@@ -508,7 +535,7 @@ private fun PendingDoseCard(
                 ) {
                     Icon(
                         Icons.Default.Check,
-                        contentDescription = "确认服药",
+                        contentDescription = stringResource(R.string.today_cd_confirm_dose),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
@@ -532,7 +559,7 @@ private fun PendingDoseCard(
                     )
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        text = "${item.slot.scheduledTime} 服用",
+                        text = stringResource(R.string.today_future_take_at, item.slot.scheduledTime),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.End
@@ -587,14 +614,13 @@ private fun FirstRunGuideCard(onNavigateToAddMedication: () -> Unit) {
             }
             Spacer(Modifier.height(14.dp))
             Text(
-                text = "药箱还是空的",
+                text = stringResource(R.string.today_first_run_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "添加第一个药品后，系统会按你设定的时点自动排班并准时提醒；" +
-                    "所有数据只存在本机，不联网、不上传。",
+                text = stringResource(R.string.today_first_run_body),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -607,7 +633,7 @@ private fun FirstRunGuideCard(onNavigateToAddMedication: () -> Unit) {
             ) {
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("添加第一个药品")
+                Text(stringResource(R.string.today_first_run_cta))
             }
         }
     }
@@ -656,7 +682,7 @@ private fun CompletedDoseCard(
             ) {
                 Icon(
                     Icons.Default.Check,
-                    contentDescription = "已完成",
+                    contentDescription = stringResource(R.string.today_cd_completed),
                     tint = SuccessGreen,
                     modifier = Modifier.size(20.dp)
                 )
@@ -665,14 +691,14 @@ private fun CompletedDoseCard(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = med?.name ?: "药品",
+                        text = med?.name ?: stringResource(R.string.today_fallback_medication),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(Modifier.width(6.dp))
                     Surface(shape = RoundedCornerShape(4.dp), color = SuccessGreen.copy(alpha = 0.15f)) {
                         Text(
-                            "已服",
+                            stringResource(R.string.today_badge_taken),
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                             style = MaterialTheme.typography.labelSmall,
                             color = SuccessGreen,
@@ -683,10 +709,18 @@ private fun CompletedDoseCard(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = buildString {
-                        append("${item.slot.scheduledTime} 完成")
+                        append(stringResource(R.string.today_completed_at, item.slot.scheduledTime))
                         item.record?.let { r ->
-                            append(" · ${Quantity.fmt(Dose(r.doseTaken).asFloat)} ${med?.unit ?: "片"}")
-                            if (!r.note.isNullOrBlank()) append(" · ${r.note}")
+                            append(
+                                stringResource(
+                                    R.string.today_completed_dose_part,
+                                    Quantity.fmt(Dose(r.doseTaken).asFloat),
+                                    med?.unit ?: stringResource(R.string.today_default_unit)
+                                )
+                            )
+                            if (!r.note.isNullOrBlank()) {
+                                append(stringResource(R.string.today_completed_note_part, r.note))
+                            }
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -723,19 +757,23 @@ private fun SkippedDoseCard(
         ) {
             Icon(
                 Icons.Default.Close,
-                contentDescription = "已跳过",
+                contentDescription = stringResource(R.string.today_cd_skipped),
                 tint = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.size(22.dp)
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = "${med?.name ?: "药品"} · ${item.slot.scheduledTime}",
+                    text = stringResource(
+                        R.string.today_skipped_card_title,
+                        med?.name ?: stringResource(R.string.today_fallback_medication),
+                        item.slot.scheduledTime
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "已主动跳过 · 未扣减库存",
+                    text = stringResource(R.string.today_skipped_detail),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -759,7 +797,25 @@ private fun DateSelectorRow(
             val isSelected = date == selectedDate
             val isToday = date == today
             val dayOfWeekChinese = when (date.dayOfWeek.value) {
-                1 -> "一"; 2 -> "二"; 3 -> "三"; 4 -> "四"; 5 -> "五"; 6 -> "六"; else -> "日"
+                1 -> stringResource(R.string.today_weekday_1)
+                2 -> stringResource(R.string.today_weekday_2)
+                3 -> stringResource(R.string.today_weekday_3)
+                4 -> stringResource(R.string.today_weekday_4)
+                5 -> stringResource(R.string.today_weekday_5)
+                6 -> stringResource(R.string.today_weekday_6)
+                else -> stringResource(R.string.today_weekday_7)
+            }
+            // stringResource 只能在组合期调用，而 semantics 块不是 composable 上下文，
+            // 所以描述串先在这里（组合期）算好，再放进 semantics。
+            val dateDescription = buildString {
+                append(
+                    stringResource(
+                        R.string.today_cd_date,
+                        date.monthValue, date.dayOfMonth, dayOfWeekChinese
+                    )
+                )
+                if (isToday) append(stringResource(R.string.today_cd_today_suffix))
+                if (date > today) append(stringResource(R.string.today_cd_future_suffix))
             }
 
             Column(
@@ -776,11 +832,7 @@ private fun DateSelectorRow(
                     // 只如实标注它是未来。日期格没有稳定文本（只有一个"30"这种数字），
                     // uiautomator 按文本定位会命中一堆无关节点。
                     .semantics {
-                        contentDescription = buildString {
-                            append("日期 ${date.monthValue}月${date.dayOfMonth}日 周$dayOfWeekChinese")
-                            if (isToday) append("，今天")
-                            if (date > today) append("，未来排班预览")
-                        }
+                        contentDescription = dateDescription
                     }
                     .padding(vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally

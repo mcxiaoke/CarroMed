@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 通知栏快捷操作的 Toast 提示（DoseActionReceiver） -->
+    <string name="act_taken">已记录服药，库存已同步 💊</string>
+    <string name="act_skipped">已跳过本次，不扣减库存</string>
+    <string name="act_snoozed">已推迟 %1$d 分钟，到时再提醒</string>
+    <string name="act_future_slot">未来的服药时间不能提前确认</string>
+    <string name="act_already_handled">该提醒已处理过</string>
+
+    <!-- 快捷操作写入服药记录的备注 / 跳过原因（记录详情页可见） -->
+    <string name="act_note_take">通知栏快捷打卡</string>
+    <string name="act_note_skip">通知栏快捷跳过</string>
+</resources>

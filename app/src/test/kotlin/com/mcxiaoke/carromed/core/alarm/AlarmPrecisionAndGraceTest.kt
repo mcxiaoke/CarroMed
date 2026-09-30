@@ -98,8 +98,8 @@ class AlarmPrecisionAndGraceTest {
     fun `降级档位的文案必须写明可能延迟 而不是含糊带过`() {
         // 自检页直接把 label 显示给用户。若文案只写"不精确"，
         // 用户无法判断"到点提醒"这个承诺是否还成立。
-        assertThat(AlarmScheduler.Precision.INEXACT.label).contains("延迟")
-        assertThat(AlarmScheduler.Precision.EXACT.label).contains("到点")
+        assertThat(context.getString(AlarmScheduler.Precision.INEXACT.labelRes)).contains("延迟")
+        assertThat(context.getString(AlarmScheduler.Precision.EXACT.labelRes)).contains("到点")
     }
 
     @Test

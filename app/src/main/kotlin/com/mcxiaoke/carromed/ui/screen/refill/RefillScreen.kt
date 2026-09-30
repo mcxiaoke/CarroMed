@@ -45,11 +45,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.screen.edit.ReadOnlyDateField
 
@@ -74,10 +76,10 @@ fun RefillScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("补药入库", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.refill_title), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.refill_cd_back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -101,7 +103,7 @@ fun RefillScreen(
                 ) {
                     Column(modifier = Modifier.padding(18.dp)) {
                         Text(
-                            text = med?.name ?: "药品",
+                            text = med?.name ?: stringResource(R.string.refill_default_med_name),
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -109,7 +111,7 @@ fun RefillScreen(
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "当前库存结余: ",
+                                text = stringResource(R.string.refill_current_stock_label),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -130,7 +132,10 @@ fun RefillScreen(
                                 }
                             )
                             Text(
-                                text = " · 预警线: ${Quantity.withUnit(Dose(med?.minStockAlert ?: 0).asFloat, med?.unit)}",
+                                text = stringResource(
+                                    R.string.refill_alert_line,
+                                    Quantity.withUnit(Dose(med?.minStockAlert ?: 0).asFloat, med?.unit)
+                                ),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -146,7 +151,7 @@ fun RefillScreen(
                         color = MaterialTheme.colorScheme.errorContainer
                     ) {
                         Text(
-                            text = "⚠️ $err",
+                            text = stringResource(R.string.refill_error_prefix, err),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(12.dp),
@@ -166,7 +171,7 @@ fun RefillScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "入库数量",
+                            text = stringResource(R.string.refill_amount_section_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
@@ -191,7 +196,7 @@ fun RefillScreen(
                         OutlinedTextField(
                             value = uiState.addAmount,
                             onValueChange = { viewModel.onAddAmountChange(it) },
-                            label = { Text("增加库存量 (${med?.unit ?: "片"}) *") },
+                            label = { Text(stringResource(R.string.refill_amount_label, med?.unit ?: stringResource(R.string.refill_unit_default))) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -209,14 +214,19 @@ fun RefillScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "采购与批次信息 (可选)",
+                            text = stringResource(R.string.refill_purchase_section_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        val channels = listOf("同仁堂实体药房", "医院处方药房", "京东/阿里线上大药房", "家庭医保药店")
+                        val channels = listOf(
+                            stringResource(R.string.refill_channel_tongrentang),
+                            stringResource(R.string.refill_channel_hospital),
+                            stringResource(R.string.refill_channel_online),
+                            stringResource(R.string.refill_channel_family)
+                        )
                         var channelExpanded by remember { mutableStateOf(false) }
 
                         ExposedDropdownMenuBox(
@@ -228,7 +238,7 @@ fun RefillScreen(
                                 value = uiState.channel,
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("采购渠道 / 来源") },
+                                label = { Text(stringResource(R.string.refill_channel_label)) },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = channelExpanded) },
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -256,14 +266,14 @@ fun RefillScreen(
                             OutlinedTextField(
                                 value = uiState.batchNumber,
                                 onValueChange = { viewModel.onBatchNumberChange(it) },
-                                label = { Text("生产批号 (选填)") },
-                                placeholder = { Text("如 20260408A") },
+                                label = { Text(stringResource(R.string.refill_batch_number_label)) },
+                                placeholder = { Text(stringResource(R.string.refill_batch_number_placeholder)) },
                                 modifier = Modifier.weight(1f),
                                 singleLine = true
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             ReadOnlyDateField(
-                                label = "有效期至 (选填)",
+                                label = stringResource(R.string.refill_expiry_label),
                                 dateStr = uiState.expiryDate,
                                 onDateChange = { viewModel.onExpiryDateChange(it) },
                                 onClear = { viewModel.onExpiryDateChange("") },
@@ -276,8 +286,8 @@ fun RefillScreen(
                         OutlinedTextField(
                             value = uiState.note,
                             onValueChange = { viewModel.onNoteChange(it) },
-                            label = { Text("入库备注 (选填)") },
-                            placeholder = { Text("如 医生开的第二个疗程") },
+                            label = { Text(stringResource(R.string.refill_note_label)) },
+                            placeholder = { Text(stringResource(R.string.refill_note_placeholder)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -302,7 +312,7 @@ fun RefillScreen(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                     } else {
-                        Text("确认入库 (生成流水账)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(stringResource(R.string.refill_confirm_button), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
             }

@@ -70,12 +70,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
@@ -122,7 +124,7 @@ fun AddEditMedicationScreen(
                 title = { Text(uiState.title, fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     TextButton(onClick = onNavigateBack) {
-                        Text("取消", style = MaterialTheme.typography.bodyLarge)
+                        Text(stringResource(R.string.medit_cancel), style = MaterialTheme.typography.bodyLarge)
                     }
                 },
                 actions = {
@@ -139,7 +141,7 @@ fun AddEditMedicationScreen(
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                         } else {
-                            Text("保存", fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.medit_save), fontWeight = FontWeight.Bold)
                         }
                     }
                 },
@@ -175,7 +177,7 @@ fun AddEditMedicationScreen(
                         color = MaterialTheme.colorScheme.errorContainer
                     ) {
                         Text(
-                            text = "⚠️ ${uiState.error}",
+                            text = stringResource(R.string.medit_error_prefix, uiState.error ?: ""),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -194,14 +196,15 @@ fun AddEditMedicationScreen(
             item {
                 SectionCard(
                     index = 1,
-                    title = if (uiState.isEdit) "药品信息" else "基本信息",
+                    title = if (uiState.isEdit) stringResource(R.string.medit_section_medication_info)
+                    else stringResource(R.string.medit_section_basic_info),
                     required = true
                 ) {
                     OutlinedTextField(
                         value = uiState.name,
                         onValueChange = { viewModel.onNameChange(it) },
-                        label = { Text("药品名称 *") },
-                        placeholder = { Text("例如: 阿司匹林肠溶片") },
+                        label = { Text(stringResource(R.string.medit_label_med_name)) },
+                        placeholder = { Text(stringResource(R.string.medit_placeholder_med_name)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -211,8 +214,8 @@ fun AddEditMedicationScreen(
                     OutlinedTextField(
                         value = uiState.alias,
                         onValueChange = { viewModel.onAliasChange(it) },
-                        label = { Text("别名 / 通用名 (选填)") },
-                        placeholder = { Text("例如: 赛妥、西药名") },
+                        label = { Text(stringResource(R.string.medit_label_alias)) },
+                        placeholder = { Text(stringResource(R.string.medit_placeholder_alias)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -221,7 +224,7 @@ fun AddEditMedicationScreen(
 
                     Row(Modifier.fillMaxWidth()) {
                         OptionDropdown(
-                            label = "类别",
+                            label = stringResource(R.string.medit_label_category),
                             value = uiState.category,
                             options = MedicationFormOptions.CATEGORIES,
                             onSelect = { viewModel.onCategoryChange(it) },
@@ -229,7 +232,7 @@ fun AddEditMedicationScreen(
                         )
                         Spacer(Modifier.width(10.dp))
                         OptionDropdown(
-                            label = "剂型",
+                            label = stringResource(R.string.medit_label_form),
                             value = uiState.form,
                             options = MedicationFormOptions.FORMS,
                             onSelect = { viewModel.onFormChange(it) },
@@ -241,7 +244,7 @@ fun AddEditMedicationScreen(
 
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         OptionDropdown(
-                            label = "单位",
+                            label = stringResource(R.string.medit_label_unit),
                             value = uiState.unit,
                             options = MedicationFormOptions.UNITS,
                             onSelect = { viewModel.onUnitChange(it) },
@@ -251,7 +254,7 @@ fun AddEditMedicationScreen(
                         OutlinedTextField(
                             value = uiState.defaultDose,
                             onValueChange = { viewModel.onDefaultDoseChange(it) },
-                            label = { Text("默认单次剂量") },
+                            label = { Text(stringResource(R.string.medit_label_default_dose)) },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -261,7 +264,7 @@ fun AddEditMedicationScreen(
                     Spacer(Modifier.height(14.dp))
 
                     Text(
-                        text = "标识颜色",
+                        text = stringResource(R.string.medit_label_color),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -316,7 +319,7 @@ fun AddEditMedicationScreen(
                 val expanded = precautionsExpanded
                 SectionCard(
                     index = 3,
-                    title = "注意事项 / 医嘱 (选填)",
+                    title = stringResource(R.string.medit_section_precautions),
                     trailing = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -324,7 +327,7 @@ fun AddEditMedicationScreen(
                         ) {
                             if (filledCount > 0) {
                                 Text(
-                                    text = "已填 $filledCount 条",
+                                    text = stringResource(R.string.medit_precautions_filled_count, filledCount),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary
                                 )
@@ -333,7 +336,8 @@ fun AddEditMedicationScreen(
                             Icon(
                                 imageVector = if (expanded) Icons.Default.ExpandLess
                                 else Icons.Default.ExpandMore,
-                                contentDescription = if (expanded) "收起注意事项" else "展开注意事项",
+                                contentDescription = if (expanded) stringResource(R.string.medit_cd_collapse_precautions)
+                                else stringResource(R.string.medit_cd_expand_precautions),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -342,15 +346,15 @@ fun AddEditMedicationScreen(
                 ) {
                     if (!expanded) {
                         Text(
-                            text = if (filledCount > 0) "点击展开查看与修改"
-                            else "禁忌、饭后服用等医嘱建议写在这里，会在详情页高亮显示",
+                            text = if (filledCount > 0) stringResource(R.string.medit_precautions_collapsed_hint)
+                            else stringResource(R.string.medit_precautions_empty_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         return@SectionCard
                     }
                     Text(
-                        text = "常用标签 (点击增删，会在详情页以醒目样式高亮)",
+                        text = stringResource(R.string.medit_label_common_tags),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -389,7 +393,7 @@ fun AddEditMedicationScreen(
                                         trailingIcon = {
                                             Icon(
                                                 Icons.Default.DeleteOutline,
-                                                contentDescription = "移除",
+                                                contentDescription = stringResource(R.string.medit_cd_remove),
                                                 modifier = Modifier.size(16.dp)
                                             )
                                         }
@@ -418,8 +422,8 @@ fun AddEditMedicationScreen(
                         OutlinedTextField(
                             value = customTag,
                             onValueChange = { customTag = it },
-                            label = { Text("自定义注意事项") },
-                            placeholder = { Text("如: 忌与头孢类同用") },
+                            label = { Text(stringResource(R.string.medit_label_custom_precaution)) },
+                            placeholder = { Text(stringResource(R.string.medit_placeholder_custom_precaution)) },
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
@@ -431,7 +435,7 @@ fun AddEditMedicationScreen(
                             },
                             enabled = customTag.isNotBlank()
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = "添加标签")
+                            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.medit_cd_add_tag))
                         }
                     }
 
@@ -440,8 +444,8 @@ fun AddEditMedicationScreen(
                     OutlinedTextField(
                         value = uiState.description,
                         onValueChange = { viewModel.onDescriptionChange(it) },
-                        label = { Text("详细说明 / 医嘱描述") },
-                        placeholder = { Text("如: 饭后温水吞服，整粒吞服禁嚼碎") },
+                        label = { Text(stringResource(R.string.medit_label_description)) },
+                        placeholder = { Text(stringResource(R.string.medit_placeholder_description)) },
                         modifier = Modifier.fillMaxWidth(),
                         minLines = 3
                     )
@@ -451,9 +455,9 @@ fun AddEditMedicationScreen(
                     OutlinedTextField(
                         value = uiState.noticeShort,
                         onValueChange = { viewModel.onNoticeShortChange(it) },
-                        label = { Text("通知栏简述 (选填)") },
-                        placeholder = { Text("如: 温水吞服 · 禁葡萄柚") },
-                        supportingText = { Text("显示在到点提醒通知的第二行") },
+                        label = { Text(stringResource(R.string.medit_label_notice_short)) },
+                        placeholder = { Text(stringResource(R.string.medit_placeholder_notice_short)) },
+                        supportingText = { Text(stringResource(R.string.medit_hint_notice_short)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -461,7 +465,7 @@ fun AddEditMedicationScreen(
                     Spacer(Modifier.height(12.dp))
 
                     ReadOnlyDateField(
-                        label = "药品有效期至 (选填)",
+                        label = stringResource(R.string.medit_label_expiry_date),
                         dateStr = uiState.expiryDate,
                         onDateChange = { viewModel.onExpiryDateChange(it) },
                         onClear = { viewModel.onExpiryDateChange("") }
@@ -491,7 +495,7 @@ fun AddEditMedicationScreen(
                         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
                     ) {
                         Text(
-                            text = "ℹ️ 这里只编辑药品信息。提醒频次与时间请在药品详情页的「提醒设置」中调整，库存请在「库存管理」中管理。",
+                            text = stringResource(R.string.medit_info_only_hint),
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -527,8 +531,7 @@ private fun LowFrictionTipCard() {
             // 用户照着这句话找"提醒频次"，找不到，而文案还在让他找。
             // 同理，"保存后进入详情页设置提醒"必须写出来，否则用户以为存完就完事了，
             // 然后这味药永远不响而他毫不知情（AGENTS §2 第 6 条）。
-            text = "✨ 只需填写【药品名称】即可保存。保存后进入药品详情页，" +
-                "在那里可以单独设置【提醒计划】与【库存】。",
+            text = stringResource(R.string.medit_low_friction_tip),
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -639,7 +642,7 @@ fun ReadOnlyDateField(
     dateStr: String,
     onDateChange: (String) -> Unit,
     onClear: (() -> Unit)? = null,
-    placeholder: String = "未设置",
+    placeholder: String = stringResource(R.string.medit_date_not_set),
     modifier: Modifier = Modifier.fillMaxWidth()
 ) {
     val context = LocalContext.current
@@ -690,7 +693,7 @@ fun ReadOnlyDateField(
                     ) {
                         Icon(
                             Icons.Default.DeleteOutline,
-                            contentDescription = "清除 $label",
+                            contentDescription = stringResource(R.string.medit_cd_clear_field, label),
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -706,9 +709,9 @@ private fun InitialStockCard(
     viewModel: AddEditMedicationViewModel,
     uiState: AddEditUiState
 ) {
-    SectionCard(index = 2, title = "初始库存 (选填)") {
+    SectionCard(index = 2, title = stringResource(R.string.medit_section_initial_stock)) {
         Text(
-            text = "填写后系统会记录一条建档流水，之后每次服药自动扣减，可随时在「库存管理」中盘点校准。",
+            text = stringResource(R.string.medit_initial_stock_desc),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             lineHeight = 18.sp
@@ -717,8 +720,8 @@ private fun InitialStockCard(
         OutlinedTextField(
             value = uiState.currentStock,
             onValueChange = { viewModel.onCurrentStockChange(it) },
-            label = { Text("当前现有库存 (${uiState.unit})") },
-            placeholder = { Text("不填则不追踪库存") },
+            label = { Text(stringResource(R.string.medit_label_current_stock, uiState.unit)) },
+            placeholder = { Text(stringResource(R.string.medit_placeholder_current_stock)) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -757,7 +760,7 @@ private fun StepperRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onDecrement, enabled = canDecrement) {
-                Icon(Icons.Default.Remove, contentDescription = "减少", modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.medit_cd_decrease), modifier = Modifier.size(18.dp))
             }
             Text(
                 text = "$value",
@@ -767,7 +770,7 @@ private fun StepperRow(
                 textAlign = TextAlign.Center
             )
             IconButton(onClick = onIncrement, enabled = canIncrement) {
-                Icon(Icons.Default.Add, contentDescription = "增加", modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.medit_cd_increase), modifier = Modifier.size(18.dp))
             }
         }
     }

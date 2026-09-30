@@ -25,9 +25,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.ui.component.TestTags
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -69,15 +71,15 @@ import com.mcxiaoke.carromed.ui.screen.today.TodayViewModel
 
 data class BottomNavItem(
     val route: String,
-    val title: String,
+    val titleRes: Int,
     val icon: ImageVector
 )
 
 val BottomNavItems = listOf(
-    BottomNavItem(Screen.Today.route, "今日", Icons.Default.Checklist),
-    BottomNavItem(Screen.Cabinet.route, "药箱", Icons.Default.Medication),
-    BottomNavItem(Screen.Progress.route, "进展", Icons.Default.BarChart),
-    BottomNavItem(Screen.Stats.route, "统计", Icons.Default.QueryStats)
+    BottomNavItem(Screen.Today.route, R.string.nav_tab_today, Icons.Default.Checklist),
+    BottomNavItem(Screen.Cabinet.route, R.string.nav_tab_cabinet, Icons.Default.Medication),
+    BottomNavItem(Screen.Progress.route, R.string.nav_tab_progress, Icons.Default.BarChart),
+    BottomNavItem(Screen.Stats.route, R.string.nav_tab_stats, Icons.Default.QueryStats)
 )
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
@@ -131,8 +133,8 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                                     }
                                 }
                             },
-                            icon = { Icon(item.icon, contentDescription = item.title) },
-                            label = { Text(item.title, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) },
+                            icon = { Icon(item.icon, contentDescription = stringResource(item.titleRes)) },
+                            label = { Text(stringResource(item.titleRes), fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = MaterialTheme.colorScheme.primary,
                                 selectedTextColor = MaterialTheme.colorScheme.primary,

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cabinet_title">我的药箱</string>
+    <string name="cabinet_add_medication">添加药品</string>
+    <string name="cabinet_search_placeholder">搜索药名 / 别名 / 类别</string>
+    <string name="cabinet_cd_search">搜索</string>
+    <string name="cabinet_cd_clear">清除</string>
+    <string name="cabinet_cd_sort">排序</string>
+    <string name="cabinet_tab_active">正在服用 (%1$d)</string>
+    <string name="cabinet_tab_archived">已停药归档 (%1$d)</string>
+    <string name="cabinet_cd_hint">提示</string>
+    <string name="cabinet_hint_text">点击药品进入详情页，药品信息 / 提醒设置 / 库存管理三者分开管理</string>
+    <string name="cabinet_empty_search_active">没有匹配「%1$s」的在服药品</string>
+    <string name="cabinet_empty_search_archived">归档中没有匹配的药品</string>
+    <string name="cabinet_empty_active">药箱还是空的\n点右上角「+」添加第一个药品</string>
+    <string name="cabinet_empty_archived">暂无归档停药记录</string>
+    <string name="cabinet_stock_low">⚠️ 剩 %1$s %2$s</string>
+    <string name="cabinet_stock_normal">剩 %1$s %2$s</string>
+    <string name="cabinet_cd_view_detail">查看详情</string>
+</resources>

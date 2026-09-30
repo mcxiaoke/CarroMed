@@ -40,10 +40,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
@@ -68,9 +70,9 @@ fun StatsScreen(
     ) {
         item {
             HomeTabHeader(
-                title = "统计报表",
+                title = stringResource(R.string.stats_title),
                 actionIcon = Icons.Default.FileDownload,
-                actionContentDescription = "导出报告",
+                actionContentDescription = stringResource(R.string.stats_export_report),
                 onActionClick = { viewModel.exportReport() }
             )
         }
@@ -114,7 +116,10 @@ fun StatsScreen(
             ) {
                 Column(Modifier.padding(20.dp)) {
                     Text(
-                        text = "${StatsPeriod.entries[uiState.selectedPeriod].label}累计用药统计",
+                        text = stringResource(
+                            R.string.stats_period_total,
+                            StatsPeriod.entries[uiState.selectedPeriod].label
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                     )
@@ -123,7 +128,7 @@ fun StatsScreen(
                     // 只有全部药品同单位时才给一个 36sp 总量大数字；多单位时逐单位列出。
                     if (uiState.mixedUnits) {
                         Text(
-                            text = "多种单位",
+                            text = stringResource(R.string.stats_mixed_units),
                             style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimary
@@ -151,7 +156,7 @@ fun StatsScreen(
                         )
                     }
                     Text(
-                        text = "共 ${uiState.scheduledDoseCount} 次计划 · ${uiState.activeMedCount} 种在服药品",
+                        text = stringResource(R.string.stats_plan_summary, uiState.scheduledDoseCount, uiState.activeMedCount),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
                     )
@@ -170,17 +175,17 @@ fun StatsScreen(
                             } else {
                                 "—"
                             },
-                            label = "服药依从率"
+                            label = stringResource(R.string.stats_adherence_label)
                         )
                         StatTile(
                             modifier = Modifier.weight(1f),
                             value = "${uiState.breakdown.completed}",
-                            label = "已按时服用"
+                            label = stringResource(R.string.stats_completed_label)
                         )
                         StatTile(
                             modifier = Modifier.weight(1f),
                             value = "${uiState.breakdown.missed + uiState.breakdown.skipped}",
-                            label = "跳过 / 漏服"
+                            label = stringResource(R.string.stats_missed_label)
                         )
                     }
                 }
@@ -206,12 +211,12 @@ fun StatsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "各药品累计消耗",
+                            text = stringResource(R.string.stats_consumption_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "按实际服药量",
+                            text = stringResource(R.string.stats_by_actual),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -220,7 +225,7 @@ fun StatsScreen(
 
                     if (uiState.rankings.isEmpty()) {
                         Text(
-                            text = "该周期内还没有服药记录。完成打卡或使用「手动补录」后，这里会按药品统计消耗量。",
+                            text = stringResource(R.string.stats_empty_rankings),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 20.sp
@@ -278,7 +283,7 @@ fun StatsScreen(
             ) {
                 Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("导出服药明细为 CSV", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.stats_export_csv), fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -321,7 +326,7 @@ private fun AdherenceBreakdownCard(uiState: StatsUiState) {
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(
-                text = "依从率构成",
+                text = stringResource(R.string.stats_breakdown_title),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
             )
@@ -364,15 +369,15 @@ private fun AdherenceBreakdownCard(uiState: StatsUiState) {
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                LegendDot(SuccessGreen, "已服", b.completed, Modifier.weight(1f))
-                LegendDot(MaterialTheme.colorScheme.outline, "主动跳过", b.skipped, Modifier.weight(1f))
-                LegendDot(WarningAmber, "逾期漏服", b.missed, Modifier.weight(1f))
+                LegendDot(SuccessGreen, stringResource(R.string.stats_legend_taken), b.completed, Modifier.weight(1f))
+                LegendDot(MaterialTheme.colorScheme.outline, stringResource(R.string.stats_legend_skipped), b.skipped, Modifier.weight(1f))
+                LegendDot(WarningAmber, stringResource(R.string.stats_legend_missed), b.missed, Modifier.weight(1f))
             }
 
             if (b.pending > 0) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "另有 ${b.pending} 次尚未到服药时间，未计入依从率。",
+                    text = stringResource(R.string.stats_pending_note, b.pending),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

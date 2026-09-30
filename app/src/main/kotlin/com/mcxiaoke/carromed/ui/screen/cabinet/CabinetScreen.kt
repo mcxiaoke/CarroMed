@@ -53,10 +53,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
@@ -84,9 +86,9 @@ fun CabinetScreen(
         // 1. 顶部 Header (与其他主 Tab 统一规格)
         item {
             HomeTabHeader(
-                title = "我的药箱",
+                title = stringResource(R.string.cabinet_title),
                 actionIcon = Icons.Default.Add,
-                actionContentDescription = "添加药品",
+                actionContentDescription = stringResource(R.string.cabinet_add_medication),
                 onActionClick = onNavigateToAddMedication
             )
         }
@@ -105,14 +107,14 @@ fun CabinetScreen(
                 OutlinedTextField(
                     value = uiState.keyword,
                     onValueChange = { viewModel.setKeyword(it) },
-                    placeholder = { Text("搜索药名 / 别名 / 类别", fontSize = 13.sp) },
+                    placeholder = { Text(stringResource(R.string.cabinet_search_placeholder), fontSize = 13.sp) },
                     leadingIcon = {
-                        Icon(Icons.Default.Search, contentDescription = "搜索", modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Search, contentDescription = stringResource(R.string.cabinet_cd_search), modifier = Modifier.size(18.dp))
                     },
                     trailingIcon = {
                         if (uiState.keyword.isNotBlank()) {
                             IconButton(onClick = { viewModel.setKeyword("") }) {
-                                Icon(Icons.Default.Close, contentDescription = "清除", modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Close, contentDescription = stringResource(R.string.cabinet_cd_clear), modifier = Modifier.size(16.dp))
                             }
                         }
                     },
@@ -129,7 +131,7 @@ fun CabinetScreen(
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                     ) {
-                        Icon(Icons.Default.Sort, contentDescription = "排序", modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Sort, contentDescription = stringResource(R.string.cabinet_cd_sort), modifier = Modifier.size(20.dp))
                     }
                     DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
                         CabinetSortOrder.entries.forEach { order ->
@@ -163,8 +165,8 @@ fun CabinetScreen(
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 val tabs = listOf(
-                    "正在服用 (${uiState.activeList.size})",
-                    "已停药归档 (${uiState.archivedList.size})"
+                    stringResource(R.string.cabinet_tab_active, uiState.activeList.size),
+                    stringResource(R.string.cabinet_tab_archived, uiState.archivedList.size)
                 )
                 tabs.forEachIndexed { index, title ->
                     val selected = uiState.selectedTab == index
@@ -206,13 +208,13 @@ fun CabinetScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Lightbulb,
-                        contentDescription = "提示",
+                        contentDescription = stringResource(R.string.cabinet_cd_hint),
                         tint = MaterialTheme.colorScheme.tertiary,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "点击药品进入详情页，药品信息 / 提醒设置 / 库存管理三者分开管理",
+                        text = stringResource(R.string.cabinet_hint_text),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -248,11 +250,12 @@ fun CabinetScreen(
                         val isSearchMiss = uiState.keyword.isNotBlank()
                         Text(
                             text = when {
-                                isSearchMiss && uiState.selectedTab == 0 -> "没有匹配「${uiState.keyword}」的在服药品"
-                                isSearchMiss -> "归档中没有匹配的药品"
+                                isSearchMiss && uiState.selectedTab == 0 ->
+                                    stringResource(R.string.cabinet_empty_search_active, uiState.keyword)
+                                isSearchMiss -> stringResource(R.string.cabinet_empty_search_archived)
                                 uiState.selectedTab == 0 && uiState.activeList.isEmpty() ->
-                                    "药箱还是空的\n点右上角「+」添加第一个药品"
-                                else -> "暂无归档停药记录"
+                                    stringResource(R.string.cabinet_empty_active)
+                                else -> stringResource(R.string.cabinet_empty_archived)
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -266,7 +269,7 @@ fun CabinetScreen(
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("添加药品")
+                                Text(stringResource(R.string.cabinet_add_medication))
                             }
                         }
                     }
@@ -390,7 +393,8 @@ fun CabinetMedCard(
                 ) {
                     val stockText = Quantity.fmt(stock)
                     Text(
-                        text = if (isLow) "⚠️ 剩 $stockText ${med.unit}" else "剩 $stockText ${med.unit}",
+                        text = if (isLow) stringResource(R.string.cabinet_stock_low, stockText, med.unit)
+                        else stringResource(R.string.cabinet_stock_normal, stockText, med.unit),
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = if (isLow) FontWeight.Bold else FontWeight.Normal,
@@ -403,7 +407,7 @@ fun CabinetMedCard(
 
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "查看详情",
+                contentDescription = stringResource(R.string.cabinet_cd_view_detail),
                 tint = MaterialTheme.colorScheme.outline
             )
         }

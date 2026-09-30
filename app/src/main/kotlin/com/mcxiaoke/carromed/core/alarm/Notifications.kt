@@ -52,20 +52,20 @@ object Notifications {
 
         val loud = NotificationChannel(
             CHANNEL_DOSE_REMINDER,
-            "服药提醒",
+            context.getString(R.string.notif_channel_name),
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "到点吃药的浮动横幅与通知栏提醒"
+            description = context.getString(R.string.notif_channel_desc)
             enableVibration(true)
             setShowBadge(true)
         }
 
         val silent = NotificationChannel(
             CHANNEL_DOSE_REMINDER_SILENT,
-            "服药提醒 (夜间静音)",
+            context.getString(R.string.notif_channel_name_silent),
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "夜间 23:00-07:00 的服药提醒，不响铃不震动"
+            description = context.getString(R.string.notif_channel_desc_silent)
             enableVibration(false)
             setSound(null, null)
             setShowBadge(true)
@@ -160,14 +160,19 @@ object Notifications {
             // 此时"已推迟到 <scheduledTime>"是错的（那正是用户已经错过的时间）。
             when (kind) {
                 AlarmScheduler.Kind.ADVANCE ->
-                    append("$advanceMinutes 分钟后到 ${slot.scheduledTime}，该服用 $doseText 了")
+                    append(
+                        context.getString(
+                            R.string.notif_body_advance,
+                            advanceMinutes, slot.scheduledTime, doseText
+                        )
+                    )
                 AlarmScheduler.Kind.SNOOZE ->
-                    append("推迟的时间到了 · 剂量 $doseText")
+                    append(context.getString(R.string.notif_body_snooze, doseText))
                 AlarmScheduler.Kind.MAIN ->
-                    append("计划 ${slot.scheduledTime} · 剂量 $doseText")
+                    append(context.getString(R.string.notif_body_main, slot.scheduledTime, doseText))
             }
             if (med.noticeShort.isNotBlank()) append("\n${med.noticeShort}")
-            if (silent) append("\n夜间静音中（可在设置中调整，或将该药设为重要提醒）")
+            if (silent) append(context.getString(R.string.notif_body_night_silent))
         }
 
         val contentIntent = PendingIntent.getActivity(
@@ -184,10 +189,10 @@ object Notifications {
             .setContentTitle(
                 when {
                     // 重要提醒优先：它决定的是"响不响"，不是"什么时候提醒"
-                    overview.isCriticalReminder -> "重要提醒：${med.name}"
-                    kind == AlarmScheduler.Kind.ADVANCE -> "快到时间了：${med.name}"
-                    kind == AlarmScheduler.Kind.SNOOZE -> "该吃药了（推迟后）：${med.name}"
-                    else -> "该吃药了：${med.name}"
+                    overview.isCriticalReminder -> context.getString(R.string.notif_title_critical, med.name)
+                    kind == AlarmScheduler.Kind.ADVANCE -> context.getString(R.string.notif_title_advance, med.name)
+                    kind == AlarmScheduler.Kind.SNOOZE -> context.getString(R.string.notif_title_snooze, med.name)
+                    else -> context.getString(R.string.notif_title_main, med.name)
                 }
             )
             .setContentText(body)
@@ -198,17 +203,17 @@ object Notifications {
             .setContentIntent(contentIntent)
             .setOnlyAlertOnce(false)
             .addAction(
-                0, "✅ 确认已吃",
+                0, context.getString(R.string.notif_action_take),
                 actionPendingIntent(context, slot, ACTION_TAKE, RC_TAKE)
             )
             .addAction(
-                0, "⏰ 推迟 $snooze 分钟",
+                0, context.getString(R.string.notif_action_snooze, snooze),
                 actionPendingIntent(context, slot, ACTION_SNOOZE, RC_SNOOZE) {
                     putExtra(EXTRA_MINUTES, snooze)
                 }
             )
             .addAction(
-                0, "⏭️ 跳过本次",
+                0, context.getString(R.string.notif_action_skip),
                 actionPendingIntent(context, slot, ACTION_SKIP, RC_SKIP)
             )
             .build()

@@ -40,12 +40,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
@@ -98,9 +100,9 @@ fun ProgressScreen(
     ) {
         item(key = "header") {
             HomeTabHeader(
-                title = "进展追踪",
+                title = stringResource(R.string.prog_title),
                 actionIcon = Icons.Default.FileDownload,
-                actionContentDescription = "导出报告",
+                actionContentDescription = stringResource(R.string.prog_export_report),
                 onActionClick = { viewModel.exportReport() }
             )
         }
@@ -119,7 +121,7 @@ fun ProgressScreen(
         if (uiState.selectedTab == 0) {
             if (uiState.matrixItems.isEmpty()) {
                 item(key = "matrix-empty") {
-                    EmptyStateCard("还没有在服药品。添加第一个药品后，这里会显示近 7 天的真实打卡情况。")
+                    EmptyStateCard(stringResource(R.string.prog_empty_matrix))
                 }
             } else {
                 item(key = "overall") { OverallAdherenceCard(uiState.overallAdherence, uiState) }
@@ -133,10 +135,7 @@ fun ProgressScreen(
         } else {
             if (uiState.timelineDays.isEmpty()) {
                 item(key = "timeline-empty") {
-                    EmptyStateCard(
-                        "还没有服药记录。在今日清单点「手动补录」可记录临时用药，" +
-                            "或从提醒里确认服药。"
-                    )
+                    EmptyStateCard(stringResource(R.string.prog_empty_timeline))
                 }
             } else {
                 uiState.timelineDays.forEach { day ->
@@ -162,7 +161,7 @@ private const val LOAD_MORE_THRESHOLD = 5
 
 @Composable
 private fun ProgressTabSelector(selectedTab: Int, onSelect: (Int) -> Unit) {
-    val tabs = listOf("7 天打卡矩阵", "服药流水")
+    val tabs = listOf(stringResource(R.string.prog_tab_matrix), stringResource(R.string.prog_tab_timeline))
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -212,7 +211,7 @@ private fun OverallAdherenceCard(rate: Float, uiState: ProgressUiState) {
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = "近 7 天整体依从率",
+                    text = stringResource(R.string.prog_overall_adherence_title),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
@@ -226,7 +225,7 @@ private fun OverallAdherenceCard(rate: Float, uiState: ProgressUiState) {
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = "按时服药 $completed 次 / 已到期 $decided 次",
+                        text = stringResource(R.string.prog_overall_adherence_detail, completed, decided),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                     )
@@ -238,7 +237,7 @@ private fun OverallAdherenceCard(rate: Float, uiState: ProgressUiState) {
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = "近 7 天还没有到期的服药任务",
+                        text = stringResource(R.string.prog_overall_no_due),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                     )
@@ -250,6 +249,9 @@ private fun OverallAdherenceCard(rate: Float, uiState: ProgressUiState) {
 
 @Composable
 private fun MedicationMatrixCard(item: MedMatrixItem, onNavigateToHistory: (Long) -> Unit) {
+    val cdTakenSummary = stringResource(R.string.prog_cd_taken_summary, item.completedCount, item.decidedCount)
+    val cdNoDueTask = stringResource(R.string.prog_cd_no_due_task)
+    val cdViewDetail = stringResource(R.string.prog_cd_view_detail)
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -261,12 +263,11 @@ private fun MedicationMatrixCard(item: MedMatrixItem, onNavigateToHistory: (Long
                 contentDescription = buildString {
                     append(item.medication.name)
                     if (item.decidedCount > 0) {
-                        append("，近 7 天按时服药 ")
-                        append("${item.completedCount}/${item.decidedCount} 次")
+                        append(cdTakenSummary)
                     } else {
-                        append("，暂无到期任务")
+                        append(cdNoDueTask)
                     }
-                    append("，查看详情")
+                    append(cdViewDetail)
                 }
             },
         shape = RoundedCornerShape(16.dp),
@@ -311,13 +312,13 @@ private fun MedicationMatrixCard(item: MedMatrixItem, onNavigateToHistory: (Long
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "${item.completedCount}/${item.decidedCount} 次",
+                            text = stringResource(R.string.prog_dose_count, item.completedCount, item.decidedCount),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
                         Text(
-                            text = "暂无到期",
+                            text = stringResource(R.string.prog_no_due_short),
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -402,7 +403,7 @@ private fun DayDot(day: DayAdherence) {
             icon = {
                 Icon(
                     Icons.Default.Check,
-                    contentDescription = "全部完成",
+                    contentDescription = stringResource(R.string.prog_cd_fully_taken),
                     tint = Color.White,
                     modifier = Modifier.size(15.dp)
                 )
@@ -437,7 +438,7 @@ private fun DayDot(day: DayAdherence) {
             icon = {
                 Icon(
                     Icons.Default.Close,
-                    contentDescription = "逾期漏服",
+                    contentDescription = stringResource(R.string.prog_cd_missed),
                     tint = Color.White,
                     modifier = Modifier.size(15.dp)
                 )
@@ -449,7 +450,7 @@ private fun DayDot(day: DayAdherence) {
             icon = {
                 Icon(
                     Icons.Default.RemoveCircleOutline,
-                    contentDescription = "主动跳过",
+                    contentDescription = stringResource(R.string.prog_cd_skipped),
                     tint = Color.White,
                     modifier = Modifier.size(15.dp)
                 )
@@ -500,7 +501,7 @@ private fun TimelineDayHeader(day: TimelineDay) {
         verticalAlignment = Alignment.Bottom
     ) {
         Text(
-            text = if (day.isToday) "今天 · ${day.headerLabel}" else day.headerLabel,
+            text = if (day.isToday) stringResource(R.string.prog_today_header, day.headerLabel) else day.headerLabel,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = if (day.isToday) MaterialTheme.colorScheme.primary
@@ -511,7 +512,7 @@ private fun TimelineDayHeader(day: TimelineDay) {
             Text(
                 text = Quantity.withUnit(
                     Dose(day.completedDoseMilli).asFloat,
-                    "片"
+                    stringResource(R.string.prog_unit_tablet)
                 ),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -522,10 +523,12 @@ private fun TimelineDayHeader(day: TimelineDay) {
 
 @Composable
 private fun TimelineRow(item: TimelineItem, onOpenDose: (Long?, Long) -> Unit) {
-    val unit = item.medication?.unit ?: "片"
+    val unit = item.medication?.unit ?: stringResource(R.string.prog_unit_tablet)
     // doseTaken 是整数毫单位（D-7）。此处**不能**写 `doseTaken % 1f == 0f` 那类判断：
     // 它能编译（Kotlin 允许 Int % Float）却恒为真，会把 1 片显示成「1000 片」。
     val dose = Dose(item.record.doseTaken).asFloat
+    val manualLabel = stringResource(R.string.prog_manual_dose)
+    val retrospectiveLabel = stringResource(R.string.prog_retrospective)
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -545,7 +548,7 @@ private fun TimelineRow(item: TimelineItem, onOpenDose: (Long?, Long) -> Unit) {
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = item.medication?.name ?: "已删除的药品",
+                    text = item.medication?.name ?: stringResource(R.string.prog_deleted_medication),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -553,11 +556,11 @@ private fun TimelineRow(item: TimelineItem, onOpenDose: (Long?, Long) -> Unit) {
                     if (dose > 0f) append(Quantity.fmt(dose)).append(' ').append(unit)
                     if (item.isManual) {
                         if (isNotEmpty()) append(" · ")
-                        append("临时用药")
+                        append(manualLabel)
                     }
                     if (item.record.isRetrospective) {
                         if (isNotEmpty()) append(" · ")
-                        append("补录")
+                        append(retrospectiveLabel)
                     }
                     if (!item.record.note.isNullOrBlank()) {
                         if (isNotEmpty()) append(" · ")
@@ -594,9 +597,9 @@ private fun TimelineRow(item: TimelineItem, onOpenDose: (Long?, Long) -> Unit) {
 @Composable
 private fun RecordStatusChip(timeLabel: String, status: RecordStatus) {
     val (text, color) = when (status) {
-        RecordStatus.COMPLETED -> "已服" to SuccessGreen
-        RecordStatus.SKIPPED -> "已跳过" to MaterialTheme.colorScheme.outline
-        RecordStatus.REVERTED -> "已撤销" to MaterialTheme.colorScheme.outline
+        RecordStatus.COMPLETED -> stringResource(R.string.prog_status_taken) to SuccessGreen
+        RecordStatus.SKIPPED -> stringResource(R.string.prog_status_skipped) to MaterialTheme.colorScheme.outline
+        RecordStatus.REVERTED -> stringResource(R.string.prog_status_reverted) to MaterialTheme.colorScheme.outline
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -636,13 +639,13 @@ private fun TimelineFooter(loading: Boolean, hasMore: Boolean) {
             )
             // 说清"到底了"而不是留一片空白：用户不知道是加载失败还是没有更多
             hasMore -> Text(
-                text = "继续下滑查看更早的记录",
+                text = stringResource(R.string.prog_timeline_more),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             else -> Text(
-                text = "没有更早的记录了",
+                text = stringResource(R.string.prog_timeline_end),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )

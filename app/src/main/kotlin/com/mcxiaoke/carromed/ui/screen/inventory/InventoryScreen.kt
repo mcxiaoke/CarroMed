@@ -50,11 +50,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.ui.screen.edit.ReadOnlyDateField
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
@@ -81,7 +83,7 @@ fun InventoryScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("库存管理", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.inv_title), fontWeight = FontWeight.Bold)
                         med?.let {
                             Text(
                                 it.name,
@@ -93,7 +95,7 @@ fun InventoryScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.inv_back))
                     }
                 },
                 actions = {
@@ -102,7 +104,7 @@ fun InventoryScreen(
                         enabled = !uiState.isSaving && !uiState.isLoading,
                         modifier = Modifier.padding(end = 8.dp),
                         shape = RoundedCornerShape(8.dp)
-                    ) { Text("保存", fontWeight = FontWeight.Bold) }
+                    ) { Text(stringResource(R.string.inv_save), fontWeight = FontWeight.Bold) }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background
@@ -118,7 +120,7 @@ fun InventoryScreen(
         }
         if (med == null) {
             Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
-                Text(uiState.error ?: "药品不存在")
+                Text(uiState.error ?: stringResource(R.string.inv_med_not_found))
             }
             return@Scaffold
         }
@@ -154,7 +156,7 @@ fun InventoryScreen(
                 ) {
                     Column(Modifier.padding(20.dp)) {
                         Text(
-                            "当前余量",
+                            stringResource(R.string.inv_current_stock),
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (uiState.isLowStock && uiState.isTracked) OnWarningAmberContainer
                             else MaterialTheme.colorScheme.onSurfaceVariant
@@ -170,7 +172,7 @@ fun InventoryScreen(
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = if (!uiState.isTracked) "未开启库存追踪：服药不会自动扣减库存"
+                            text = if (!uiState.isTracked) stringResource(R.string.inv_tracking_disabled_hint)
                             else uiState.frequencyDescription,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -186,19 +188,19 @@ fun InventoryScreen(
                                     // UI 再去猜一个下界，两处定义必然会漂移。
                                     if (StatsEngine.isRunwayUnlimited(uiState.runwayDays)) "—"
                                     else "${uiState.runwayDays}",
-                                    "预计可用天数"
+                                    stringResource(R.string.inv_stat_runway_label)
                                 )
                                 MiniStat(
                                     Modifier.weight(1f),
                                     // 统一走 Quantity 格式化（此前本页内联 "%.2f"，
                                     // 与全库其他页面的规则不一致，见 Quantity 的 KDoc）
                                     Quantity.fmt(uiState.dailyConsumption),
-                                    "日均消耗"
+                                    stringResource(R.string.inv_stat_daily_consumption_label)
                                 )
                                 MiniStat(
                                     Modifier.weight(1f),
                                     fmt(uiState.minStockAlertInput.toFloatOrNull() ?: uiState.minStockAlert),
-                                    "预警线"
+                                    stringResource(R.string.inv_stat_alert_threshold_label)
                                 )
                             }
                             if (uiState.runwayDays in 1..7) {
@@ -212,7 +214,7 @@ fun InventoryScreen(
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     Text(
-                                        "按当前用量仅够约 ${uiState.runwayDays} 天，建议尽快补货",
+                                        stringResource(R.string.inv_low_runway_warning, uiState.runwayDays),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = WarningAmber,
                                         fontWeight = FontWeight.SemiBold
@@ -229,7 +231,7 @@ fun InventoryScreen(
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("补药入库", fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.inv_refill), fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -237,9 +239,9 @@ fun InventoryScreen(
 
             // 2. 有效期
             item {
-                SettingsCard("有效期与临期提醒") {
+                SettingsCard(stringResource(R.string.inv_expiry_card_title)) {
                     ReadOnlyDateField(
-                        label = "药品有效期至",
+                        label = stringResource(R.string.inv_expiry_date_label),
                         dateStr = uiState.expiryDate,
                         onDateChange = { viewModel.onExpiryDateChange(it) },
                         onClear = { viewModel.onExpiryDateChange("") }
@@ -252,12 +254,12 @@ fun InventoryScreen(
                             // "已于 1 天前过期"是机器腔的中文：用户脑子里的时间是
                             // 「昨天买的 / 昨天就该扔了」，"1 天前"要求他先做一次减法。
                             // 1 天是绝大多数情况，2 天以上才退回计数。
-                            d == -1 -> NoticeBar("昨天已过期，请勿继续服用", NoticeTone.ERROR)
-                            d < 0 -> NoticeBar("已过期 ${-d} 天，请勿继续服用", NoticeTone.ERROR)
-                            d == 0 -> NoticeBar("今天到期，请尽快用完或更换", NoticeTone.WARN)
-                            d <= 30 -> NoticeBar("还有 $d 天到期，注意用完并及时更换", NoticeTone.WARN)
+                            d == -1 -> NoticeBar(stringResource(R.string.inv_expired_yesterday), NoticeTone.ERROR)
+                            d < 0 -> NoticeBar(stringResource(R.string.inv_expired_days_ago, -d), NoticeTone.ERROR)
+                            d == 0 -> NoticeBar(stringResource(R.string.inv_expires_today), NoticeTone.WARN)
+                            d <= 30 -> NoticeBar(stringResource(R.string.inv_expires_in_days, d), NoticeTone.WARN)
                             else -> Text(
-                                "距离到期还有 $d 天",
+                                stringResource(R.string.inv_days_to_expiry, d),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -268,19 +270,19 @@ fun InventoryScreen(
 
             // 3. 预警线与追踪开关
             item {
-                SettingsCard("低库存预警") {
+                SettingsCard(stringResource(R.string.inv_low_stock_card_title)) {
                     OutlinedTextField(
                         value = uiState.minStockAlertInput,
                         onValueChange = { viewModel.onMinStockAlertChange(it.filter { c -> c.isDigit() || c == '.' }) },
-                        label = { Text("预警阈值 (${med.unit})") },
-                        placeholder = { Text("如 10") },
+                        label = { Text(stringResource(R.string.inv_alert_threshold_label, med.unit)) },
+                        placeholder = { Text(stringResource(R.string.inv_alert_threshold_placeholder)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "余量低于该值时，今日清单顶部会出现告警横幅。",
+                        stringResource(R.string.inv_alert_threshold_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -293,10 +295,10 @@ fun InventoryScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("库存追踪", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.inv_tracking_toggle_title), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                             Text(
-                                if (uiState.isTracked) "服药打卡时自动扣减库存"
-                                else "关闭：每次服药需自行核对剩余量",
+                                if (uiState.isTracked) stringResource(R.string.inv_tracking_on_desc)
+                                else stringResource(R.string.inv_tracking_off_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -312,10 +314,9 @@ fun InventoryScreen(
 
             // 4. 盘点校准
             item {
-                SettingsCard("库存盘点校准") {
+                SettingsCard(stringResource(R.string.inv_calibrate_card_title)) {
                     Text(
-                        "换了包装、之前漏记或首次建档时，把账面修正为实物真实数量。" +
-                            "系统会写入一条盘点流水，保证账实可追溯。",
+                        stringResource(R.string.inv_calibrate_description),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         lineHeight = 18.sp
@@ -325,7 +326,7 @@ fun InventoryScreen(
                         OutlinedTextField(
                             value = uiState.calibrateInput,
                             onValueChange = { viewModel.onCalibrateInputChange(it) },
-                            label = { Text("实际剩余 (${med.unit})") },
+                            label = { Text(stringResource(R.string.inv_actual_remaining_label, med.unit)) },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -335,23 +336,23 @@ fun InventoryScreen(
                             onClick = { viewModel.calibrate(null) },
                             enabled = !uiState.isSaving,
                             modifier = Modifier.height(52.dp)
-                        ) { Text("校准", fontWeight = FontWeight.Bold) }
+                        ) { Text(stringResource(R.string.inv_calibrate_button), fontWeight = FontWeight.Bold) }
                     }
                 }
             }
 
             // 5. 出入库流水
             item {
-                SettingsCard("出入库流水 (双向可追溯)") {
+                SettingsCard(stringResource(R.string.inv_ledger_card_title)) {
                     if (uiState.transactions.isEmpty()) {
                         Text(
-                            "暂无流水。首次补药入库或首次盘点后开始记录。",
+                            stringResource(R.string.inv_ledger_empty),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
                         Text(
-                            "账面 = 全部流水变动之和，恒等于当前余量",
+                            stringResource(R.string.inv_ledger_balance_rule),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -366,7 +367,7 @@ fun InventoryScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(Modifier.width(6.dp))
-                            Text("导出库存流水 CSV", fontSize = 13.sp)
+                            Text(stringResource(R.string.inv_export_ledger_csv), fontSize = 13.sp)
                         }
                     }
                 }
@@ -447,16 +448,18 @@ private fun TxRow(
                     fontWeight = FontWeight.SemiBold
                 )
                 if (!note.isNullOrBlank() || !batch.isNullOrBlank() || !expiry.isNullOrBlank()) {
+                    val batchLine = if (batch.isNullOrBlank()) "" else stringResource(R.string.inv_tx_batch, batch)
+                    val expiryLine = if (expiry.isNullOrBlank()) "" else stringResource(R.string.inv_tx_expiry, expiry)
                     Text(
                         buildString {
                             if (!note.isNullOrBlank()) append(note)
-                            if (!batch.isNullOrBlank()) {
+                            if (batchLine.isNotEmpty()) {
                                 if (isNotEmpty()) append(" · ")
-                                append("批号 $batch")
+                                append(batchLine)
                             }
-                            if (!expiry.isNullOrBlank()) {
+                            if (expiryLine.isNotEmpty()) {
                                 if (isNotEmpty()) append(" · ")
-                                append("效期 $expiry")
+                                append(expiryLine)
                             }
                         },
                         style = MaterialTheme.typography.bodySmall,
@@ -472,7 +475,7 @@ private fun TxRow(
                     color = if (change > 0) SuccessGreen else MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    "结余 ${fmt(balance)}",
+                    stringResource(R.string.inv_tx_balance, fmt(balance)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

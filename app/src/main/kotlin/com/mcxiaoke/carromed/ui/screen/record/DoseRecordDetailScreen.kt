@@ -49,12 +49,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
@@ -112,10 +114,13 @@ fun DoseRecordDetailScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("记录详情", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.rdetail_title), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.rdetail_back_cd)
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -139,7 +144,7 @@ fun DoseRecordDetailScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "这条记录不存在，可能已被删除",
+                    stringResource(R.string.rdetail_not_found),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -195,7 +200,7 @@ private fun DetailContent(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                     } else {
-                        Text("保存备注", style = MaterialTheme.typography.bodyLarge)
+                        Text(stringResource(R.string.rdetail_save_note), style = MaterialTheme.typography.bodyLarge)
                     }
                 }
             }
@@ -212,23 +217,49 @@ private data class StatusChip(val text: String, val container: Color, val conten
 private fun statusChipOf(state: DoseEntryUiState): StatusChip {
     val scheme = MaterialTheme.colorScheme
     return when {
-        state.isManual -> StatusChip("手动补录", scheme.surfaceVariant, scheme.onSurfaceVariant)
+        state.isManual ->
+            StatusChip(stringResource(R.string.rdetail_status_manual), scheme.surfaceVariant, scheme.onSurfaceVariant)
         state.slotStatus == SlotStatus.COMPLETED ->
-            StatusChip("已服", SuccessGreenContainer, OnSuccessGreenContainer)
+            StatusChip(
+                stringResource(R.string.rdetail_status_completed),
+                SuccessGreenContainer,
+                OnSuccessGreenContainer
+            )
 
         state.slotStatus == SlotStatus.SKIPPED ->
-            StatusChip("已跳过", scheme.surfaceVariant, scheme.onSurfaceVariant)
+            StatusChip(
+                stringResource(R.string.rdetail_status_skipped),
+                scheme.surfaceVariant,
+                scheme.onSurfaceVariant
+            )
 
         state.slotStatus == SlotStatus.SNOOZED ->
-            StatusChip("已推迟", scheme.tertiaryContainer, scheme.onTertiaryContainer)
+            StatusChip(
+                stringResource(R.string.rdetail_status_snoozed),
+                scheme.tertiaryContainer,
+                scheme.onTertiaryContainer
+            )
 
         state.slotStatus == SlotStatus.EXPIRED ->
-            StatusChip("已逾期", WarningAmberContainer, OnWarningAmberContainer)
+            StatusChip(
+                stringResource(R.string.rdetail_status_expired),
+                WarningAmberContainer,
+                OnWarningAmberContainer
+            )
 
         state.slotStatus == SlotStatus.PENDING ->
-            StatusChip("待服", scheme.primaryContainer, scheme.onPrimaryContainer)
+            StatusChip(
+                stringResource(R.string.rdetail_status_pending),
+                scheme.primaryContainer,
+                scheme.onPrimaryContainer
+            )
 
-        else -> StatusChip("记录", scheme.surfaceVariant, scheme.onSurfaceVariant)
+        else ->
+            StatusChip(
+                stringResource(R.string.rdetail_status_record),
+                scheme.surfaceVariant,
+                scheme.onSurfaceVariant
+            )
     }
 }
 
@@ -247,7 +278,7 @@ private fun HeaderCard(state: DoseEntryUiState) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = state.medication?.name ?: "未知药品",
+                    text = state.medication?.name ?: stringResource(R.string.rdetail_unknown_medication),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -271,8 +302,16 @@ private fun HeaderCard(state: DoseEntryUiState) {
             // 只写"计划 10:30"时用户分不清这是哪天的那一剂
             // （本缺陷产生的坏数据更是把"计划 10:30 · 实际 22:06"直接显示成自相矛盾）。
             val lines = buildList {
-                state.slot?.let { add("计划 ${formatDayLabel(it.scheduledDate)} ${it.scheduledTime}") }
-                state.record?.let { add("实际 ${formatClock(it.actualTs)}") }
+                state.slot?.let {
+                    add(
+                        stringResource(
+                            R.string.rdetail_scheduled_at,
+                            formatDayLabel(it.scheduledDate),
+                            it.scheduledTime
+                        )
+                    )
+                }
+                state.record?.let { add(stringResource(R.string.rdetail_actual_at, formatClock(it.actualTs))) }
                 if (state.slot == null && state.record != null) {
                     add(formatDay(state.record.actualTs))
                 }
@@ -289,7 +328,7 @@ private fun HeaderCard(state: DoseEntryUiState) {
             if (doseMilli != null && doseMilli > 0) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "剂量 ${state.doseText(doseMilli)}",
+                    text = stringResource(R.string.rdetail_dose_prefix, state.doseText(doseMilli)),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -300,8 +339,11 @@ private fun HeaderCard(state: DoseEntryUiState) {
                 val isOverspent = stock < 0f
                 val isLow = isOverspent || (state.minStockAlert > 0f && stock <= state.minStockAlert)
                 Text(
-                    text = if (isOverspent) "账面 ${Quantity.fmt(stock)} ${state.unit}（待盘点）"
-                    else "剩余 ${Quantity.fmt(stock)} ${state.unit}",
+                    text = if (isOverspent) {
+                        stringResource(R.string.rdetail_stock_overspent, Quantity.fmt(stock), state.unit)
+                    } else {
+                        stringResource(R.string.rdetail_stock_remaining, Quantity.fmt(stock), state.unit)
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (isLow) FontWeight.Bold else FontWeight.Normal,
                     color = if (isLow) MaterialTheme.colorScheme.error
@@ -313,7 +355,7 @@ private fun HeaderCard(state: DoseEntryUiState) {
                 state.slot?.snoozeUntilTs?.let {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "已推迟至 ${formatClock(it)}",
+                        text = stringResource(R.string.rdetail_snoozed_until, formatClock(it)),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.tertiary,
                         fontWeight = FontWeight.SemiBold
@@ -336,7 +378,7 @@ private fun TimeCard(state: DoseEntryUiState, onPickTime: (Long) -> Unit) {
         )
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("服药时间", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.rdetail_time_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -351,11 +393,11 @@ private fun TimeCard(state: DoseEntryUiState, onPickTime: (Long) -> Unit) {
                     onClick = { onPickTime(base) },
                     shape = RoundedCornerShape(10.dp),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
-                ) { Text("修改", style = MaterialTheme.typography.labelLarge) }
+                ) { Text(stringResource(R.string.rdetail_edit), style = MaterialTheme.typography.labelLarge) }
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "这是一条手动补录的记录，时间可以自由修改，但不能选到未来。",
+                text = stringResource(R.string.rdetail_time_manual_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 18.sp
@@ -372,7 +414,7 @@ private fun DoseCard(state: DoseEntryUiState, onDoseChange: (String) -> Unit) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("服用剂量", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.rdetail_dose_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             if (state.canEditDose) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -389,7 +431,7 @@ private fun DoseCard(state: DoseEntryUiState, onDoseChange: (String) -> Unit) {
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "改剂量会自动补一条差额流水，库存台账保持对得上。",
+                    text = stringResource(R.string.rdetail_dose_edit_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -399,7 +441,7 @@ private fun DoseCard(state: DoseEntryUiState, onDoseChange: (String) -> Unit) {
                 if (state.isManual && !state.withinEditWindow) {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "超过 $EDITABLE_WINDOW_DAYS 天的记录只读，备注仍可修改。",
+                        text = stringResource(R.string.rdetail_dose_readonly_hint, EDITABLE_WINDOW_DAYS),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -411,11 +453,9 @@ private fun DoseCard(state: DoseEntryUiState, onDoseChange: (String) -> Unit) {
                         // ⚠️ 待服 / 已逾期形态**没有**「撤销」按钮（还没有结论，无从撤销），
                         // 所以不能对它说"记错了请用撤销" —— 那是把用户指向一个不存在的入口。
                         text = if (hasConclusion) {
-                            "计划内的服药不能改剂量与时间 —— 它要和提醒设置里排的计划量保持一致。" +
-                                "实际吃了多少可以写在备注里；记错了请用「撤销」回到未确认。"
+                            stringResource(R.string.rdetail_dose_locked_conclusion)
                         } else {
-                            "剂量来自提醒设置里排的服药计划，不能在这里单独修改。" +
-                                "实际吃了多少可以写在备注里。"
+                            stringResource(R.string.rdetail_dose_locked_no_conclusion)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -435,11 +475,11 @@ private fun NoteCard(state: DoseEntryUiState, onNoteChange: (String) -> Unit) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text("备注", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.rdetail_note_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             if (state.isReverted) {
                 Text(
-                    text = state.noteInput.ifBlank { "（无）" },
+                    text = state.noteInput.ifBlank { stringResource(R.string.rdetail_note_empty) },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -449,7 +489,7 @@ private fun NoteCard(state: DoseEntryUiState, onNoteChange: (String) -> Unit) {
                     onValueChange = onNoteChange,
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = {
-                        Text("例如：随餐温水送服", style = MaterialTheme.typography.bodyMedium)
+                        Text(stringResource(R.string.rdetail_note_placeholder), style = MaterialTheme.typography.bodyMedium)
                     },
                     shape = RoundedCornerShape(10.dp)
                 )
@@ -461,9 +501,9 @@ private fun NoteCard(state: DoseEntryUiState, onNoteChange: (String) -> Unit) {
                     // 说"会随确认服用一起保存"等于指着一个不存在的入口。
                     Text(
                         text = if (state.isActionable) {
-                            "备注会随「确认服用」一起保存；只填不确认不会留下记录。"
+                            stringResource(R.string.rdetail_note_actionable_hint)
                         } else {
-                            "到达当天才能确认服用，备注会在那时一起保存；现在填写的内容不会落库。"
+                            stringResource(R.string.rdetail_note_future_hint)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -493,7 +533,11 @@ private fun ActionArea(state: DoseEntryUiState, viewModel: DoseRecordDetailViewM
                 Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    text = if (state.slotStatus == SlotStatus.SKIPPED) "确认服用（改判）" else "确认服用",
+                    text = if (state.slotStatus == SlotStatus.SKIPPED) {
+                        stringResource(R.string.rdetail_confirm_rejudged)
+                    } else {
+                        stringResource(R.string.rdetail_confirm)
+                    },
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
@@ -501,7 +545,7 @@ private fun ActionArea(state: DoseEntryUiState, viewModel: DoseRecordDetailViewM
 
         if (state.canSnooze) {
             Text(
-                text = "稍后提醒",
+                text = stringResource(R.string.rdetail_snooze_label),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -522,7 +566,13 @@ private fun ActionArea(state: DoseEntryUiState, viewModel: DoseRecordDetailViewM
             ) {
                 Icon(Icons.Default.SkipNext, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text(if (state.slotStatus == SlotStatus.COMPLETED) "跳过（改判）" else "跳过本次（不扣库存）")
+                Text(
+                    if (state.slotStatus == SlotStatus.COMPLETED) {
+                        stringResource(R.string.rdetail_skip_rejudged)
+                    } else {
+                        stringResource(R.string.rdetail_skip)
+                    }
+                )
             }
         }
 
@@ -540,7 +590,7 @@ private fun ActionArea(state: DoseEntryUiState, viewModel: DoseRecordDetailViewM
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(Modifier.width(6.dp))
-                Text("撤销（回到未确认）")
+                Text(stringResource(R.string.rdetail_undo))
             }
         }
     }
@@ -555,7 +605,7 @@ private fun SnoozeRow(options: List<Int>, onPick: (Int) -> Unit) {
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(10.dp),
                 contentPadding = PaddingValues(vertical = 8.dp)
-            ) { Text("$m 分", fontSize = 13.sp) }
+            ) { Text(stringResource(R.string.rdetail_minutes, m), fontSize = 13.sp) }
         }
     }
 }
@@ -567,27 +617,22 @@ private fun Footnote(state: DoseEntryUiState) {
         // ⚠️ 这一条必须在最前：未来槽位"没有按钮"是**正确行为**，
         // 不能被下面的"只有当天可以撤销"之类文案误导成"这项功能不可用"。
         !state.isActionable && !state.isManual ->
-            "这是未来的服药时间：到达当天才能确认、推迟或跳过。" +
-                "现在可以在这里预览计划剂量与余量。"
+            stringResource(R.string.rdetail_footnote_future)
 
         state.isReverted ->
-            "这条记录已撤销，不再计入依从率与消耗统计。服药事实不会被删除，" +
-                "所以历史永远可追溯、库存台账也不会出现悬空引用。"
+            stringResource(R.string.rdetail_footnote_reverted)
 
         state.isManual && !state.withinEditWindow ->
-            "超过 $EDITABLE_WINDOW_DAYS 天的记录只读：剂量、时间与撤销入口都不再提供，" +
-                "但备注仍可修改。"
+            stringResource(R.string.rdetail_footnote_manual_readonly, EDITABLE_WINDOW_DAYS)
 
         !state.isManual && state.slotStatus == SlotStatus.COMPLETED && !state.canUndo ->
-            "只有当天服用的记录可以撤销。更早的记录已经计入那几天的依从率，" +
-                "只能在「跳过」与「确认」之间改判。"
+            stringResource(R.string.rdetail_footnote_completed_no_undo)
 
         !state.isManual && state.slotStatus == SlotStatus.SKIPPED && !state.canUndo ->
-            "只有当天的记录可以撤销。这条已经计入统计，可以在「确认」与「跳过」之间改判。"
+            stringResource(R.string.rdetail_footnote_skipped_no_undo)
 
         state.slotStatus == SlotStatus.EXPIRED ->
-            "这条超过了计划时间且尚未确认。现在补记仍然有效：确认按实际服用记，" +
-                "跳过则不扣减库存。"
+            stringResource(R.string.rdetail_footnote_expired)
 
         else -> null
     }

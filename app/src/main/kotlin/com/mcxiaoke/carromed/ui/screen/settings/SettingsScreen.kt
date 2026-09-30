@@ -53,11 +53,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.widget.Toast
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.DataExporter
 import com.mcxiaoke.carromed.core.domain.AppLog
 import kotlinx.coroutines.launch
@@ -91,19 +93,25 @@ fun SettingsScreen(
         val preview = pending.first
         AlertDialog(
             onDismissRequest = { viewModel.cancelRestore() },
-            title = { Text("确认覆盖当前数据？") },
+            title = { Text(stringResource(R.string.set_restore_confirm_title)) },
             text = {
                 Column {
-                    Text("所选文件：${preview.fileName}")
-                    Text("生成时间：${preview.exportedAtText}")
-                    Text("包含 ${preview.medicationCount} 种药品、${preview.recordCount} 条服药记录")
+                    Text(stringResource(R.string.set_restore_selected_file, preview.fileName))
+                    Text(stringResource(R.string.set_restore_exported_at, preview.exportedAtText))
+                    Text(
+                        stringResource(
+                            R.string.set_restore_contains,
+                            preview.medicationCount,
+                            preview.recordCount
+                        )
+                    )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "当前数据将被完全替换，此操作不可撤销。",
+                        stringResource(R.string.set_restore_warning),
                         color = MaterialTheme.colorScheme.error
                     )
                     Text(
-                        "覆盖前会自动保存一份当前数据的快照。",
+                        stringResource(R.string.set_restore_snapshot_note),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if (preview.warnings.isNotEmpty()) {
@@ -113,7 +121,10 @@ fun SettingsScreen(
                             // 直接 joinToString 会输出 `BackupProblem(kind=…, message=…)`。
                             // 能进到这里的都是**不拦住恢复**的提示（[BackupProblemKind.blocksRestore]），
                             // 所以措辞用"注意"而不是"错误"——它们不妨碍恢复。
-                            "注意：${preview.warnings.joinToString("；") { it.message }}",
+                            stringResource(
+                                R.string.set_restore_warnings,
+                                preview.warnings.joinToString("；") { it.message }
+                            ),
                             color = MaterialTheme.colorScheme.error
                         )
                     }
@@ -124,11 +135,11 @@ fun SettingsScreen(
                     onClick = { viewModel.confirmRestore() },
                     enabled = !uiState.isRestoring
                 ) {
-                    Text("确认覆盖", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.set_restore_confirm_button), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.cancelRestore() }) { Text("取消") }
+                TextButton(onClick = { viewModel.cancelRestore() }) { Text(stringResource(R.string.set_cancel)) }
             }
         )
     }
@@ -139,10 +150,10 @@ fun SettingsScreen(
     if (uiState.showLocalBackupPicker) {
         AlertDialog(
             onDismissRequest = { viewModel.closeLocalBackupPicker() },
-            title = { Text("选择本机备份") },
+            title = { Text(stringResource(R.string.set_local_backup_picker_title)) },
             text = {
                 if (uiState.localBackups.isEmpty()) {
-                    Text("还没有本机备份。请先用上面的「生成备份」。")
+                    Text(stringResource(R.string.set_local_backup_empty))
                 } else {
                     Column {
                         uiState.localBackups.forEach { b ->
@@ -164,7 +175,7 @@ fun SettingsScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.closeLocalBackupPicker() }) { Text("关闭") }
+                TextButton(onClick = { viewModel.closeLocalBackupPicker() }) { Text(stringResource(R.string.set_close)) }
             }
         )
     }
@@ -172,10 +183,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("系统设置", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.set_title), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.set_back_cd))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -207,7 +218,7 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "通知与提醒行为",
+                                text = stringResource(R.string.set_section_notification),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -222,9 +233,9 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("默认推迟时长", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.set_snooze_title), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    "通知栏与今日清单长按菜单的默认推迟分钟数（单个药品可在「提醒设置」中单独覆盖）",
+                                    stringResource(R.string.set_snooze_desc),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -248,7 +259,7 @@ fun SettingsScreen(
                                 modifier = Modifier.width(140.dp)
                             ) {
                                 OutlinedTextField(
-                                    value = "${uiState.snoozeMinutes} 分钟",
+                                    value = stringResource(R.string.set_snooze_minutes_fmt, uiState.snoozeMinutes),
                                     onValueChange = {},
                                     readOnly = true,
                                     singleLine = true,
@@ -261,13 +272,13 @@ fun SettingsScreen(
                                 ) {
                                     if (hasCustom) {
                                         DropdownMenuItem(
-                                            text = { Text("${uiState.snoozeMinutes} 分钟 (自定义)") },
+                                            text = { Text(stringResource(R.string.set_snooze_minutes_custom, uiState.snoozeMinutes)) },
                                             onClick = { snoozeExpanded = false }
                                         )
                                     }
                                     snoozeOptions.forEach { mins ->
                                         DropdownMenuItem(
-                                            text = { Text("$mins 分钟") },
+                                            text = { Text(stringResource(R.string.set_snooze_minutes_fmt, mins)) },
                                             onClick = {
                                                 viewModel.onSnoozeMinutesChange(mins)
                                                 snoozeExpanded = false
@@ -287,9 +298,9 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("夜间免打扰 (静音)", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.set_night_dnd_title), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    "23:00 至 07:00 之间改为静默渠道，不响铃不震动；标记为「重要提醒」的药品不受影响",
+                                    stringResource(R.string.set_night_dnd_desc),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -320,14 +331,14 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "提醒防漏与系统保活",
+                                text = stringResource(R.string.set_section_keepalive),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "排查精确闹钟、系统白名单与自启权限，确保灭屏休眠零漏报。",
+                            text = stringResource(R.string.set_permission_check_desc),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -337,7 +348,7 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("查看 4 项系统特权自检与保活指引 >", fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.set_permission_check_button), fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -360,7 +371,7 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "数据管理与本地导出",
+                                text = stringResource(R.string.set_section_data),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -374,15 +385,15 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("导出服药明细报表 (CSV)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Text("明文数据，可用 Excel / WPS 打开分析", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.set_export_csv_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.set_export_csv_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             OutlinedButton(
                                 onClick = { viewModel.exportCsv() },
                                 enabled = !uiState.isExporting,
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("导出 CSV", fontSize = 12.sp)
+                                Text(stringResource(R.string.set_export_csv_button), fontSize = 12.sp)
                             }
                         }
 
@@ -394,15 +405,15 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("备份全量数据库 (JSON)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Text("包含药品、计划、打卡与库存流水完整存档", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.set_export_backup_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.set_export_backup_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             OutlinedButton(
                                 onClick = { viewModel.exportBackup() },
                                 enabled = !uiState.isExporting,
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("生成备份", fontSize = 12.sp)
+                                Text(stringResource(R.string.set_create_backup_button), fontSize = 12.sp)
                             }
                         }
 
@@ -414,14 +425,14 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("从备份恢复 (覆盖式)", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Text("整库快照替换还原，当前数据将被完全覆盖", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.set_restore_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.set_restore_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             OutlinedButton(
                                 onClick = { backupPickerLauncher.launch(arrayOf("application/json")) },
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("选择文件", fontSize = 12.sp)
+                                Text(stringResource(R.string.set_pick_file_button), fontSize = 12.sp)
                             }
                         }
 
@@ -433,9 +444,9 @@ fun SettingsScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("从本机备份恢复", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.set_local_restore_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    "直接选用 App 刚生成的备份（系统文件选择器看不到这个目录）",
+                                    stringResource(R.string.set_local_restore_desc),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -444,7 +455,7 @@ fun SettingsScreen(
                                 onClick = { viewModel.openLocalBackupPicker() },
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("本机备份", fontSize = 12.sp)
+                                Text(stringResource(R.string.set_local_backup_button), fontSize = 12.sp)
                             }
                         }
 
@@ -453,14 +464,17 @@ fun SettingsScreen(
                         // 诊断日志导出（PLAN-LOGGING S4）：排查"没提醒/账不对"时
                         // 让用户一键把最近日志发给开发者。刻意放在 Screen 层直连
                         // DataExporter，不走 ViewModel——避免给构造器加参数（坑 5）。
+                        // shareFile 的 chooser 标题与 Toast 在非 composable 回调里，
+                        // 无法直接 stringResource —— 在 composable 作用域先取好。
+                        val shareLogTitle = stringResource(R.string.set_share_log_title)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("导出诊断日志", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Text("最近 7 天的运行日志，排查提醒与记账问题用", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.set_export_log_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.set_export_log_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             OutlinedButton(
                                 onClick = {
@@ -468,19 +482,19 @@ fun SettingsScreen(
                                         try {
                                             val file = DataExporter.exportDiagnosticLogs(logExportContext)
                                             if (file != null) {
-                                                DataExporter.shareFile(logExportContext, file, "text/plain", "分享诊断日志")
+                                                DataExporter.shareFile(logExportContext, file, "text/plain", shareLogTitle)
                                             } else {
-                                                Toast.makeText(logExportContext, "还没有日志文件", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(logExportContext, logExportContext.getString(R.string.set_no_log_files), Toast.LENGTH_SHORT).show()
                                             }
                                         } catch (e: Exception) {
                                             AppLog.w("SettingsScreen", "export diagnostic logs failed", e)
-                                            Toast.makeText(logExportContext, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(logExportContext, logExportContext.getString(R.string.set_export_failed, e.message), Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 },
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text("导出日志", fontSize = 12.sp)
+                                Text(stringResource(R.string.set_export_log_button), fontSize = 12.sp)
                             }
                         }
                     }
@@ -504,7 +518,7 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "关于 CarroMed",
+                                text = stringResource(R.string.set_section_about),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
@@ -513,7 +527,7 @@ fun SettingsScreen(
                         Text(
                             // 版本号读 BuildConfig 而不是硬编码：升版忘改文案
                             // 比"没写版本"更糟（对不上实际安装的包）
-                            text = "CarroMed v${com.mcxiaoke.carromed.BuildConfig.VERSION_NAME} (Native Compose)\n• 100% 纯本地离线单机运行，零网络权限申请\n• 免账号登录、无后台云端追踪、无广告干扰\n• 数据完全受控于您本人的手机私有沙箱存储",
+                            text = stringResource(R.string.set_about_text, com.mcxiaoke.carromed.BuildConfig.VERSION_NAME),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 20.sp

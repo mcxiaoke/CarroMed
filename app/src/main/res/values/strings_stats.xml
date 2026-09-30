@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 统计报表页 -->
+    <string name="stats_title">统计报表</string>
+    <string name="stats_export_report">导出报告</string>
+    <string name="stats_period_total">%1$s累计用药统计</string>
+    <string name="stats_mixed_units">多种单位</string>
+    <string name="stats_plan_summary">共 %1$d 次计划 · %2$d 种在服药品</string>
+    <string name="stats_adherence_label">服药依从率</string>
+    <string name="stats_completed_label">已按时服用</string>
+    <string name="stats_missed_label">跳过 / 漏服</string>
+    <string name="stats_consumption_title">各药品累计消耗</string>
+    <string name="stats_by_actual">按实际服药量</string>
+    <string name="stats_empty_rankings">该周期内还没有服药记录。完成打卡或使用「手动补录」后，这里会按药品统计消耗量。</string>
+    <string name="stats_export_csv">导出服药明细为 CSV</string>
+    <string name="stats_breakdown_title">依从率构成</string>
+    <string name="stats_legend_taken">已服</string>
+    <string name="stats_legend_skipped">主动跳过</string>
+    <string name="stats_legend_missed">逾期漏服</string>
+    <string name="stats_pending_note">另有 %1$d 次尚未到服药时间，未计入依从率。</string>
+</resources>

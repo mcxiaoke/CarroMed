@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.AppLog
@@ -91,31 +92,31 @@ class DoseActionReceiver : BroadcastReceiver() {
                         // 但排查时会先怀疑协程，所以从一开始就别让两个东西同名。
                         val applied = if (isStillOpen) {
                             // `!!` 安全：isStillOpen 为真 ⇒ slot 已取到 ⇒ slotId 非空
-                            actions.confirm(slotId = slotId!!, note = "通知栏快捷打卡")
+                            actions.confirm(slotId = slotId!!, note = appContext.getString(R.string.act_note_take))
                         } else {
                             DoseActionResult.ALREADY_HANDLED
                         }
                         // 成功动作必须留痕（G5）：这是并发风险最高的写入口——
                         // 通知栏直接写库，进程可能刚被闹钟拉起，事后工单只有这里有现场
                         AppLog.i(TAG, "action=take key=$key result=$applied")
-                        notifyUser(appContext, applied.takeMessage())
+                        notifyUser(appContext, applied.takeMessage(appContext))
                     }
 
                     Notifications.ACTION_SNOOZE -> {
                         val minutes = intent.getIntExtra(Notifications.EXTRA_MINUTES, 30)
                         val ok = isStillOpen && actions.snooze(slotId!!, minutes)
                         AppLog.i(TAG, "action=snooze key=$key minutes=$minutes applied=$ok")
-                        if (ok) notifyUser(appContext, "已推迟 $minutes 分钟，到时再提醒")
+                        if (ok) notifyUser(appContext, appContext.getString(R.string.act_snoozed, minutes))
                     }
 
                     Notifications.ACTION_SKIP -> {
                         val applied = if (isStillOpen) {
-                            actions.skip(slotId!!, reason = "通知栏快捷跳过")
+                            actions.skip(slotId!!, reason = appContext.getString(R.string.act_note_skip))
                         } else {
                             DoseActionResult.ALREADY_HANDLED
                         }
                         AppLog.i(TAG, "action=skip key=$key result=$applied")
-                        notifyUser(appContext, applied.takeMessage(skip = true))
+                        notifyUser(appContext, applied.takeMessage(appContext, skip = true))
                     }
                 }
             } catch (t: Throwable) {
@@ -143,10 +144,10 @@ class DoseActionReceiver : BroadcastReceiver() {
  * 而说"库存已同步"会让用户以为打卡生效了 —— 两者都会让用户以为
  * "明天的药已经安排好了"，实际上明天的闹钟还在、药还没吃。
  */
-private fun DoseActionResult.takeMessage(skip: Boolean = false): String = when (this) {
+private fun DoseActionResult.takeMessage(context: Context, skip: Boolean = false): String = when (this) {
     DoseActionResult.APPLIED ->
-        if (skip) "已跳过本次，不扣减库存" else "已记录服药，库存已同步 💊"
+        if (skip) context.getString(R.string.act_skipped) else context.getString(R.string.act_taken)
 
-    DoseActionResult.FUTURE_SLOT -> "未来的服药时间不能提前确认"
-    DoseActionResult.ALREADY_HANDLED -> "该提醒已处理过"
+    DoseActionResult.FUTURE_SLOT -> context.getString(R.string.act_future_slot)
+    DoseActionResult.ALREADY_HANDLED -> context.getString(R.string.act_already_handled)
 }

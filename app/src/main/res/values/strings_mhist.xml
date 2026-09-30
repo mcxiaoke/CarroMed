@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mhist_cd_back">返回</string>
+    <string name="mhist_title">服药历史</string>
+    <string name="mhist_empty">还没有服药记录。</string>
+    <string name="mhist_default_unit">片</string>
+    <string name="mhist_tag_manual">" · 临时用药"</string>
+    <string name="mhist_tag_retrospective">" · 补录"</string>
+    <string name="mhist_status_taken">已服</string>
+    <string name="mhist_status_skipped">已跳过</string>
+    <string name="mhist_status_reverted">已撤销</string>
+</resources>

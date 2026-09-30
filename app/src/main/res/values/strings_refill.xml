@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- RefillScreen（补药入库） -->
+    <string name="refill_title">补药入库</string>
+    <string name="refill_cd_back">返回</string>
+    <string name="refill_default_med_name">药品</string>
+    <string name="refill_current_stock_label">"当前库存结余: "</string>
+    <string name="refill_alert_line">" · 预警线: %1$s"</string>
+    <string name="refill_error_prefix">⚠️ %1$s</string>
+    <string name="refill_amount_section_title">入库数量</string>
+    <string name="refill_amount_label">增加库存量 (%1$s) *</string>
+    <string name="refill_unit_default">片</string>
+    <string name="refill_purchase_section_title">采购与批次信息 (可选)</string>
+    <string name="refill_channel_tongrentang">同仁堂实体药房</string>
+    <string name="refill_channel_hospital">医院处方药房</string>
+    <string name="refill_channel_online">京东/阿里线上大药房</string>
+    <string name="refill_channel_family">家庭医保药店</string>
+    <string name="refill_channel_label">采购渠道 / 来源</string>
+    <string name="refill_batch_number_label">生产批号 (选填)</string>
+    <string name="refill_batch_number_placeholder">如 20260408A</string>
+    <string name="refill_expiry_label">有效期至 (选填)</string>
+    <string name="refill_note_label">入库备注 (选填)</string>
+    <string name="refill_note_placeholder">如 医生开的第二个疗程</string>
+    <string name="refill_confirm_button">确认入库 (生成流水账)</string>
+</resources>

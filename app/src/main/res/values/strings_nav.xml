@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nav_tab_today">今日</string>
+    <string name="nav_tab_cabinet">药箱</string>
+    <string name="nav_tab_progress">进展</string>
+    <string name="nav_tab_stats">统计</string>
+</resources>

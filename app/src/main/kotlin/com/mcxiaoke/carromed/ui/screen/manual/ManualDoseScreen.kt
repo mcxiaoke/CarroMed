@@ -53,11 +53,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.domain.service.MANUAL_DOSE_BACKFILL_DAYS
 import com.mcxiaoke.carromed.ui.component.Quantity
 import java.time.format.DateTimeFormatter
@@ -82,10 +84,10 @@ fun ManualDoseScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("手动补录服药", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.man_title), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     TextButton(onClick = onNavigateBack) {
-                        Text("取消", style = MaterialTheme.typography.bodyLarge)
+                        Text(stringResource(R.string.man_cancel), style = MaterialTheme.typography.bodyLarge)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -122,8 +124,7 @@ fun ManualDoseScreen(
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            text = "忘记打卡或未带手机？支持补记过去任意时刻，系统会保留真实服药事实，" +
-                                "并按需联动扣减库存。",
+                            text = stringResource(R.string.man_backfill_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             lineHeight = 18.sp
@@ -139,7 +140,7 @@ fun ManualDoseScreen(
                         color = MaterialTheme.colorScheme.errorContainer
                     ) {
                         Text(
-                            text = "⚠️ $err",
+                            text = stringResource(R.string.man_error_with_icon, err),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(12.dp),
@@ -159,7 +160,7 @@ fun ManualDoseScreen(
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text(
-                            "选择药品",
+                            stringResource(R.string.man_select_medication),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -174,18 +175,28 @@ fun ManualDoseScreen(
                             val selectedStock = uiState.selectedStock
                             val stocksById = uiState.stockByMedicationId
                             val selectedText = when {
-                                selected == null -> "请选择药品"
+                                selected == null -> stringResource(R.string.man_please_select_medication)
                                 !selected.isStockTracked -> selected.name
                                 selectedStock < 0f ->
-                                    "${selected.name} (账面 ${Quantity.fmt(selectedStock)} ${selected.unit}，将扣成负数)"
+                                    stringResource(
+                                        R.string.man_stock_negative,
+                                        selected.name,
+                                        Quantity.fmt(selectedStock),
+                                        selected.unit
+                                    )
                                 else ->
-                                    "${selected.name} (剩 ${Quantity.fmt(selectedStock)} ${selected.unit})"
+                                    stringResource(
+                                        R.string.man_stock_remaining,
+                                        selected.name,
+                                        Quantity.fmt(selectedStock),
+                                        selected.unit
+                                    )
                             }
                             OutlinedTextField(
                                 value = selectedText,
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("药品 *") },
+                                label = { Text(stringResource(R.string.man_medication_label)) },
                                 trailingIcon = {
                                     ExposedDropdownMenuDefaults.TrailingIcon(expanded = medDropdownExpanded)
                                 },
@@ -199,7 +210,7 @@ fun ManualDoseScreen(
                             ) {
                                 if (uiState.medications.isEmpty()) {
                                     DropdownMenuItem(
-                                        text = { Text("暂无在服药品，请先在药箱添加") },
+                                        text = { Text(stringResource(R.string.man_no_medications)) },
                                         onClick = { medDropdownExpanded = false }
                                     )
                                 }
@@ -209,7 +220,12 @@ fun ManualDoseScreen(
                                         text = {
                                             Text(
                                                 if (med.isStockTracked) {
-                                                    "${med.name} (剩 ${Quantity.fmt(stock)} ${med.unit})"
+                                                    stringResource(
+                                                        R.string.man_stock_remaining,
+                                                        med.name,
+                                                        Quantity.fmt(stock),
+                                                        med.unit
+                                                    )
                                                 } else med.name
                                             )
                                         },
@@ -234,14 +250,13 @@ fun ManualDoseScreen(
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text(
-                            "实际服药时间",
+                            stringResource(R.string.man_actual_time_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            "补录最常用于「忘记打卡」场景，因此必须能指定过去时刻；" +
-                                "只能补录最近 $MANUAL_DOSE_BACKFILL_DAYS 天内的服药。",
+                            stringResource(R.string.man_backfill_window, MANUAL_DOSE_BACKFILL_DAYS),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -260,11 +275,11 @@ fun ManualDoseScreen(
                                 value = String.format("%02d-%02d-%02d", dt.year, dt.monthValue, dt.dayOfMonth),
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("日期") },
+                                label = { Text(stringResource(R.string.man_date_label)) },
                                 trailingIcon = {
                                     Icon(
                                         Icons.Default.CalendarToday,
-                                        contentDescription = "选择日期",
+                                        contentDescription = stringResource(R.string.man_cd_pick_date),
                                         modifier = Modifier
                                             .size(18.dp)
                                             .androidxClickable {
@@ -291,11 +306,11 @@ fun ManualDoseScreen(
                                 value = String.format("%02d:%02d", dt.hour, dt.minute),
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("时间") },
+                                label = { Text(stringResource(R.string.man_time_label)) },
                                 trailingIcon = {
                                     Icon(
                                         Icons.Default.Schedule,
-                                        contentDescription = "选择时间",
+                                        contentDescription = stringResource(R.string.man_cd_pick_time),
                                         modifier = Modifier
                                             .size(18.dp)
                                             .androidxClickable {
@@ -327,15 +342,15 @@ fun ManualDoseScreen(
                         ) {
                             AssistChip(
                                 onClick = { viewModel.quickFill(QuickFill.NOW) },
-                                label = { Text("此刻", fontSize = 12.sp) }
+                                label = { Text(stringResource(R.string.man_quick_now), fontSize = 12.sp) }
                             )
                             AssistChip(
                                 onClick = { viewModel.quickFill(QuickFill.ONE_HOUR_AGO) },
-                                label = { Text("1 小时前", fontSize = 12.sp) }
+                                label = { Text(stringResource(R.string.man_quick_one_hour_ago), fontSize = 12.sp) }
                             )
                             AssistChip(
                                 onClick = { viewModel.quickFill(QuickFill.YESTERDAY) },
-                                label = { Text("昨天此时", fontSize = 12.sp) }
+                                label = { Text(stringResource(R.string.man_quick_yesterday), fontSize = 12.sp) }
                             )
                         }
                     }
@@ -351,7 +366,7 @@ fun ManualDoseScreen(
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Text(
-                            "剂量与备注",
+                            stringResource(R.string.man_dose_note_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -360,17 +375,18 @@ fun ManualDoseScreen(
                             OutlinedTextField(
                                 value = uiState.doseAmount,
                                 onValueChange = { viewModel.onDoseAmountChange(it) },
-                                label = { Text("服用剂量") },
+                                label = { Text(stringResource(R.string.man_dose_label)) },
                                 modifier = Modifier.weight(1f),
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                             )
                             Spacer(Modifier.width(12.dp))
                             OutlinedTextField(
-                                value = uiState.selectedMedication?.unit ?: "片",
+                                value = uiState.selectedMedication?.unit
+                                    ?: stringResource(R.string.man_default_unit),
                                 onValueChange = {},
                                 readOnly = true,
-                                label = { Text("单位") },
+                                label = { Text(stringResource(R.string.man_unit_label)) },
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -378,8 +394,8 @@ fun ManualDoseScreen(
                         OutlinedTextField(
                             value = uiState.note,
                             onValueChange = { viewModel.onNoteChange(it) },
-                            label = { Text("备注 (选填)") },
-                            placeholder = { Text("如: 随早餐服下、外出聚餐补服") },
+                            label = { Text(stringResource(R.string.man_note_label)) },
+                            placeholder = { Text(stringResource(R.string.man_note_placeholder)) },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -401,15 +417,15 @@ fun ManualDoseScreen(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    "联动扣减库存",
+                                    stringResource(R.string.man_deduct_stock_title),
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
                                     if (uiState.selectedMedication?.isStockTracked == true) {
-                                        "服药后从该药品库存中扣除本次剂量"
+                                        stringResource(R.string.man_deduct_stock_on)
                                     } else {
-                                        "该药品未开启库存追踪，此开关无效"
+                                        stringResource(R.string.man_deduct_stock_off)
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -442,7 +458,7 @@ fun ManualDoseScreen(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                     } else {
-                        Text("保存服药记录", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(stringResource(R.string.man_save), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
             }

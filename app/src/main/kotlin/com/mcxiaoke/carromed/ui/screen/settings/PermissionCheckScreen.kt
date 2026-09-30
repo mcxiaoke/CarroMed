@@ -45,12 +45,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.alarm.AlarmScheduler
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
@@ -98,10 +100,10 @@ fun PermissionCheckScreen(onNavigateBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("系统特权自检与保活指引", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.perm_title), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.perm_back_cd))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -118,14 +120,12 @@ fun PermissionCheckScreen(onNavigateBack: () -> Unit) {
         ) {
             item {
                 PermissionItemCard(
-                    title = "1. 精确闹钟 (Exact Alarm)",
+                    title = stringResource(R.string.perm_exact_alarm_title),
                     status = PermissionStatus(
-                        text = facts.precision.label,
+                        text = stringResource(facts.precision.labelRes),
                         ok = !facts.precision.isDegraded
                     ),
-                    desc = "决定提醒是「到点必响」还是「系统择机送达」。用药提醒属于" +
-                        "《Android 闹钟类应用》标准场景，CarroMed 已声明 USE_EXACT_ALARM，" +
-                        "正常安装即自动授予；若这里显示未授权，说明系统把它降级处理了。",
+                    desc = stringResource(R.string.perm_exact_alarm_desc),
                     icon = Icons.Default.Alarm,
                     // ⚠️ 只在**真的降级**时才给按钮。
                     // 声明了 `USE_EXACT_ALARM` 的应用即使 `canScheduleExactAlarms()`
@@ -133,7 +133,7 @@ fun PermissionCheckScreen(onNavigateBack: () -> Unit) {
                     // 这个 Activity（`resolveActivity` 会返回非 null）——
                     // 于是"已授权"旁边配一个"去授权"按钮，自相矛盾。
                     action = if (facts.precision.isDegraded && facts.needsExactAlarmRequest) {
-                        PermissionAction("去授权", { openExactAlarmSettings(context) })
+                        PermissionAction(stringResource(R.string.perm_action_grant), { openExactAlarmSettings(context) })
                     } else {
                         null
                     }
@@ -141,37 +141,37 @@ fun PermissionCheckScreen(onNavigateBack: () -> Unit) {
             }
             item {
                 PermissionItemCard(
-                    title = "2. 发送通知 (Notification)",
+                    title = stringResource(R.string.perm_notification_title),
                     status = PermissionStatus(
-                        text = if (facts.notificationsEnabled) "已授权" else "未授权",
+                        text = if (facts.notificationsEnabled) stringResource(R.string.perm_status_granted)
+                        else stringResource(R.string.perm_status_denied),
                         ok = facts.notificationsEnabled
                     ),
-                    desc = "Android 13+ 必须显式允许通知，否则闹钟会照常唤醒但屏幕上什么都不会出现。",
+                    desc = stringResource(R.string.perm_notification_desc),
                     icon = Icons.Default.Notifications,
                     action = if (facts.notificationsEnabled) null
-                    else PermissionAction("去开启", { openNotificationSettings(context) })
+                    else PermissionAction(stringResource(R.string.perm_action_enable), { openNotificationSettings(context) })
                 )
             }
             item {
                 PermissionItemCard(
-                    title = "3. 忽略电池优化 (Doze 白名单)",
+                    title = stringResource(R.string.perm_battery_title),
                     status = PermissionStatus(
-                        text = if (facts.ignoringBatteryOptimizations) "已加入白名单" else "未加入",
+                        text = if (facts.ignoringBatteryOptimizations) stringResource(R.string.perm_status_whitelisted)
+                        else stringResource(R.string.perm_status_not_whitelisted),
                         ok = facts.ignoringBatteryOptimizations
                     ),
-                    desc = "强烈推荐。防止手机在夜间待机灭屏时冻结后台 AlarmManager。",
+                    desc = stringResource(R.string.perm_battery_desc),
                     icon = Icons.Default.BatteryAlert,
                     action = if (facts.ignoringBatteryOptimizations) null
-                    else PermissionAction("去设置", { openBatteryOptimizationSettings(context) })
+                    else PermissionAction(stringResource(R.string.perm_action_settings), { openBatteryOptimizationSettings(context) })
                 )
             }
             item {
                 PermissionItemCard(
-                    title = "4. 锁屏显示与后台自启动",
-                    status = PermissionStatus(text = "需手动确认", ok = false),
-                    desc = "国内主流厂商（小米/华为/OPPO/vivo/荣耀）需手动在手机管家中开启" +
-                        "【自启动】与【锁屏显示】。该项无法通过系统 API 程序化检测，" +
-                        "请自行到手机管家确认。",
+                    title = stringResource(R.string.perm_vendor_title),
+                    status = PermissionStatus(text = stringResource(R.string.perm_status_manual), ok = false),
+                    desc = stringResource(R.string.perm_vendor_desc),
                     icon = Icons.Default.Lock
                 )
             }

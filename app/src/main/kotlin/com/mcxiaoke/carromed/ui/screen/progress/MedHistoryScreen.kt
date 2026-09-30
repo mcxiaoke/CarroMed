@@ -36,10 +36,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
@@ -73,12 +75,12 @@ fun MedHistoryScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onNavigateBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.mhist_cd_back))
                 }
                 Spacer(Modifier.width(4.dp))
                 Column {
                     Text(
-                        text = uiState.medication?.name ?: "服药历史",
+                        text = uiState.medication?.name ?: stringResource(R.string.mhist_title),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1
@@ -86,7 +88,7 @@ fun MedHistoryScreen(
                     // 副标题说明"这是一个什么页面"。只显示药名的话，
                     // 用户从进展页点进来会短暂困惑"这列是什么"。
                     Text(
-                        text = "服药历史",
+                        text = stringResource(R.string.mhist_title),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -94,6 +96,8 @@ fun MedHistoryScreen(
             }
         }
     ) { innerPadding ->
+        // LazyListScope 块不是 composable 上下文，单位默认值先在 composable 侧解析。
+        val unit = uiState.medication?.unit ?: stringResource(R.string.mhist_default_unit)
         when {
             uiState.isLoading -> Box(
                 Modifier.fillMaxSize().padding(innerPadding),
@@ -116,7 +120,7 @@ fun MedHistoryScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "还没有服药记录。",
+                    text = stringResource(R.string.mhist_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -130,7 +134,6 @@ fun MedHistoryScreen(
                 contentPadding = PaddingValues(top = 8.dp, bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                val unit = uiState.medication?.unit ?: "片"
                 uiState.months.forEach { month ->
                     item(key = "m-${month.yearMonth}") {
                         Row(
@@ -194,8 +197,8 @@ private fun MedHistoryRow(
                 val dose = com.mcxiaoke.carromed.core.domain.model.Dose(item.doseMilli).asFloat
                 val subtitle = buildString {
                     append(Quantity.fmt(dose)).append(' ').append(unit)
-                    if (item.isManual) append(" · 临时用药")
-                    if (item.isRetrospective) append(" · 补录")
+                    if (item.isManual) append(stringResource(R.string.mhist_tag_manual))
+                    if (item.isRetrospective) append(stringResource(R.string.mhist_tag_retrospective))
                     if (!item.note.isNullOrBlank()) {
                         append(" · ").append(item.note)
                     }
@@ -220,9 +223,12 @@ private fun MedHistoryRow(
 @Composable
 private fun HistoryStatusChip(timeLabel: String, status: RecordStatus) {
     val (text, color) = when (status) {
-        RecordStatus.COMPLETED -> "已服" to MaterialTheme.colorScheme.primary
-        RecordStatus.SKIPPED -> "已跳过" to MaterialTheme.colorScheme.outline
-        RecordStatus.REVERTED -> "已撤销" to MaterialTheme.colorScheme.outline
+        RecordStatus.COMPLETED ->
+            stringResource(R.string.mhist_status_taken) to MaterialTheme.colorScheme.primary
+        RecordStatus.SKIPPED ->
+            stringResource(R.string.mhist_status_skipped) to MaterialTheme.colorScheme.outline
+        RecordStatus.REVERTED ->
+            stringResource(R.string.mhist_status_reverted) to MaterialTheme.colorScheme.outline
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
