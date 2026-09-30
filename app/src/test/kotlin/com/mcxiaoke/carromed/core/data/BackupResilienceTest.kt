@@ -183,6 +183,12 @@ class BackupResilienceTest {
                 (if (pol != null) good.copy(
                     schedulePolicies = listOf(pol, pol.copy(id = pol.id + 1000, version = pol.version + 1))
                 ) else good),
+            // osbf P3-5：同计划 + 同时刻、**不同主键** —— 主键重复检查（上一行）
+            // 抓不到它，IGNORE 也不会拦，只有 (policyId, timeOfDay) 检查能指到病根
+            BackupProblemKind.DUPLICATE_POLICY_TIME to
+                (if (tim != null) good.copy(
+                    policyTimes = listOf(tim, tim.copy(id = tim.id + 5000))
+                ) else good.copy(reminderSettings = emptyList())),
             BackupProblemKind.MISSING_REMINDER_SETTINGS to good.copy(reminderSettings = emptyList())
         )
         assertThat(dirty.keys).containsExactlyElementsIn(BackupProblemKind.entries.toSet())
@@ -299,5 +305,24 @@ class BackupResilienceTest {
         // ★ 拒绝发生时库必须是**原样**，不能是"清空了但没填回来"
         assertThat(spare.medicationDao().getAllMedications()).isEmpty()
         assertThat(good.medications).isNotEmpty()
+    }
+
+    // ================================================================
+    // 4. 文件兼容性：BOM（osbf P3-6）
+    // ================================================================
+
+    /**
+     * Windows 记事本"另存为 UTF-8"会给文件头加 BOM（`\uFEFF`）。
+     * 旧实现不剥 BOM，一份内容完全正确的备份因三个不可见字节整份解析失败。
+     */
+    @Test
+    fun `带 BOM 的备份文件照常恢复`() = runTest {
+        seedMed("环孢素")
+        val good = DataExporter.buildBackup(db, now = 1_757_000_000_000L)
+        val uri = writeBackupFile("\uFEFF" + DataExporter.encodeBackup(good))
+
+        val result = DataExporter.importBackup(context, spare, uri)
+        assertThat(result).isInstanceOf(DataExporter.RestoreResult.Success::class.java)
+        assertThat(spare.medicationDao().getAllMedications()).isNotEmpty()
     }
 }

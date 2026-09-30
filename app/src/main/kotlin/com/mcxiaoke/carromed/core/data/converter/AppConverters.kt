@@ -5,6 +5,7 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
+import com.mcxiaoke.carromed.core.domain.AppLog
 import org.json.JSONArray
 
 /**
@@ -15,33 +16,50 @@ class AppConverters {
     /** 旧的分隔符，仅用于**读**旧数据。见 [fromStringList] 的 KDoc。 */
     private val legacyListSeparator = "|||"
 
+    /**
+     * 未知枚举值的降级必须**留痕**（DB B-08 / sba P2-12）。
+     *
+     * 静默降级的恶劣之处：枚举改名（重构顺手 rename）会让**所有历史行**当场
+     * 变成降级值 —— 槽位全部回到 PENDING、流水全部变扣减，用户毫无察觉。
+     * 兜底必须保留（抛错会让整个库打不开，比静默更糟），但至少要留一条
+     * `AppLog.w`，诊断导出里能对上"数据是什么时候变形的"。
+     */
+    private inline fun <reified T : Enum<T>> parseEnum(raw: String, fallback: T): T =
+        runCatching { enumValueOf<T>(raw) }.getOrElse {
+            AppLog.w(
+                TAG,
+                "unknown enum value \"$raw\" for ${T::class.simpleName}, falling back to $fallback"
+            )
+            fallback
+        }
+
     @TypeConverter
     fun fromPolicyType(value: PolicyType?): String? = value?.name
 
     @TypeConverter
     fun toPolicyType(value: String?): PolicyType? =
-        value?.let { runCatching { PolicyType.valueOf(it) }.getOrDefault(PolicyType.DAILY) }
+        value?.let { parseEnum(it, PolicyType.DAILY) }
 
     @TypeConverter
     fun fromSlotStatus(value: SlotStatus?): String? = value?.name
 
     @TypeConverter
     fun toSlotStatus(value: String?): SlotStatus? =
-        value?.let { runCatching { SlotStatus.valueOf(it) }.getOrDefault(SlotStatus.PENDING) }
+        value?.let { parseEnum(it, SlotStatus.PENDING) }
 
     @TypeConverter
     fun fromRecordStatus(value: RecordStatus?): String? = value?.name
 
     @TypeConverter
     fun toRecordStatus(value: String?): RecordStatus? =
-        value?.let { runCatching { RecordStatus.valueOf(it) }.getOrDefault(RecordStatus.COMPLETED) }
+        value?.let { parseEnum(it, RecordStatus.COMPLETED) }
 
     @TypeConverter
     fun fromTransactionType(value: TransactionType?): String? = value?.name
 
     @TypeConverter
     fun toTransactionType(value: String?): TransactionType? =
-        value?.let { runCatching { TransactionType.valueOf(it) }.getOrDefault(TransactionType.TAKEN_DEDUCT) }
+        value?.let { parseEnum(it, TransactionType.TAKEN_DEDUCT) }
 
     /**
      * `List<String>` 的持久化。
@@ -94,4 +112,8 @@ class AppConverters {
     @TypeConverter
     fun toIntList(data: String?): List<Int> =
         if (data.isNullOrEmpty()) emptyList() else data.split(",").mapNotNull { it.trim().toIntOrNull() }
+
+    private companion object {
+        const val TAG = "AppConverters"
+    }
 }

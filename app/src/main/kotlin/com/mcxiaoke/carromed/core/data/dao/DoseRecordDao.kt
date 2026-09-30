@@ -119,6 +119,48 @@ interface DoseRecordDao {
     suspend fun getCompletedRecordsForSlots(slotIds: List<Long>): List<DoseRecordEntity>
 
     /**
+     * 一批槽位的**未撤销**事实（`COMPLETED` + `SKIPPED`），按 id 升序（避免 N+1）。
+     *
+     * 供"已服 / 已跳过"列表展示：同一槽位可能有多条事实（改判/撤销后重新表态），
+     * 展示要取**最新那条** —— 取最早条会在"跳过 → 撤销 → 再跳过"后展示出
+     * 已作废的旧事实（DB C-21）。调用方按 `slot_id` 分组后取每组末条。
+     */
+    @Query(
+        """
+        SELECT * FROM dose_records
+        WHERE slot_id IN (:slotIds) AND status != 'REVERTED'
+        ORDER BY id ASC
+        """
+    )
+    suspend fun getActiveRecordsForSlots(slotIds: List<Long>): List<DoseRecordEntity>
+
+    /**
+     * 未归档药品的服药事实总数，**只作为变化探针**（sba P1-1 残留）。
+     *
+     * 槽位探针（`DoseSlotDao.observeDecidedSlotCount`）盯的是 `dose_slots` 的状态列，
+     * 而**手动补录**不产生槽位 —— 只写 `dose_records`。没有这条探针，
+     * 纯补录之后统计页的"累计用量 / 排行榜"不会刷新。
+     * JOIN `medications` 让"归档"同样成为可观察事件（与槽位探针同一条纪律）。
+     */
+    @Query(
+        """
+        SELECT COUNT(*)
+        FROM dose_records r
+        INNER JOIN medications m ON m.id = r.medication_id
+        WHERE m.is_archived = 0
+        """
+    )
+    fun observeRecordCount(): Flow<Int>
+
+    /**
+     * 单药品的服药事实计数，**只作为变化探针**（osbf P2-3）：
+     * 历史页订阅它，补录 / 撤销 / 改剂量后返回列表即时重算。
+     * 不 JOIN 归档过滤 —— 归档药的历史页同样要能反映新变化。
+     */
+    @Query("SELECT COUNT(*) FROM dose_records WHERE medication_id = :medicationId")
+    fun observeRecordCountForMedication(medicationId: Long): Flow<Int>
+
+    /**
      * 单药历史（进展 → 点某个药）。
      *
      * ⚠️ 与流水同口径：**不返回已撤销的事实**。撤销是动作不是状态，

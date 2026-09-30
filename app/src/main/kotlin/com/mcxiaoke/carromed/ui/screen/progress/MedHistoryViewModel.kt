@@ -7,9 +7,12 @@ import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.domain.model.Dose
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -69,19 +72,38 @@ class MedHistoryViewModel(application: Application) : AndroidViewModel(applicati
 
     private var loadedMedId: Long? = null
 
+    private var historyJob: Job? = null
+
     private val zone: ZoneId = ZoneId.systemDefault()
     private val timeFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
+    /**
+     * 订阅式加载（osbf P2-3）：`loadedMedId` 一次性守卫保留（同一药品不重复订阅），
+     * 但首帧之后还会订阅该药的事实计数与档案 —— 补录、撤销、改剂量之后返回本页，
+     * 列表即时重算，而不是停在进页时的旧数据。
+     */
     fun load(medId: Long) {
         if (loadedMedId == medId) return
         loadedMedId = medId
-        viewModelScope.launch {
-            val med = medDao.getMedicationById(medId)
-            if (med == null) {
-                _uiState.update { it.copy(isLoading = false, error = "药品不存在或已被删除") }
-                return@launch
+        historyJob?.cancel()
+        historyJob = viewModelScope.launch {
+            loadOnce(medId)
+            combine(
+                recordDao.observeRecordCountForMedication(medId),
+                medDao.observeMedicationById(medId)
+            ) { _, _ -> }.drop(1).collect {
+                loadOnce(medId)
             }
-            val records = recordDao.getRecordsForMedication(medId)
+        }
+    }
+
+    private suspend fun loadOnce(medId: Long) {
+        val med = medDao.getMedicationById(medId)
+        if (med == null) {
+            _uiState.update { it.copy(isLoading = false, error = "药品不存在或已被删除") }
+            return
+        }
+        val records = recordDao.getRecordsForMedication(medId)
 
             val items = records.map { r ->
                 MedHistoryItem(
@@ -114,7 +136,6 @@ class MedHistoryViewModel(application: Application) : AndroidViewModel(applicati
                 }
 
             _uiState.update { it.copy(isLoading = false, medication = med, months = months) }
-        }
     }
 }
 

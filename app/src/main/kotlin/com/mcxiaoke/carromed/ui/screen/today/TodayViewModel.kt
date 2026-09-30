@@ -146,18 +146,21 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         val completed = mutableListOf<DoseSlotItem>()
         val skipped = mutableListOf<DoseSlotItem>()
 
-        // 一次批量取回已完成/已跳过槽位对应的服药事实，避免循环内 N+1 查询
+        // 一次批量取回已完成/已跳过槽位对应的服药事实，避免循环内 N+1 查询。
+        // 取**最新**一条未撤销事实（DB C-21）：同槽位"跳过→撤销→再跳过"后，
+        // 旧写法（id ASC LIMIT 1）会展示出已作废的最早那条。
         val decidedSlotIds = slots
             .filter { it.status == SlotStatus.COMPLETED || it.status == SlotStatus.SKIPPED }
             .map { it.id }
-        val recordsBySlot = recordDao.getCompletedRecordsForSlots(decidedSlotIds).associateBy { it.slotId }
+        val recordsBySlot = recordDao.getActiveRecordsForSlots(decidedSlotIds)
+            .groupBy { it.slotId }
+            .mapValues { (_, v) -> v.last() }
 
         for (slot in slots) {
             val overview = medMap[slot.medicationId]
             val med = overview?.medication
             val record = when (slot.status) {
-                SlotStatus.COMPLETED -> recordsBySlot[slot.id]
-                SlotStatus.SKIPPED -> recordDao.getRecordBySlotId(slot.id)
+                SlotStatus.COMPLETED, SlotStatus.SKIPPED -> recordsBySlot[slot.id]
                 else -> null
             }
 

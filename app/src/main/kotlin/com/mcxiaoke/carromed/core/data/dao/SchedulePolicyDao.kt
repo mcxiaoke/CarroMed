@@ -8,6 +8,7 @@ import androidx.room.Transaction
 import androidx.room.Update
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
+import kotlinx.coroutines.flow.Flow
 
 /**
  * 提醒计划策略与时点数据访问接口
@@ -70,8 +71,31 @@ interface SchedulePolicyDao {
     @Query("SELECT * FROM schedule_policies WHERE medication_id = :medicationId ORDER BY id DESC")
     suspend fun getAllPoliciesForMedication(medicationId: Long): List<SchedulePolicyEntity>
 
+    /**
+     * 全部药品的 active 计划，一次取回（zcg #19：药箱页曾是"每药 2 查询"的 N+1）。
+     *
+     * 排序与 [getActivePolicyForMedication] 同键（`version DESC, id DESC`）：
+     * 按序分组后取每组第一条，与逐药 `LIMIT 1` 的结果一致。
+     */
+    @Query("SELECT * FROM schedule_policies WHERE is_active = 1 ORDER BY version DESC, id DESC")
+    suspend fun getAllActivePolicies(): List<SchedulePolicyEntity>
+
+    /**
+     * 该药品的计划行数，**只作为变化探针**（osbf P2-3 / DB C-27）。
+     *
+     * 详情页 / 库存页改造为"探针触发重载"后，改计划（保存 / 清除结束日）必须
+     * 是一个可被观察的事件 —— `schedule_policies` 表的写入不会使 `medications`
+     * 的 Flow 失效，没有这条探针，改完计划返回详情页看到的还是旧计划。
+     */
+    @Query("SELECT COUNT(*) FROM schedule_policies WHERE medication_id = :medicationId")
+    fun observePolicyCountForMedication(medicationId: Long): Flow<Int>
+
     @Query("SELECT * FROM policy_times WHERE policy_id = :policyId ORDER BY sort_order ASC, time_of_day ASC")
     suspend fun getTimesForPolicy(policyId: Long): List<PolicyTimeEntity>
+
+    /** 多条计划的时点一次取回；空 id 集合必须由调用方短路（`IN ()` 不是合法 SQL） */
+    @Query("SELECT * FROM policy_times WHERE policy_id IN (:policyIds) ORDER BY sort_order ASC, time_of_day ASC")
+    suspend fun getTimesForPolicies(policyIds: List<Long>): List<PolicyTimeEntity>
 
     @Query("UPDATE schedule_policies SET is_active = 0 WHERE medication_id = :medicationId")
     suspend fun deactivatePoliciesForMedication(medicationId: Long)

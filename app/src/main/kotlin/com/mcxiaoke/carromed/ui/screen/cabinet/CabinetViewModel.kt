@@ -98,12 +98,23 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
         _sortOrder,
         medDao.observeAllOverviews()
     ) { tab, kw, order, allMeds ->
+        // 计划与时点**批量**取回（zcg #19）：旧实现对每个药品发 2 次 DAO 查询
+        // （active 计划 + 该计划时点），每次 combine 发射就是 2N 次查询。
+        // 现在总共 2 次，剩下的分组是纯内存操作。分组取首条与逐药 `LIMIT 1`
+        // 同结果（DAO 查询按 `version DESC, id DESC` 排序，见其 KDoc）。
+        val policiesByMed = policyDao.getAllActivePolicies()
+            .groupBy { it.medicationId }
+            .mapValues { (_, v) -> v.first() }
+        val timesByPolicy = policyDao.getTimesForPolicies(policiesByMed.values.map { it.id })
+            .groupBy { it.policyId }
         CabinetUiState(
             selectedTab = tab,
             keyword = kw,
             sortOrder = order,
-            activeList = allMeds.filter { !it.medication.isArchived }.map { buildItemUi(it) },
-            archivedList = allMeds.filter { it.medication.isArchived }.map { buildItemUi(it) },
+            activeList = allMeds.filter { !it.medication.isArchived }
+                .map { buildItemUi(it, policiesByMed[it.id], timesByPolicy) },
+            archivedList = allMeds.filter { it.medication.isArchived }
+                .map { buildItemUi(it, policiesByMed[it.id], timesByPolicy) },
             isLoading = false
         )
     }.stateIn(
@@ -124,10 +135,13 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
         _sortOrder.value = order
     }
 
-    private suspend fun buildItemUi(overview: MedicationOverview): MedicationItemUi {
+    private fun buildItemUi(
+        overview: MedicationOverview,
+        policy: SchedulePolicyEntity?,
+        timesByPolicy: Map<Long, List<PolicyTimeEntity>>
+    ): MedicationItemUi {
         val med = overview.medication
-        val policy = policyDao.getActivePolicyForMedication(med.id)
-        val times = if (policy != null) policyDao.getTimesForPolicy(policy.id) else emptyList()
+        val times = policy?.let { timesByPolicy[it.id] } ?: emptyList()
 
         val timeStr = times.joinToString(", ") { it.timeOfDay }
         val perDay = if (times.isEmpty()) "0 次" else "${times.size} 次"

@@ -205,6 +205,13 @@ class StatsStateBuilder(private val db: AppDatabase) {
      * 它**不参与任何计算**，只负责"有事发生了，叫醒 combine"。
      */
     fun decidedSlotCountProbe(): Flow<Int> = slotDao.observeDecidedSlotCount()
+
+    /**
+     * 服药事实计数探针（sba P1-1 残留）：手动补录不产生槽位、只写 `dose_records`，
+     * 槽位探针看不到它 —— 纯补录后"累计用量 / 排行榜"就停在旧值。
+     * 与槽位探针并列挂进 `combine`，两个来源任何一个变化都会唤醒重算。
+     */
+    fun recordCountProbe(): Flow<Int> = recordDao.observeRecordCount()
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -228,8 +235,9 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
 
     val uiState: StateFlow<StatsUiState> = combine(
         _selectedPeriod,
-        builder.decidedSlotCountProbe()
-    ) { period, _ ->
+        builder.decidedSlotCountProbe(),
+        builder.recordCountProbe()
+    ) { period, _, _ ->
         builder.build(period)
     }.stateIn(
         scope = viewModelScope,

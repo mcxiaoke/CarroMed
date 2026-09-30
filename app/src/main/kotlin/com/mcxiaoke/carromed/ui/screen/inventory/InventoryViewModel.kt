@@ -15,9 +15,12 @@ import com.mcxiaoke.carromed.core.data.model.TransactionType
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.ui.component.DecimalInput
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -72,17 +75,39 @@ class InventoryViewModel(
     private val _uiState = MutableStateFlow(InventoryUiState())
     val uiState: StateFlow<InventoryUiState> = _uiState.asStateFlow()
 
+    private var loadJob: Job? = null
+
     init {
         load()
+        // 响应式重载（osbf P2-3 / DB C-27）：本页曾是进页一次性读取，
+        // 在别处入库 / 打卡扣减后返回，账面与流水仍停在旧值。
+        // 与详情页同一套"探针触发重载"实现，探针不参与计算、只叫醒重读。
+        viewModelScope.launch {
+            combine(
+                medDao.observeMedicationById(medId),
+                inventoryDao.observeTransactionsForMedication(medId),
+                policyDao.observePolicyCountForMedication(medId),
+                db.doseSlotDao().observeDecidedSlotCount()
+            ) { _, _, _, _ -> }.drop(1).collect {
+                load()
+            }
+        }
     }
 
     fun load() {
-        viewModelScope.launch {
-            val overview = medDao.getOverviewById(medId)
-            if (overview == null) {
-                _uiState.value = _uiState.value.copy(isLoading = false, error = "药品不存在或已被删除")
-                return@launch
-            }
+        // 连续失效（批量流水写入）时取消上一个加载协程，保证状态收敛于最新数据
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            loadOnce()
+        }
+    }
+
+    private suspend fun loadOnce() {
+        val overview = medDao.getOverviewById(medId)
+        if (overview == null) {
+            _uiState.value = _uiState.value.copy(isLoading = false, error = "药品不存在或已被删除")
+            return
+        }
             val med = overview.medication
             val stock = overview.stock
             val policy = policyDao.getActivePolicyForMedication(medId)
@@ -146,7 +171,6 @@ class InventoryViewModel(
                     _uiState.value.calibrateInput
                 }
             )
-        }
     }
 
     fun onMinStockAlertChange(v: String) {

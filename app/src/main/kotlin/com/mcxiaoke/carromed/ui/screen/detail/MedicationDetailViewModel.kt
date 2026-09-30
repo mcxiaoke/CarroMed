@@ -15,9 +15,12 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
@@ -64,16 +67,46 @@ class MedicationDetailViewModel(
     private val _uiState = MutableStateFlow(MedDetailUiState())
     val uiState: StateFlow<MedDetailUiState> = _uiState.asStateFlow()
 
+    private var loadJob: Job? = null
+
     init {
         loadData()
+        // 响应式重载（osbf P2-3 / DB C-27）：本页曾是进页一次性读取，
+        // 从补药 / 提醒设置 / 打卡返回后看到的仍是旧数据。
+        //
+        // 实现选"探针触发重载"而不是把整条管线改写成 Flow combine：
+        // 状态里有依从率、可用天数这类多源派生值，全改 combine 是一次大重写；
+        // 探针只需要"有变化就重读一遍"，Room 的 InvalidationTracker 保证
+        // 只有相关表变化才发射。drop(1)：首帧由上面显式的 loadData 负责，
+        // 避免与探针首值重复加载。
+        viewModelScope.launch {
+            combine(
+                medDao.observeMedicationById(medId),
+                inventoryDao.observeTransactionsForMedication(medId),
+                reminderSettingsDao.observeByMedicationId(medId),
+                slotDao.observeDecidedSlotCount(),
+                recordDao.observeRecordCount(),
+                policyDao.observePolicyCountForMedication(medId)
+            ) { _ -> }.drop(1).collect {
+                loadData()
+            }
+        }
     }
 
     fun loadData() {
-        viewModelScope.launch {
+        // 连续失效（如恢复备份批量写）会连续触发重载；取消上一个，保证
+        // 状态按最新数据收敛，而不是几个旧协程乱序覆盖。
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            loadDataOnce()
+        }
+    }
+
+    private suspend fun loadDataOnce() {
             val overview = medDao.getOverviewById(medId)
             if (overview == null) {
                 _uiState.value = _uiState.value.copy(isLoading = false, error = "药品不存在或已被删除")
-                return@launch
+                return
             }
             val med = overview.medication
             val stock = overview.stock
@@ -128,10 +161,7 @@ class MedicationDetailViewModel(
                 recentRecords = recent,
                 doseSum = doseSum
             )
-        }
-    }
-
-    /**
+    }    /**
      * 每周实际排班天数，用于把日均消耗折算到"日历日"而非"服药日"。
      *
      * ## 为什么必须与 `InventoryViewModel` 逐字一致（M4-1）

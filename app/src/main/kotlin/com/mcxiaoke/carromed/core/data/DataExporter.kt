@@ -142,6 +142,17 @@ enum class BackupProblemKind(val blocksRestore: Boolean) {
     MULTIPLE_ACTIVE_POLICIES(true),
 
     /**
+     * 同一 `policy_id` 下出现**相同的 `timeOfDay`**（osbf P3-5）。
+     *
+     * `policy_times` 没有跨列唯一约束，回填 `insertAll(IGNORE)` 按**主键 id** 判冲突，
+     * 所以"同计划 + 同时刻"的两行都会被写进去 —— 而领域层
+     * `saveReminderPolicy` 的 `require(timeKeys.distinct())` 恢复后第一次
+     * 保存计划就会崩。用户被**自己 App 导出的备份**锁死在坏数据上。
+     * 正常导出写不出这种备份（写入口有去重），能出现的只有手工编辑过的文件。
+     */
+    DUPLICATE_POLICY_TIME(true),
+
+    /**
      * 某个药品缺 `reminder_settings` 行（A2 建立的不变量）。
      *
      * 放行：[restoreBackup] 会为它补一行默认值。
@@ -189,6 +200,8 @@ data class BackupProblem(val kind: BackupProblemKind, val message: String) {
 object DataExporter {
 
     private const val TAG = "DataExporter"
+
+    /** UTF-8 BOM（`\uFEFF`）。CSV 导出带它（Excel/WPS 直接打开无乱码），**读取**时必须剥掉。 */
     private const val BOM = "﻿"
     private const val BACKUP_APP_TAG = "CarroMed"
 
@@ -641,6 +654,19 @@ object DataExporter {
                 )
             }
 
+        // 同一计划下重复的时点（osbf P3-5）：回填按主键 IGNORE，这类重复不会被
+        // 任何冲突策略拦住，全部入库 —— 恢复后该药第一次保存计划就会被
+        // 领域层的 `require(distinct)` 拒绝。必须在导入前拦住。
+        backup.policyTimes
+            .groupBy { it.policyId to it.timeOfDay }
+            .filterValues { it.size > 1 }
+            .forEach { (key, dup) ->
+                report(
+                    BackupProblemKind.DUPLICATE_POLICY_TIME,
+                    "计划 #${key.first} 在 ${key.second} 有 ${dup.size} 条重复时点"
+                )
+            }
+
         // 每个药品都应有一行提醒运行态（A2 建立的不变量）。缺失的会在恢复时补默认值，
         // 所以这是**提示**而不是错误 —— 拦住会让 A2 之前版本的备份永远恢复不了。
         val medsWithSettings = backup.reminderSettings.map { it.medicationId }.toSet()
@@ -878,14 +904,22 @@ object DataExporter {
         val warnings: List<BackupProblem>
     )
 
+    /**
+     * 读入备份文本并**剥掉 UTF-8 BOM**（osbf P3-6）。
+     *
+     * BOM 是本 App 导出 CSV 时主动加的（Excel 兼容），Windows 记事本"另存为
+     * UTF-8"也会加。JSON 解析器不认它 —— 一份内容完全正确的备份会因为文件头
+     * 三个不可见字节而整份解析失败，用户只会看到"无法读取所选文件"。
+     * 剥 BOM 对没有 BOM 的正常文件是恒等变换，统一剥最省心。
+     */
     private fun readText(context: Context, uri: Uri): String? =
         runCatching {
             context.contentResolver.openInputStream(uri)
                 ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-        }.getOrNull()
+        }.getOrNull()?.removePrefix(BOM)
 
     private fun readText(file: File): String? =
-        runCatching { file.readText(Charsets.UTF_8) }.getOrNull()
+        runCatching { file.readText(Charsets.UTF_8) }.getOrNull()?.removePrefix(BOM)
 
     /**
      * App 自己导出的备份文件列表（`exportDir` 下）。
