@@ -8,7 +8,6 @@ import androidx.room.Query
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import kotlinx.coroutines.flow.Flow
-import java.time.LocalDate
 
 /**
  * 药品的提醒运行态读写。
@@ -154,25 +153,13 @@ interface ReminderSettingsDao {
     /**
      * 截至 [today] 需要排闹钟的药品（未归档且未暂停）。
      *
-     * 这是"该不该为它排闹钟"的**唯一数据库级判据** —— 暂停判断全部走
-     * [ReminderSettingsEntity.isPausedOn]，不在 SQL 里重复实现一遍日期比较，
-     * 否则两处实现必然漂移（且 SQL 那份没人测）。
+     * ⚠️ 已删除（osbf P3-1 / ds P2-3）：`getAllForReconcile` / `getSchedulableOn`。
+     *
+     * 旧 KDoc 自称"该不该为它排闹钟的**唯一数据库级判据**"，但生产对账
+     * 实际走 `MedicationDao.getActiveOverviews()` + `MedicationOverview.isPausedOn`
+     * （见 `AlarmReconciler`），这两个方法**零调用方** —— 是一条从未成立的
+     * 文档承诺。留着它，后人按 KDoc 找"判据"会找到一条死路。
+     * 暂停判断的现行唯一判据仍是 `ReminderSettingsEntity.isPausedOn`，
+     * 消费方在 `MedicationOverview` 的代理字段上。
      */
-    @Query(
-        """
-        SELECT m.*, COALESCE(r.is_critical_reminder, 0) AS isCriticalReminder,
-               COALESCE(r.snooze_minutes, 0) AS snoozeMinutes,
-               COALESCE(r.advance_minutes, 0) AS advanceMinutes,
-               r.paused_until AS pausedUntil
-        FROM medications m
-        LEFT JOIN reminder_settings r ON r.medication_id = m.id
-        WHERE m.is_archived = 0
-        ORDER BY m.id DESC
-        """
-    )
-    suspend fun getAllForReconcile(): List<MedicationWithReminder>
-
-    /** [getAllForReconcile] 过滤后的版本，供调用方按 `isPausedOn(today)` 判定。 */
-    suspend fun getSchedulableOn(today: LocalDate): List<MedicationWithReminder> =
-        getAllForReconcile().filter { !it.settings().isPausedOn(today) }
 }

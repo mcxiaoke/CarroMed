@@ -41,6 +41,12 @@ class ReminderSettingsIsolationTest {
     private lateinit var db: AppDatabase
     private lateinit var service: MedicationAdminService
 
+    /**
+     * "远期未来"的暂停截止日。相对今天取值 —— 硬编码 `2026-12-31` 的版本
+     * 会在跨过那个日子后整体假红（AGENTS §3「下午全绿早上全红」）。
+     */
+    private val pausedUntilDate: String = LocalDate.now().plusDays(90).toString()
+
     @Before
     fun setup() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -80,7 +86,7 @@ class ReminderSettingsIsolationTest {
                 medId = id, isCriticalReminder = true, snoozeMinutes = 25, advanceMinutes = 15
             )
         )
-        service.setPausedUntil(id, "2026-12-31")
+        service.setPausedUntil(id, pausedUntilDate)
 
         // 档案页改一堆字段
         service.saveProfile(
@@ -95,7 +101,7 @@ class ReminderSettingsIsolationTest {
         assertThat(rs.isCriticalReminder).isTrue()
         assertThat(rs.snoozeMinutes).isEqualTo(25)
         assertThat(rs.advanceMinutes).isEqualTo(15)
-        assertThat(rs.pausedUntil).isEqualTo("2026-12-31")
+        assertThat(rs.pausedUntil).isEqualTo(pausedUntilDate)
     }
 
     @Test
@@ -141,7 +147,7 @@ class ReminderSettingsIsolationTest {
     @Test
     fun `保存提醒行为不碰暂停状态`() = runTest {
         val id = newMed()
-        service.setPausedUntil(id, "2026-12-31")
+        service.setPausedUntil(id, pausedUntilDate)
 
         service.saveReminderBehavior(
             MedicationAdminService.ReminderBehaviorDraft(
@@ -149,7 +155,7 @@ class ReminderSettingsIsolationTest {
             )
         )
 
-        assertThat(db.reminderSettingsDao().getByMedicationId(id)?.pausedUntil).isEqualTo("2026-12-31")
+        assertThat(db.reminderSettingsDao().getByMedicationId(id)?.pausedUntil).isEqualTo(pausedUntilDate)
     }
 
     // ---------------- 暂停不碰提醒行为 ----------------
@@ -239,7 +245,7 @@ class ReminderSettingsIsolationTest {
                 medId = id, isCriticalReminder = true, snoozeMinutes = 15, advanceMinutes = 5
             )
         )
-        service.setPausedUntil(id, "2026-12-31")
+        service.setPausedUntil(id, pausedUntilDate)
 
         val o = db.medicationDao().getOverviewById(id)!!
         assertThat(o.name).isEqualTo("测试药")
@@ -260,8 +266,9 @@ class ReminderSettingsIsolationTest {
         assertThat(o.isPausedOn(LocalDate.now())).isFalse()
     }
 
+    /** 原 `getSchedulableOn` 的判据（该方法已随死代码清理删除，osbf P3-1）：排闹钟的药 = active 且当天未暂停 */
     @Test
-    fun `getSchedulableOn 过滤掉暂停中的药品`() = runTest {
+    fun `active 且未暂停的药才算可排班 已到期自动恢复`() = runTest {
         val a = newMed(name = "在服")
         val b = newMed(name = "暂停中")
         val c = newMed(name = "已到期自动恢复")
@@ -269,7 +276,9 @@ class ReminderSettingsIsolationTest {
         // 已到期：结束日是昨天 ⇒ 今天起不再算暂停
         service.setPausedUntil(c, LocalDate.now().minusDays(1).toString())
 
-        val schedulable = db.reminderSettingsDao().getSchedulableOn(LocalDate.now()).map { it.medication.id }
+        val schedulable = db.medicationDao().getActiveOverviews()
+            .filter { !it.isPausedOn(LocalDate.now()) }
+            .map { it.medication.id }
         assertThat(schedulable).containsExactly(a, c)
         assertThat(schedulable).doesNotContain(b)
     }

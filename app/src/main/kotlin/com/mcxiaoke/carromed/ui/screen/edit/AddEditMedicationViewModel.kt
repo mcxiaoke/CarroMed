@@ -446,15 +446,6 @@ class AddEditMedicationViewModel(
             val stockFloat = s.currentStock.toFloatOrNull() ?: 0f
             val alertFloat = s.minStockAlert.toFloatOrNull() ?: 0f
 
-            // 起始日修正：新增药品时，若所有时点都已早于当前时间，
-            // 排进今天会让"今天这一剂一创建就是逾期"，新用户看到的依从率直接是 0%。
-            // 此时把起始日推到明天，从下一次正常服药开始，不冤枉用户。
-            val effectiveStartDate = if (policyRequired && !s.isEdit && s.startDate == todayDate()) {
-                if (s.timeSlots.all { it.isBeforeNow() }) tomorrowDate() else s.startDate
-            } else {
-                s.startDate
-            }
-
             // 1) 药品档案 (新增或编辑，绝不整行覆盖状态位)
             val medId = adminService.saveProfile(
                 MedicationAdminService.ProfileDraft(
@@ -488,10 +479,10 @@ class AddEditMedicationViewModel(
             //
             // 编辑模式本来就不写计划（由"提醒设置"页负责，避免两个入口互相覆盖），
             // 所以这里两条路径统一：**本类不负责写计划**。
-            //
-            // 相应地，`effectiveStartDate` 与 `s.timeSlots` 在新建路径上
-            // 也不再参与任何计算，一并留在这里是为了提醒：
-            // 将来若恢复"新建页可配计划"，需要把这段一起恢复。
+            // （原为"起始日顺延"保留的 `effectiveStartDate` / `isBeforeNow` 死代码
+            //   已删除 —— 它们自新建页移除计划配置后不再参与任何计算，
+            //   留着会被后继读者当活代码改。将来若恢复"新建页可配计划"，
+            //   从 git 历史里找这段，连同 ReminderSettingsScreen 的对应校验。）
 
             // 3) 初始库存建档 —— **仅新增时**。
             // 编辑路径绝不碰库存：账面是台账聚合值，改它必须走盘点校准或补药入库。
@@ -505,6 +496,9 @@ class AddEditMedicationViewModel(
             //
             // 新建的药此刻**还没有任何计划**，所以这里实际是空操作。
             // 保留调用是为了编辑路径：改档案后重排一次，保证与现有计划一致。
+            //
+            // 本路径**不写计划**，投影结果与既有槽位一致，重排前不会发生删行 ——
+            // 无需 presnap 快照（改计划的 ReminderSettings 路径才需要）。
             trackingService.reconcileSchedule(medId)
 
             // 5) 按最新计划重排全部精确闹钟
@@ -527,22 +521,6 @@ class AddEditMedicationViewModel(
     }
 
     private fun trimFloat(v: Float): String = if (v % 1f == 0f) v.toInt().toString() else v.toString()
-
-    private fun todayDate(): String =
-        LocalDate.now().format(SlotProjectionEngine.DATE_FORMATTER)
-
-    private fun tomorrowDate(): String =
-        LocalDate.now().plusDays(1).format(SlotProjectionEngine.DATE_FORMATTER)
-
-    /** 该时点是否已经早于当前时刻 */
-    private fun TimeSlotDraft.isBeforeNow(): Boolean {
-        val p = time.split(":")
-        val m = (p.getOrNull(0)?.toIntOrNull() ?: 0) * 60 + (p.getOrNull(1)?.toIntOrNull() ?: 0)
-        val cal = java.util.Calendar.getInstance()
-        val now = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 +
-            cal.get(java.util.Calendar.MINUTE)
-        return m < now
-    }
 
     private fun nextSlotTime(after: String): String {
         val parts = after.split(":")

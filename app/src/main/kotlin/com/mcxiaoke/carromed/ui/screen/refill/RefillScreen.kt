@@ -194,7 +194,7 @@ fun RefillScreen(
                             label = { Text("增加库存量 (${med?.unit ?: "片"}) *") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                         )
                     }
                 }

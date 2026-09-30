@@ -303,6 +303,36 @@ class AppDatabaseRealTest {
         assertThat(columns).contains("form")
     }
 
+    /**
+     * schema v7（osbf P3-4）：`inventory_transactions` 加了 `Index(record_id)`。
+     *
+     * AGENTS §2 红线的另一半：加索引与删列一样是 schema 变更，必须有 PRAGMA 断言
+     * 钉住"这一版相对上一版变了什么"。查询判据：`getSumOfChangeByRecordId`
+     * （改剂量 / 撤销时按事实 id 聚合流水）是高频写路径上的过滤。
+     */
+    @Test
+    fun `inventory_transactions 有 record_id 索引（schema v7）`() = runTest {
+        val indexes = db.openHelper.readableDatabase
+            .query("PRAGMA index_list(inventory_transactions)").use { c ->
+                val nameIdx = c.getColumnIndexOrThrow("name")
+                buildList {
+                    while (c.moveToNext()) add(c.getString(nameIdx))
+                }
+            }
+        val indexedColumns = indexes.flatMap { idxName ->
+            db.openHelper.readableDatabase
+                .query("PRAGMA index_info($idxName)").use { c ->
+                    val nameIdx = c.getColumnIndexOrThrow("name")
+                    buildList {
+                        while (c.moveToNext()) add(c.getString(nameIdx))
+                    }
+                }
+        }
+        assertThat(indexedColumns).contains("record_id")
+        // 原有的两个索引也不许在升版时悄悄丢掉
+        assertThat(indexedColumns).containsAtLeast("medication_id", "created_at")
+    }
+
     @Test
     fun updateProfile_preservesStatusFlagsAndCreatedAt() = runTest {
         val medId = medDao.insert(

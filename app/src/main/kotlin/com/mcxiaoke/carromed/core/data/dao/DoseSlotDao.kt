@@ -31,8 +31,16 @@ interface DoseSlotDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(slots: List<DoseSlotEntity>): List<Long>
 
-    @Update
-    suspend fun update(slot: DoseSlotEntity)
+    /**
+     * ⚠️ 已删除（osbf P3-1 / DB C-03 / zcg #15）：`@Update update(slot)`。
+     *
+     * 整行覆盖命令，零调用方 —— 槽位状态的每一次变更都有各自的
+     * **带状态守卫的局部命令**（`markCompletedIfOpen` / `markSkipped` /
+     * `snoozeSlot` / `markExpired` / `updateDerivedColumns`），
+     * 绕过守卫的整行覆盖就是给"重复扣库存 / 既成事实被改写"开门。
+     * 另见 [forceStatusForTest] 的 KDoc：那是唯一一个**有意**无守卫的入口，
+     * 意图写在签名里、只供测试 fixture 使用。
+     */
 
     /**
      * 同步**可从投影完全派生**的三列：剂量、所属策略、计划时间戳。
@@ -40,7 +48,7 @@ interface DoseSlotDao {
      * ## 为什么必须存在
      *
      * 幂等 diff 的键是**日历** `(scheduled_date, scheduled_time)`，
-     * 命中的槽位走"留"分支。而 [update] 在生产代码里从不调用 ——
+     * 命中的槽位走"留"分支。旧实现里这份同步不存在 ——
      * 也就是槽位的 `dose_amount` 在其**整个生命周期内被冻结在创建时的值**。
      *
      * 后果：用户把剂量从 1 片改成 2 片，之后 14 天每次打卡都按 1 片扣库存。

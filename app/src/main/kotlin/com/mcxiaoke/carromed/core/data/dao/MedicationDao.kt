@@ -61,8 +61,16 @@ interface MedicationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(medications: List<MedicationEntity>): List<Long>
 
-    @Update
-    suspend fun update(medication: MedicationEntity)
+    /**
+     * ⚠️ 已删除（osbf P3-1 / DB C-04）：`@Update update(medication)`。
+     *
+     * 它是**整行覆盖**命令：调用方必须重传全部列，漏传任何一列就把
+     * 注意事项、别名、归档标记、创建时间静默抹掉，且没有任何报错
+     * （AGENTS §2「数据更新一律局部 UPDATE」的直接反面）。
+     * 生产代码零调用方（改档案走 [updateProfile]、改预警线走 `updateMinStockAlert`、
+     * 改追踪/归档各走各的局部命令）。将来谁想加回"整行更新"，
+     * 请先解释为什么细粒度命令不够用。
+     */
 
 
     // ==================== 读路径：档案 + 派生余额 + 提醒运行态 ====================

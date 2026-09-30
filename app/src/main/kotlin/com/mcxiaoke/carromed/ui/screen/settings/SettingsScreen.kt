@@ -47,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -229,7 +230,9 @@ fun SettingsScreen(
                                 )
                             }
                             val snoozeOptions = listOf(5, 10, 15, 30, 60, 120)
-                            var snoozeExpanded by remember { mutableStateOf(false) }
+                            // rememberSaveable：与 AddEdit / Cabinet / ReminderSettings 的
+                            // 下拉展开态同一纪律 —— 进详情再返回不该丢失展开状态
+                            var snoozeExpanded by rememberSaveable { mutableStateOf(false) }
 
                             // 下拉只能表示这 6 个档位，而库里可以是任意值
                             // （药品级步进写到 25、或从备份导入 app_settings 带来 90）。
@@ -508,7 +511,9 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "CarroMed v1.0.0 (Native Compose)\n• 100% 纯本地离线单机运行，零网络权限申请\n• 免账号登录、无后台云端追踪、无广告干扰\n• 数据完全受控于您本人的手机私有沙箱存储",
+                            // 版本号读 BuildConfig 而不是硬编码：升版忘改文案
+                            // 比"没写版本"更糟（对不上实际安装的包）
+                            text = "CarroMed v${com.mcxiaoke.carromed.BuildConfig.VERSION_NAME} (Native Compose)\n• 100% 纯本地离线单机运行，零网络权限申请\n• 免账号登录、无后台云端追踪、无广告干扰\n• 数据完全受控于您本人的手机私有沙箱存储",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 20.sp

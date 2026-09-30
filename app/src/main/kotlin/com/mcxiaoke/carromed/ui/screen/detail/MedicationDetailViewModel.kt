@@ -229,17 +229,22 @@ class MedicationDetailViewModel(
     fun deleteMedication(onDeleted: () -> Unit) {
         val med = _uiState.value.medication ?: return
         viewModelScope.launch {
+            // 快照必须在删行**之前**拍（osbf P3-9）：FK 级联会删掉该药全部槽位，
+            // rescheduleAll 内部拍的快照看不到已删的行，对应闹钟就成了孤儿。
+            val presnap = com.mcxiaoke.carromed.core.alarm.AlarmReconciler.snapshotOpenAlarms(db)
             medDao.deleteById(med.id)
-            rescheduleAlarms()
+            rescheduleAlarms(presnap)
             onDeleted()
         }
     }
 
-    /** 状态变更后按当前库内数据全量重排闹钟 */
-    private suspend fun rescheduleAlarms() {
+    /** 状态变更后按当前库内数据全量重排闹钟；带 `presnap` 时同时清理已删行的闹钟 */
+    private suspend fun rescheduleAlarms(
+        presnap: Set<com.mcxiaoke.carromed.core.alarm.AlarmReconciler.AlarmIdentity> = emptySet()
+    ) {
         runCatching {
             com.mcxiaoke.carromed.core.alarm.AlarmReconciler.rescheduleAll(
-                getApplication<Application>(), db
+                getApplication<Application>(), db, presnap
             )
         }
     }

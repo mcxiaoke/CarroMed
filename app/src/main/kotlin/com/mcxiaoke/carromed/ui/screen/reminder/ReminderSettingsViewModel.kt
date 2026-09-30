@@ -380,6 +380,11 @@ class ReminderSettingsViewModel(
         viewModelScope.launch {
             _uiState.value = s.copy(isSaving = true, error = null)
 
+            // 快照必须在保存**之前**拍（osbf P3-9）：改计划会经 reconcileSchedule
+            // 删掉不再被投影命中的槽位行，rescheduleAll 内部的快照看不到已删的行，
+            // 对应闹钟就成了到点空唤醒的孤儿（最长 14 天）。
+            val presnap = AlarmReconciler.snapshotOpenAlarms(db)
+
             // ⚠️ 整条保存链包 runCatching（M2-3）。领域层的 `require`
             // （重复时点 / 药品不存在）在 ViewModel 里未捕获会一路打到主线程 → 崩溃，
             // 且 `isSaving` 永远停在 true ⇒ 保存按钮**永久禁用**。
@@ -436,7 +441,7 @@ class ReminderSettingsViewModel(
                 // 暂停状态会被陈旧 UI 值覆盖回去。现在保存链完全不碰暂停。
 
                 trackingService.reconcileSchedule(medId)
-                runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db) }
+                runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db, presnap) }
             }.onFailure { t ->
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,

@@ -281,6 +281,14 @@ class MedicationAdminService(private val db: AppDatabase) {
 
             val previous = policyDao.getActivePolicyForMedication(medicationId)
 
+            // 星期几的取值域必须在 1..7（DB C-20）：0 / 8 这类值从 UI 打不进来，
+            // 但备份导入、未来的外部入口可以 —— 落库后投影引擎按 `dayOfWeek - 1`
+            // 索引星期名，越界值要么静默排错天、要么读出错位的文案。
+            // 与时点/剂量的 require 同一性质：服务层是所有入口的公共下游。
+            require(draft.daysOfWeek.all { it in 1..7 }) {
+                "daysOfWeek 取值必须在 1..7（周一..周日），当前 ${draft.daysOfWeek}"
+            }
+
             val policy = SchedulePolicyEntity(
                 medicationId = medicationId,
                 policyType = draft.policyType,

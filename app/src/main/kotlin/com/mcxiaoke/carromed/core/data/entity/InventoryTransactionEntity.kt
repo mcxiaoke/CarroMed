@@ -12,7 +12,8 @@ import com.mcxiaoke.carromed.core.data.model.TransactionType
  * 核心设计：
  * 1. 纯 Append-Only 只增账本，禁止任何 UPDATE/DELETE
  * 2. 负数代表消耗扣减，正数代表补药或误触撤销退回（冲正）
- * 3. 守恒不变式：medications.current_stock 恒等于 SUM(change_amount)
+ * 3. 守恒不变式：**账面余额 := SUM(change_amount)**（余额只由本表聚合而来，
+ *    `medications` 表不存任何余额列）
  */
 @Entity(
     tableName = "inventory_transactions",
@@ -26,7 +27,10 @@ import com.mcxiaoke.carromed.core.data.model.TransactionType
     ],
     indices = [
         Index(value = ["medication_id"]),
-        Index(value = ["created_at"])
+        Index(value = ["created_at"]),
+        // record_id 有真实过滤查询（getSumOfChangeByRecordId：改剂量 / 撤销时
+        // 按"这条事实欠多少扣"聚合流水），且改剂量是高频路径（osbf P3-4）
+        Index(value = ["record_id"])
     ]
 )
 data class InventoryTransactionEntity(

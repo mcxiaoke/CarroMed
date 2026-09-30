@@ -107,8 +107,13 @@ object AlarmReconciler {
      */
     const val HORIZON_DAYS = 14L
 
-    /** 闹钟身份快照：足以定位一个 PendingIntent，且不依赖会变的 slot.id */
-    private data class AlarmIdentity(
+    /**
+     * 闹钟身份快照：足以定位一个 PendingIntent，且不依赖会变的 slot.id。
+     * 公开给调用方（osbf P3-9）：凡是**先删行、后对账**的调用方
+     * （删药、改计划），必须在删行之前把快照带进来 ——
+     * [rescheduleAll] 内部拍的快照看不到已经删掉的行。
+     */
+    data class AlarmIdentity(
         val slotId: Long,
         val medicationId: Long,
         val date: String,
@@ -119,6 +124,10 @@ object AlarmReconciler {
     }
 
     private fun DoseSlotEntity.identity() = AlarmIdentity(id, medicationId, scheduledDate, scheduledTime)
+
+    /** 拍一份当前开放槽位的闹钟身份快照，供 [rescheduleAll] 的 `presnap` 参数使用 */
+    suspend fun snapshotOpenAlarms(db: AppDatabase): Set<AlarmIdentity> =
+        db.doseSlotDao().getOpenSlots().map { it.identity() }.toSet()
 
     /**
      * 撤掉该槽位**已经弹出**的托盘通知。
@@ -149,13 +158,25 @@ object AlarmReconciler {
      * 内部已切到 [Dispatchers.IO]，调用方**不必**（也不应）再自行切线程 ——
      * 一次包裹覆盖全部现有与未来的调用点（osbf P2-1：此前 6 个 ViewModel
      * 调用点全在 Main 上裸跑）。
+     *
+     * @param presnap 调用方在**删行之前**拍的闹钟身份快照（osbf P3-9）。
+     *   删药 / 改计划这类"先删槽位行、后调对账"的路径必须传：
+     *   内部快照是在对账开始时拍的，**看不到已经删掉的行**，
+     *   那些行对应的闹钟就成了孤儿（到点空唤醒，最长 14 天）。
+     *   不删行的调用方（恢复、打卡、撤销）保持默认空集即可。
      */
-    suspend fun rescheduleAll(context: Context, db: AppDatabase) = withContext(Dispatchers.IO) {
+    suspend fun rescheduleAll(
+        context: Context,
+        db: AppDatabase,
+        presnap: Set<AlarmIdentity> = emptySet()
+    ) = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         AppLog.i(TAG, "rescheduleAll start, now=$now")
 
         // 0. 拍快照：在重排之前。孤儿闹钟只能靠这份快照找回来。
-        val snapshot = db.doseSlotDao().getOpenSlots().map { it.identity() }.toSet()
+        //    调用方带了 presnap（删行前拍的）就以它为准 —— 它是**超集**：
+        //    包含了此刻已经不在库里的行的身份。
+        val snapshot = if (presnap.isEmpty()) snapshotOpenAlarms(db) else presnap
 
         // 1. 过期槽位结算 → EXPIRED。
         //    结算窗口是「当地当日 0 点」：上午没吃的药下午吃完全正常，

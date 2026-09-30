@@ -63,7 +63,9 @@ data class MedicationEntity(
     // 改用派生余额后，P0-3（打卡扣减超库存时 `coerceAtLeast(0f)` 把账面钳到 0、
     // 而流水记全额，导致 `SUM(change_amount) != current_stock` 守恒被打破）
     // 从"靠纪律维持的约束"变成"由定义成立"。
-    // 读列表请用 `MedicationOverview`（映射 medication_overview 视图，带 `stock` 字段）。
+    // 读列表请用 `MedicationOverview`（JOIN POJO：`MedicationDao` 用
+    // `@Embedded` 档案 + LEFT JOIN `reminder_settings` + 台账聚合 `stock` 一次性取回，
+    // 并不是数据库视图）。
 
     @ColumnInfo(name = "min_stock_alert")
     /** 低库存预警线，整数毫单位。0 = 关闭低库存告警（见 FINAL-PRODUCT 与 TodayViewModel 的判定） */

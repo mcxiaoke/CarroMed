@@ -53,7 +53,18 @@ class DevDataReceiver : BroadcastReceiver() {
                     }
 
                     ACTION_CLEAR -> {
+                        // 清库前撤掉托盘全部通知（osbf P3-8）：旧提醒还挂着，
+                        // 走查截图带僵尸通知；清库后逐槽位撤闹钟已无从做起，
+                        // 直接 cancelAll 最干净。
+                        runCatching {
+                            androidx.core.app.NotificationManagerCompat.from(appContext).cancelAll()
+                        }.onFailure { AppLog.w(TAG, "cancel all notifications failed", it) }
                         db.clearAllTables()
+                        // 清库后全量对账一轮：空库里没有任何开放槽位，
+                        // rescheduleAll 会把系统里残留的旧闹钟全部撤掉。
+                        runCatching {
+                            com.mcxiaoke.carromed.core.alarm.AlarmReconciler.rescheduleAll(appContext, db)
+                        }.onFailure { AppLog.w(TAG, "post-clear reschedule failed", it) }
                         AppLog.i(TAG, "Dev data cleared")
                     }
 
