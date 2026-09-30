@@ -154,7 +154,7 @@ CarroMed 面向需要长期或多药管理服药的个人用户（慢病患者�
 python tools/app_screenshots.py --clear --seed
 ```
 
-详见 [AGENTS.md](AGENTS.md#ui-截图验证与调优)。
+详见 [DEVGUIDE.md](DEVGUIDE.md#4-ui-截图验证与调优)。
 
 ---
 
@@ -295,7 +295,8 @@ CarroMed/
 | [docs/APP_DESIGN_SPEC.md](docs/APP_DESIGN_SPEC.md) | App 设计规格 |
 | [docs/PLAN-REVIEW-20260927-v2r.md](docs/PLAN-REVIEW-20260927-v2r.md) | 2026-09-27 全面代码与 UI/UX 审查报告（12 P0 缺陷 + 分步计划 + 实施结果） |
 | [docs/CHANGES-20260927.md](docs/CHANGES-20260927.md) | 变更记录 |
-| [AGENTS.md](AGENTS.md) | 开发 / 测试 / UI 走查流程 |
+| [AGENTS.md](AGENTS.md) | 编码助手入口（产品承诺 + 红线 + 收口自检） |
+| [DEVGUIDE.md](DEVGUIDE.md) | 开发 / 测试 / UI 走查完整流程与踩坑记录 |
 
 ---
 
