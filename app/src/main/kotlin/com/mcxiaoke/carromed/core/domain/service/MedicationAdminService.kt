@@ -8,6 +8,7 @@ import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.TransactionType
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import java.time.LocalDate
 
@@ -25,6 +26,10 @@ import java.time.LocalDate
  * - [saveReminderPolicy] —— 换版策略时保留疗程边界与起始日
  */
 class MedicationAdminService(private val db: AppDatabase) {
+
+    private companion object {
+        const val TAG = "MedAdminService"
+    }
 
     private val medDao = db.medicationDao()
     private val policyDao = db.schedulePolicyDao()
@@ -143,6 +148,9 @@ class MedicationAdminService(private val db: AppDatabase) {
                 minStockAlert = Dose.of(draft.minStockAlert.coerceAtLeast(0f)).milli,
                 updatedAt = System.currentTimeMillis()
             )
+            // G7：档案编辑是 I9 不变量（不碰 reminder 四列与状态位）的关键路径，
+            // 出问题时这条线是第一现场。alias 用 patch 语义，日志记实际生效值的存在性
+            AppLog.i(TAG, "saveProfile update med=${draft.medId} name=$name aliasPresent=${resolvedAlias != null}")
             return@withTransaction draft.medId
         }
 
@@ -166,6 +174,7 @@ class MedicationAdminService(private val db: AppDatabase) {
         // 必须建默认提醒设置行：否则提醒设置页第一次保存时 UPDATE 命中 0 行，
         // 用户改了设置、点保存、回到详情页发现什么都没变，且**没有任何报错**。
         reminderSettingsDao.ensureDefaults(newId)
+        AppLog.i(TAG, "saveProfile insert med=$newId name=$name")
         newId
     }
 
@@ -183,6 +192,11 @@ class MedicationAdminService(private val db: AppDatabase) {
             snoozeMinutes = draft.snoozeMinutes.coerceAtLeast(0),
             advanceMinutes = draft.advanceMinutes.coerceAtLeast(0)
         ) == 1) { "保存提醒行为失败：reminder_settings 无 medId=${draft.medId} 的行" }
+        AppLog.i(
+            TAG,
+            "saveReminderBehavior med=${draft.medId} critical=${draft.isCriticalReminder}" +
+                " snooze=${draft.snoozeMinutes} advance=${draft.advanceMinutes}"
+        )
     }
 
     /**
@@ -197,12 +211,14 @@ class MedicationAdminService(private val db: AppDatabase) {
         check(reminderSettingsDao.setPausedUntil(medId, until) == 1) {
             "设置暂停失败：reminder_settings 无 medId=$medId 的行"
         }
+        AppLog.i(TAG, "setPausedUntil med=$medId until=${until ?: "<null=resume>"}")
     }
 
     /** 立即恢复（等价于 [setPausedUntil] 传 null，但语义更清晰，UI 用这个） */
     suspend fun resume(medId: Long) = db.withTransaction {
         reminderSettingsDao.ensureDefaults(medId)
         check(reminderSettingsDao.resume(medId) == 1) { "恢复提醒失败：remId=$medId 无设置行" }
+        AppLog.i(TAG, "resume med=$medId")
     }
 
     /**
@@ -297,7 +313,13 @@ class MedicationAdminService(private val db: AppDatabase) {
                     )
                 }
 
-            policyDao.savePolicyWithTimes(policy, times)
+            val newPolicyId = policyDao.savePolicyWithTimes(policy, times)
+            AppLog.i(
+                TAG,
+                "saveReminderPolicy med=$medicationId policyId=$newPolicyId version=${policy.version}" +
+                    " type=${policy.policyType} times=${times.size} start=${policy.startDate} end=${policy.endDate ?: "<none>"}"
+            )
+            newPolicyId
         }
 
     // ⚠️ 已删除两个库存建档辅助（M8-1）：

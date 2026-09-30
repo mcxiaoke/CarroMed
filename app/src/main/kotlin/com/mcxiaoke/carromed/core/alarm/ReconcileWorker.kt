@@ -1,7 +1,6 @@
 package com.mcxiaoke.carromed.core.alarm
 
 import android.content.Context
-import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -15,6 +14,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkRequest
 import androidx.work.WorkerParameters
 import com.mcxiaoke.carromed.core.data.AppDatabase
+import com.mcxiaoke.carromed.core.domain.AppLog
 import java.util.concurrent.TimeUnit
 
 /**
@@ -69,13 +69,13 @@ class ReconcileWorker(
             AlarmReconciler.rescheduleAll(context, db)
             // 周期与一次性任务共用 doWork，日志别写死 "periodic"——
             // 否则排查闹钟链路时会把 oneshot 的成功误读成周期任务（真实踩过）
-            Log.i(TAG, "reconcile run done (tags=$tags)")
+            AppLog.i(TAG, "reconcile run done (tags=$tags)")
             Result.success()
         } catch (t: Throwable) {
             // ⚠️ 关键：抛异常时**必须**返回 retry 而不是直接 failure。
             // 返回 failure 等于"永久放弃这一轮"，而对账恰恰是最该重试的事情
             // （多半是数据库被另一个事务短暂占住）。
-            Log.e(TAG, "reconcile run failed, will retry", t)
+            AppLog.e(TAG, "reconcile run failed, will retry", t)
             Result.retry()
         }
     }
@@ -163,7 +163,7 @@ class ReconcileWorker(
                 ExistingWorkPolicy.REPLACE,
                 buildOneShotRequest()
             )
-            Log.i(TAG, "oneshot reconcile enqueued")
+            AppLog.i(TAG, "oneshot reconcile enqueued")
         }
 
         /**
@@ -188,7 +188,7 @@ class ReconcileWorker(
                 if (replace) ExistingPeriodicWorkPolicy.REPLACE else ExistingPeriodicWorkPolicy.KEEP,
                 buildRequest()
             )
-            Log.i(TAG, "periodic reconcile enqueued (replace=$replace)")
+            AppLog.i(TAG, "periodic reconcile enqueued (replace=$replace)")
         }
     }
 }

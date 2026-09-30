@@ -3,9 +3,9 @@ package com.mcxiaoke.carromed
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.DevSampleDataSeeder
+import com.mcxiaoke.carromed.core.domain.AppLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +33,14 @@ import kotlinx.coroutines.launch
 class DevDataReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        // 崩溃演练入口（PLAN-LOGGING-20260929.md S1 验收项）：
+        // 必须在 goAsync/协程/try 之外同步抛出——协程里的 catch(Throwable) 会把它吞掉，
+        // 就走不到 UncaughtExceptionHandler，演练不了真实崩溃路径。
+        if (intent.action == ACTION_CRASH) {
+            throw IllegalStateException(
+                "Debug-only crash trigger (dev.CRASH broadcast) — crash log should appear in filesDir/logs/"
+            )
+        }
         val appContext = context.applicationContext
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -41,18 +49,18 @@ class DevDataReceiver : BroadcastReceiver() {
                 when (intent.action) {
                     ACTION_SEED -> {
                         DevSampleDataSeeder.seedIfNeeded(db)
-                        Log.i(TAG, "Dev data seeded: ${db.medicationDao().getAllMedications().size} medication(s)")
+                        AppLog.i(TAG, "Dev data seeded: ${db.medicationDao().getAllMedications().size} medication(s)")
                     }
 
                     ACTION_CLEAR -> {
                         db.clearAllTables()
-                        Log.i(TAG, "Dev data cleared")
+                        AppLog.i(TAG, "Dev data cleared")
                     }
 
-                    else -> Log.w(TAG, "Unknown action: ${intent.action}")
+                    else -> AppLog.w(TAG, "Unknown action: ${intent.action}")
                 }
             } catch (t: Throwable) {
-                Log.e(TAG, "Dev data action failed", t)
+                AppLog.e(TAG, "Dev data action failed", t)
             } finally {
                 pending.finish()
             }
@@ -63,5 +71,6 @@ class DevDataReceiver : BroadcastReceiver() {
         private const val TAG = "CarroMedDevData"
         const val ACTION_SEED = "com.mcxiaoke.carromed.dev.SEED"
         const val ACTION_CLEAR = "com.mcxiaoke.carromed.dev.CLEAR"
+        const val ACTION_CRASH = "com.mcxiaoke.carromed.dev.CRASH"
     }
 }

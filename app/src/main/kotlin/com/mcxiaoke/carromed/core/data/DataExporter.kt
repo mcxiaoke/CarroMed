@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.core.data
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.alarm.AlarmScheduler
+import com.mcxiaoke.carromed.core.alarm.AppLogging
 
 import android.content.Context
 import android.content.Intent
@@ -15,6 +16,7 @@ import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import kotlinx.serialization.json.Json
@@ -185,6 +187,7 @@ data class BackupProblem(val kind: BackupProblemKind, val message: String) {
  */
 object DataExporter {
 
+    private const val TAG = "DataExporter"
     private const val BOM = "﻿"
     private const val BACKUP_APP_TAG = "CarroMed"
 
@@ -808,6 +811,7 @@ object DataExporter {
     suspend fun exportFullBackupJson(context: Context, db: AppDatabase): File {
         val file = File(exportDir(context), "CarroMed_全量备份_${timestamp()}.json")
         file.writeText(encodeBackup(buildBackup(db)), Charsets.UTF_8)
+        AppLog.i(TAG, "full backup written: ${file.name}")
         return file
     }
 
@@ -821,9 +825,10 @@ object DataExporter {
     private suspend fun writeSafetySnapshot(context: Context, db: AppDatabase): File? = try {
         val file = File(exportDir(context), "CarroMed_恢复前快照_${timestamp()}.json")
         file.writeText(encodeBackup(buildBackup(db)), Charsets.UTF_8)
+        AppLog.i(TAG, "safety snapshot written: ${file.name}")
         file
     } catch (e: Exception) {
-        android.util.Log.w("DataExporter", "safety snapshot failed", e)
+        AppLog.w(TAG, "safety snapshot failed", e)
         null
     }
 
@@ -984,9 +989,11 @@ object DataExporter {
         val backup = try {
             decodeBackup(text)
         } catch (e: Exception) {
+            AppLog.w(TAG, "restore rejected: not a valid backup file", e)
             return RestoreResult.Invalid("不是有效的 CarroMed 备份文件")
         }
         if (backup.app != BACKUP_APP_TAG) {
+            AppLog.w(TAG, "restore rejected: app tag mismatch (app=${backup.app})")
             return RestoreResult.Invalid("该文件不是 CarroMed 备份文件")
         }
 
@@ -1001,6 +1008,7 @@ object DataExporter {
         val fatal = problems.filter { it.blocksRestore }
         if (fatal.isNotEmpty()) {
             // ⚠️ 在此返回，数据库**尚未被触碰**
+            AppLog.w(TAG, "restore rejected: ${fatal.size} fatal problem(s), db untouched")
             return RestoreResult.Invalid(fatal.joinToString("；") { it.message })
         }
 
@@ -1024,9 +1032,12 @@ object DataExporter {
 
         return try {
             val (medCount, recordCount) = restoreBackup(db, backup)
+            // 恢复是数据安全路径的最高危动作（G6）：成败都必须在时间线上留痕
+            AppLog.i(TAG, "restore ok meds=$medCount records=$recordCount snapshot=${snapshot != null}")
             RestoreResult.Success(medCount, recordCount, snapshot?.absolutePath)
         } catch (e: Exception) {
             // 事务整体回滚，数据库回到恢复前的样子
+            AppLog.e(TAG, "restore failed, transaction rolled back", e)
             RestoreResult.Failure("恢复失败，已自动回滚: ${e.message}")
         }
     }
@@ -1041,9 +1052,10 @@ object DataExporter {
     private suspend fun cancelAllAlarmsBeforeRestore(context: Context, db: AppDatabase) {
         val app = context.applicationContext
         val open = runCatching { db.doseSlotDao().getOpenSlots() }.getOrElse {
-            android.util.Log.w("DataExporter", "cannot read open slots before restore", it)
+            AppLog.w(TAG, "cannot read open slots before restore", it)
             return
         }
+        AppLog.i(TAG, "cancelling ${open.size} open slot alarm(s) before restore")
         open.forEach { slot ->
             runCatching {
                 AlarmScheduler.cancelAll(
@@ -1051,6 +1063,32 @@ object DataExporter {
                 )
             }
         }
+    }
+
+    /**
+     * 把诊断日志目录打包成单个文本文件，供设置页"导出诊断日志"（PLAN-LOGGING S4）。
+     *
+     * 纯文件拼接，不碰数据库，调用方自行切协程。日志在 App 私有目录
+     * （`filesDir/logs/`），导出是用户显式动作，符合方案 D6 的隐私边界。
+     *
+     * @return 打包文件；没有任何日志文件时返回 null
+     */
+    fun exportDiagnosticLogs(context: Context): File? {
+        val dir = AppLogging.logDir(context)
+        val files = dir.listFiles()
+            ?.filter { it.isFile }
+            ?.sortedBy { it.name }
+            .orEmpty()
+        if (files.isEmpty()) return null
+        val out = File(exportDir(context), "CarroMed_诊断日志_${timestamp()}.txt")
+        out.bufferedWriter(Charsets.UTF_8).use { writer ->
+            for (f in files) {
+                writer.appendLine("===== ${f.name} =====")
+                f.forEachLine { writer.appendLine(it) }
+                writer.appendLine()
+            }
+        }
+        return out
     }
 
     // ---------------- 分享 ----------------

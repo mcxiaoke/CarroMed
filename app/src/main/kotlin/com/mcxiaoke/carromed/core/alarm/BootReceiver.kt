@@ -3,7 +3,7 @@ package com.mcxiaoke.carromed.core.alarm
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import com.mcxiaoke.carromed.core.domain.AppLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -31,6 +31,10 @@ import kotlinx.coroutines.launch
  */
 class BootReceiver : BroadcastReceiver() {
 
+    private companion object {
+        const val TAG = "BootReceiver"
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
         if (action != Intent.ACTION_BOOT_COMPLETED &&
@@ -48,12 +52,12 @@ class BootReceiver : BroadcastReceiver() {
                 // goAsync 只需要罩住两个毫秒级的 enqueue。一次性任务在 REPLACE 之后入队，
                 // 跑的时候自然覆盖"周期任务刚被重排"之后的状态。
                 runCatching { ReconcileWorker.enqueue(appContext, replace = true) }
-                    .onFailure { Log.e("BootReceiver", "enqueue periodic reconcile failed", it) }
+                    .onFailure { AppLog.e(TAG, "enqueue periodic reconcile failed", it) }
 
                 runCatching { ReconcileWorker.enqueueOneShot(appContext) }
-                    .onFailure { Log.e("BootReceiver", "enqueue oneshot reconcile failed", it) }
+                    .onFailure { AppLog.e(TAG, "enqueue oneshot reconcile failed", it) }
             } catch (t: Throwable) {
-                Log.e("BootReceiver", "boot reconcile failed", t)
+                AppLog.e(TAG, "boot reconcile failed", t)
             } finally {
                 result.finish()
             }

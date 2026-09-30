@@ -1,9 +1,11 @@
 package com.mcxiaoke.carromed
 
 import android.app.Application
-import android.util.Log
+import com.mcxiaoke.carromed.BuildConfig
+import com.mcxiaoke.carromed.core.alarm.AppLogging
 import com.mcxiaoke.carromed.core.alarm.Notifications
 import com.mcxiaoke.carromed.core.alarm.ReconcileWorker
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
 
 /**
@@ -31,6 +33,12 @@ class CarroMedApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // 日志装配必须排第一：后续任何步骤的日志（含本方法内的失败）都要能被捕获
+        AppLogging.install(this)
+        // 进程生命周期时间线的锚点：crash 文件里至少有这一行，
+        // 才能判断"崩溃前进程活到了哪一步"（被系统拉起 vs 用户点开，一目了然）
+        AppLog.i("CarroMedApp", "process created, version=${BuildConfig.VERSION_NAME} debug=${BuildConfig.DEBUG}")
+
         // 通知渠道在 Application 里建，而不是等到第一次弹通知才建：
         // 渠道一经创建其 importance 就不可修改，而系统只在**首次弹通知时**才懒初始化。
         // 若首次弹通知时渠道还不存在，HIGH 这一档就永远生效了。
@@ -54,6 +62,6 @@ class CarroMedApp : Application() {
         // 此时根本没有既有任务，`KEEP` 等价于首次入队；升级/换包由
         // `BootReceiver`（收 `MY_PACKAGE_REPLACED`）用 `REPLACE` 显式重排。
         runCatching { ReconcileWorker.enqueue(this, replace = false) }
-            .onFailure { Log.e("CarroMedApp", "enqueue periodic reconcile failed", it) }
+            .onFailure { AppLog.e("CarroMedApp", "enqueue periodic reconcile failed", it) }
     }
 }

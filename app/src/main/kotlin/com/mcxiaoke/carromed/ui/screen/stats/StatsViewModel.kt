@@ -4,6 +4,7 @@ import android.app.Application
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.DataExporter
@@ -209,6 +210,10 @@ class StatsStateBuilder(private val db: AppDatabase) {
 @OptIn(ExperimentalCoroutinesApi::class)
 class StatsViewModel(application: Application) : AndroidViewModel(application) {
 
+    private companion object {
+        const val TAG = "StatsViewModel"
+    }
+
     /**
      * ⚠️ **不要给本类的构造器加参数**。
      * `viewModel()` 走 `AndroidViewModelFactory`，它用
@@ -247,6 +252,9 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 DataExporter.shareFile(app, file, "text/csv")
             } catch (e: Exception) {
+                // 吞异常降级成 Toast 的地方必须留痕（PLAN-LOGGING G4）：
+                // e.message 可能为 null，堆栈才是归因依据
+                AppLog.w(TAG, "exportReport failed", e)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(app, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }

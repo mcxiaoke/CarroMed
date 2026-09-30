@@ -6,6 +6,7 @@ import android.content.Intent
 import android.widget.Toast
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.service.DoseEntryActions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,10 @@ import kotlinx.coroutines.launch
  * 打卡与撤销均以 dose_slots 主键状态为幂等锚点，双击/连击不会重复扣减。
  */
 class DoseActionReceiver : BroadcastReceiver() {
+
+    private companion object {
+        const val TAG = "DoseActionReceiver"
+    }
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
@@ -56,17 +61,22 @@ class DoseActionReceiver : BroadcastReceiver() {
                             slotId = slotId,
                             note = "通知栏快捷打卡"
                         )
+                        // 成功动作必须留痕（G5）：这是并发风险最高的写入口——
+                        // 通知栏直接写库，进程可能刚被闹钟拉起，事后工单只有这里有现场
+                        AppLog.i(TAG, "action=take slot=$slotId applied=$ok")
                         notifyUser(appContext, if (ok) "已记录服药，库存已同步 💊" else "该提醒已处理过")
                     }
 
                     Notifications.ACTION_SNOOZE -> {
                         val minutes = intent.getIntExtra(Notifications.EXTRA_MINUTES, 30)
                         val ok = isStillOpen && actions.snooze(slotId, minutes)
+                        AppLog.i(TAG, "action=snooze slot=$slotId minutes=$minutes applied=$ok")
                         if (ok) notifyUser(appContext, "已推迟 $minutes 分钟，到时再提醒")
                     }
 
                     Notifications.ACTION_SKIP -> {
                         val ok = isStillOpen && actions.skip(slotId, reason = "通知栏快捷跳过")
+                        AppLog.i(TAG, "action=skip slot=$slotId applied=$ok")
                         notifyUser(appContext, if (ok) "已跳过本次，不扣减库存" else "该提醒已处理过")
                     }
                 }
@@ -74,7 +84,7 @@ class DoseActionReceiver : BroadcastReceiver() {
                 // 异常围栏（P2#2）：协程体内任何异常都不允许逃逸——
                 // 逃逸即走默认未捕获处理器，**整个进程被点通知栏按钮这一下打崩**，
                 // 且 goAsync 的保护形同虚设。与 AlarmReceiver / BootReceiver 同一口径。
-                android.util.Log.e("DoseActionReceiver", "dose action failed, action=$action slotId=$slotId", t)
+                AppLog.e(TAG, "dose action failed, action=$action slotId=$slotId", t)
             } finally {
                 result.finish()
             }

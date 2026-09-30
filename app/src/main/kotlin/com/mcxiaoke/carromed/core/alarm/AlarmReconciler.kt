@@ -1,10 +1,10 @@
 package com.mcxiaoke.carromed.core.alarm
 
 import android.content.Context
-import android.util.Log
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import java.time.LocalDate
@@ -139,12 +139,12 @@ object AlarmReconciler {
      */
     private fun cancelNotificationOf(context: Context, slotId: Long) {
         runCatching { Notifications.cancelDoseNotification(context, slotId) }
-            .onFailure { Log.w(TAG, "cancel notification failed slot=$slotId", it) }
+            .onFailure { AppLog.w(TAG, "cancel notification failed slot=$slotId", it) }
     }
 
     suspend fun rescheduleAll(context: Context, db: AppDatabase) {
         val now = System.currentTimeMillis()
-        Log.i(TAG, "rescheduleAll start, now=$now")
+        AppLog.i(TAG, "rescheduleAll start, now=$now")
 
         // 0. 拍快照：在重排之前。孤儿闹钟只能靠这份快照找回来。
         val snapshot = db.doseSlotDao().getOpenSlots().map { it.identity() }.toSet()
@@ -177,7 +177,7 @@ object AlarmReconciler {
             true
         }
         if (expiredCount > 0) {
-            Log.i(TAG, "expired $expiredCount overdue slots (pending+snoozed)")
+            AppLog.i(TAG, "expired $expiredCount overdue slots (pending+snoozed)")
         }
 
         // 2. 在服药品（**含暂停中的**）未来 HORIZON_DAYS 天排班幂等补齐；
@@ -227,7 +227,7 @@ object AlarmReconciler {
                     fromDate = today,
                     toDate = today.plusDays(HORIZON_DAYS)
                 )
-            }.onFailure { Log.e(TAG, "reconcileSchedule failed med=${med.id}", it) }
+            }.onFailure { AppLog.e(TAG, "reconcileSchedule failed med=${med.id}", it) }
         }
 
         // 2b. 归档药品的开放槽位清扫（P2#4）。
@@ -249,7 +249,7 @@ object AlarmReconciler {
                     fromDate = today.minusDays(7),
                     toDate = today.plusDays(HORIZON_DAYS)
                 )
-            }.onFailure { Log.e(TAG, "archived sweep failed med=${med.id}", it) }
+            }.onFailure { AppLog.e(TAG, "archived sweep failed med=${med.id}", it) }
         }
 
         // 3. 清理孤儿：快照里已不在库中（被重排删掉）或已不该排的槽位
@@ -272,7 +272,7 @@ object AlarmReconciler {
                 !isPausedOn(slot)
             if (!shouldKeep) {
                 runCatching { id.cancelAll(context) }
-                    .onFailure { Log.e(TAG, "cancel failed slot=${id.slotId}", it) }
+                    .onFailure { AppLog.e(TAG, "cancel failed slot=${id.slotId}", it) }
                 // 暂停 / 归档 / 改计划会走"删槽位"，删掉的那一刻托盘上那条提醒
                 // 就已经过期了（槽位不存在了，用户按「确认已吃」只会得到
                 // "该记录已处理过"）。一并撤掉。
@@ -297,7 +297,7 @@ object AlarmReconciler {
                 if (snoozeAt != null) {
                     if (snoozeAt > now) {
                         runCatching { AlarmScheduler.schedule(context, slot, snoozeAt, AlarmScheduler.Kind.SNOOZE) }
-                            .onFailure { Log.e(TAG, "snooze schedule failed slot=${slot.id}", it) }
+                            .onFailure { AppLog.e(TAG, "snooze schedule failed slot=${slot.id}", it) }
                         scheduled++
                     } else if (snoozeAt >= catchupFloor &&
                         !Notifications.isDoseNotificationShown(context, slot.id)
@@ -312,7 +312,7 @@ object AlarmReconciler {
                                 context, slot, now + GRACE_CATCHUP_DELAY_MS, AlarmScheduler.Kind.SNOOZE
                             )
                         }
-                            .onFailure { Log.e(TAG, "snooze catch-up schedule failed slot=${slot.id}", it) }
+                            .onFailure { AppLog.e(TAG, "snooze catch-up schedule failed slot=${slot.id}", it) }
                         scheduled++
                     }
                 }
@@ -326,12 +326,12 @@ object AlarmReconciler {
                 val advanceAt = mainAt - advance * 60_000L
                 if (advanceAt > now) {
                     runCatching { AlarmScheduler.schedule(context, slot, advanceAt, AlarmScheduler.Kind.ADVANCE) }
-                        .onFailure { Log.e(TAG, "advance schedule failed slot=${slot.id}", it) }
+                        .onFailure { AppLog.e(TAG, "advance schedule failed slot=${slot.id}", it) }
                 }
             }
             if (mainAt > now) {
                 runCatching { AlarmScheduler.schedule(context, slot, mainAt, AlarmScheduler.Kind.MAIN) }
-                    .onFailure { Log.e(TAG, "schedule failed slot=${slot.id}", it) }
+                    .onFailure { AppLog.e(TAG, "schedule failed slot=${slot.id}", it) }
                 scheduled++
             } else if (mainAt >= catchupFloor && !Notifications.isDoseNotificationShown(context, slot.id)) {
                 // 补响一次（决策 C / M1-7），判据见类 KDoc「补响为什么只响一次」。
@@ -346,13 +346,13 @@ object AlarmReconciler {
                 runCatching {
                     AlarmScheduler.schedule(context, slot, now + GRACE_CATCHUP_DELAY_MS, AlarmScheduler.Kind.MAIN)
                 }
-                    .onFailure { Log.e(TAG, "grace catch-up schedule failed slot=${slot.id}", it) }
-                Log.i(TAG, "grace catch-up: missed slot=${slot.id} at=$mainAt (now=$now)")
+                    .onFailure { AppLog.e(TAG, "grace catch-up schedule failed slot=${slot.id}", it) }
+                AppLog.i(TAG, "grace catch-up: missed slot=${slot.id} at=$mainAt (now=$now)")
                 scheduled++
             }
         }
 
-        Log.i(
+        AppLog.i(
             TAG,
             "done: horizon=${HORIZON_DAYS}d meds=${activeIds.size}, " +
                 "openSlots=${stillOpen.size}, scheduled=$scheduled, cancelled=$cancelled"

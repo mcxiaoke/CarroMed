@@ -6,13 +6,13 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.mcxiaoke.carromed.MainActivity
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.model.MedicationOverview
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
@@ -206,7 +206,7 @@ object Notifications {
 
         runCatching {
             NotificationManagerCompat.from(context).notify(slot.id.toInt(), notification)
-        }.onFailure { Log.e("Notifications", "notify failed for slot=${slot.id}", it) }
+        }.onFailure { AppLog.e("Notifications", "notify failed for slot=${slot.id}", it) }
     }
 
     fun cancelDoseNotification(context: Context, slotId: Long) {

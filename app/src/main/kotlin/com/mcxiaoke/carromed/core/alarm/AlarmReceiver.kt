@@ -4,9 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.util.Log
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import com.mcxiaoke.carromed.core.domain.AppLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,10 +47,10 @@ class AlarmReceiver : BroadcastReceiver() {
         // （`filterEquals` 不看 extras，它本来就只是给人看的）。
         val key = parseAlarmKey(intent.data)
         if (key == null) {
-            Log.w("AlarmReceiver", "unparseable alarm uri=${intent.data}")
+            AppLog.w("AlarmReceiver", "unparseable alarm uri=${intent.data}")
             return
         }
-        Log.i("AlarmReceiver", "dose alarm fired, key=$key kind=$kind")
+        AppLog.i("AlarmReceiver", "dose alarm fired, key=$key kind=$kind")
 
         val appContext = context.applicationContext
         val result = goAsync()
@@ -63,13 +63,13 @@ class AlarmReceiver : BroadcastReceiver() {
                     scheduledTime = key.time
                 )
                 if (slotId == null) {
-                    Log.i("AlarmReceiver", "skip: no open slot for $key (已打卡/已结算/已删除)")
+                    AppLog.i("AlarmReceiver", "skip: no open slot for $key (已打卡/已结算/已删除)")
                     return@launch
                 }
                 val slot = db.doseSlotDao().getSlotById(slotId)
-                Log.i("AlarmReceiver", "slot loaded: $slot")
+                AppLog.i("AlarmReceiver", "slot loaded: $slot")
                 if (slot == null || (slot.status != SlotStatus.PENDING && slot.status != SlotStatus.SNOOZED)) {
-                    Log.i("AlarmReceiver", "skip: slot not open (status=${slot?.status})")
+                    AppLog.i("AlarmReceiver", "skip: slot not open (status=${slot?.status})")
                     return@launch
                 }
                 // 一次 JOIN 取回药品档案 + 台账余额 + 提醒运行态。
@@ -78,7 +78,7 @@ class AlarmReceiver : BroadcastReceiver() {
                 val overview = db.medicationDao().getOverviewById(slot.medicationId)
                 val med = overview?.medication
                 val paused = overview?.isPausedOn(LocalDate.now()) == true
-                Log.i("AlarmReceiver", "med loaded: ${med?.name}, paused=$paused, archived=${med?.isArchived}")
+                AppLog.i("AlarmReceiver", "med loaded: ${med?.name}, paused=$paused, archived=${med?.isArchived}")
                 if (overview == null || paused || overview.medication.isArchived) return@launch
 
                 // 按药品解析提醒行为 (推迟时长 / 夜间静音 / 重要提醒)，全部读用户真实配置
@@ -90,7 +90,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     behavior = behavior,
                     kind = kind
                 )
-                Log.i("AlarmReceiver", "notification shown for slot=$slotId")
+                AppLog.i("AlarmReceiver", "notification shown for slot=$slotId")
 
                 // 后续期（P0-2）：本次响铃就是"用户最可能还在用手机"的时刻，此刻续期最划算，
                 // 也让唤醒链在用户完全不打开 App 的情况下自维持。
@@ -103,9 +103,9 @@ class AlarmReceiver : BroadcastReceiver() {
                 // 若先对账，刚到点的槽位会被当成"从没提醒过"，30 秒后再补响一次，
                 // 并以 30 秒为周期循环到补响窗口结束。
                 runCatching { ReconcileWorker.enqueueOneShot(appContext) }
-                    .onFailure { Log.e("AlarmReceiver", "enqueue oneshot reconcile failed", it) }
+                    .onFailure { AppLog.e("AlarmReceiver", "enqueue oneshot reconcile failed", it) }
             } catch (t: Throwable) {
-                Log.e("AlarmReceiver", "failed to show notification", t)
+                AppLog.e("AlarmReceiver", "failed to show notification", t)
             } finally {
                 result.finish()
             }

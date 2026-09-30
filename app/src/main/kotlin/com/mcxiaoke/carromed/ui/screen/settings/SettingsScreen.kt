@@ -47,13 +47,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.widget.Toast
+import com.mcxiaoke.carromed.core.data.DataExporter
+import com.mcxiaoke.carromed.core.domain.AppLog
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +69,11 @@ fun SettingsScreen(
     onNavigateToPermissionCheck: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // 诊断日志导出用（PLAN-LOGGING S4）：Screen 层直连 DataExporter，
+    // 不经 ViewModel —— 避免给构造器加参数（§2 坑 5）
+    val logExportScope = rememberCoroutineScope()
+    val logExportContext = LocalContext.current
 
     // 选择 JSON 备份文件 → **只解析不恢复**，产出预览后弹二次确认（P1-14）
     val backupPickerLauncher = rememberLauncherForActivityResult(
@@ -431,6 +442,42 @@ fun SettingsScreen(
                                 shape = RoundedCornerShape(8.dp)
                             ) {
                                 Text("本机备份", fontSize = 12.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // 诊断日志导出（PLAN-LOGGING S4）：排查"没提醒/账不对"时
+                        // 让用户一键把最近日志发给开发者。刻意放在 Screen 层直连
+                        // DataExporter，不走 ViewModel——避免给构造器加参数（坑 5）。
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("导出诊断日志", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text("最近 7 天的运行日志，排查提醒与记账问题用", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    logExportScope.launch {
+                                        try {
+                                            val file = DataExporter.exportDiagnosticLogs(logExportContext)
+                                            if (file != null) {
+                                                DataExporter.shareFile(logExportContext, file, "text/plain", "分享诊断日志")
+                                            } else {
+                                                Toast.makeText(logExportContext, "还没有日志文件", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            AppLog.w("SettingsScreen", "export diagnostic logs failed", e)
+                                            Toast.makeText(logExportContext, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("导出日志", fontSize = 12.sp)
                             }
                         }
                     }

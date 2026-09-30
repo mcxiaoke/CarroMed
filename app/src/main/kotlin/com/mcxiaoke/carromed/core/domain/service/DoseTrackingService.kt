@@ -8,6 +8,7 @@ import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import java.time.LocalDate
@@ -43,6 +44,10 @@ import java.time.ZoneId
  * （账面钉在 0、流水记全额，守恒被打破）。
  */
 class DoseTrackingService(private val db: AppDatabase) {
+
+    private companion object {
+        const val TAG = "DoseTrackingService"
+    }
 
     private val medDao = db.medicationDao()
     private val policyDao = db.schedulePolicyDao()
@@ -84,6 +89,13 @@ class DoseTrackingService(private val db: AppDatabase) {
                 note = note
             )
         )
+        // 台账审计线（PLAN-LOGGING G1）：余额出问题时，这条 INFO 与
+        // `inventory_transactions` 表逐行可对——量纲是毫单位，与库同刻度。
+        // note 是自由文本（可能含病情描述），按隐私决策（方案 D6）不落日志。
+        AppLog.i(
+            TAG,
+            "ledger med=$medicationId record=$recordId tx=$txType change=${changeAmount.milli} balanceAfter=$balanceAfter"
+        )
     }
 
     // ==================== 1. 确认服药打卡 ====================
@@ -108,14 +120,21 @@ class DoseTrackingService(private val db: AppDatabase) {
         require(takenAmount == null || (takenAmount > 0f && takenAmount.isFinite())) {
             "服药剂量必须大于 0，当前 $takenAmount"
         }
-        val slot = slotDao.getSlotById(slotId) ?: return@withTransaction false
-        val medication = medDao.getMedicationById(slot.medicationId) ?: return@withTransaction false
+        val slot = slotDao.getSlotById(slotId) ?: run {
+            AppLog.w(TAG, "takeDose rejected slot=$slotId reason=slot-missing")
+            return@withTransaction false
+        }
+        val medication = medDao.getMedicationById(slot.medicationId) ?: run {
+            AppLog.w(TAG, "takeDose rejected slot=$slotId med=${slot.medicationId} reason=med-missing")
+            return@withTransaction false
+        }
 
         val finalDose: Dose = takenAmount?.let { Dose.of(it) } ?: Dose(slot.doseAmount)
 
         // 幂等锚点下沉到 SQL：只有仍在等待的槽位才被置为 COMPLETED。
         // 受影响行数为 0 ⇒ 已被处理过，直接放弃记账（连点不会重复扣库存）。
         if (slotDao.markCompletedIfOpen(slotId, actualTs) == 0) {
+            AppLog.w(TAG, "takeDose rejected slot=$slotId reason=not-open status=${slot.status}")
             return@withTransaction false
         }
 
@@ -141,6 +160,10 @@ class DoseTrackingService(private val db: AppDatabase) {
             )
         }
 
+        AppLog.i(
+            TAG,
+            "takeDose ok slot=$slotId med=${slot.medicationId} record=$recordId doseMilli=${finalDose.milli}"
+        )
         return@withTransaction true
     }
 
@@ -151,11 +174,15 @@ class DoseTrackingService(private val db: AppDatabase) {
         slotId: Long,
         reason: String? = null
     ): Boolean = db.withTransaction {
-        val slot = slotDao.getSlotById(slotId) ?: return@withTransaction false
+        val slot = slotDao.getSlotById(slotId) ?: run {
+            AppLog.w(TAG, "skipDose rejected slot=$slotId reason=slot-missing")
+            return@withTransaction false
+        }
 
         val now = System.currentTimeMillis()
         // 幂等锚点下沉到 SQL（允许对已逾期的槽位补记跳过）
         if (slotDao.markSkippedIfOpen(slotId, now) == 0) {
+            AppLog.w(TAG, "skipDose rejected slot=$slotId reason=not-open status=${slot.status}")
             return@withTransaction false
         }
 
@@ -167,7 +194,8 @@ class DoseTrackingService(private val db: AppDatabase) {
             status = RecordStatus.SKIPPED,
             note = reason ?: "主动跳过本次服药"
         )
-        recordDao.insert(record)
+        val recordId = recordDao.insert(record)
+        AppLog.i(TAG, "skipDose ok slot=$slotId med=${slot.medicationId} record=$recordId")
         return@withTransaction true
     }
 
@@ -179,7 +207,13 @@ class DoseTrackingService(private val db: AppDatabase) {
         // 下界 1 分钟则会让"立刻重响"成为可能。两端都收到与通知栏按钮一致的取值域。
         val safeMinutes = snoozeMinutes.coerceIn(1, 240)
         val snoozeUntilTs = System.currentTimeMillis() + (safeMinutes * 60 * 1000L)
-        return slotDao.snoozeSlot(slotId, snoozeUntilTs) > 0
+        val ok = slotDao.snoozeSlot(slotId, snoozeUntilTs) > 0
+        if (ok) {
+            AppLog.i(TAG, "snoozeDose ok slot=$slotId minutes=$safeMinutes until=$snoozeUntilTs")
+        } else {
+            AppLog.w(TAG, "snoozeDose rejected slot=$slotId reason=slot-missing-or-settled")
+        }
+        return ok
     }
 
     // ==================== 4. 误触/点错撤销 (Undo) ====================
@@ -216,13 +250,20 @@ class DoseTrackingService(private val db: AppDatabase) {
      * 不会出现"旧的作废了、新的没写上"的中间态。
      */
     private suspend fun revertSlotInternal(slotId: Long): Boolean {
-        val slot = slotDao.getSlotById(slotId) ?: return false
+        val slot = slotDao.getSlotById(slotId) ?: run {
+            AppLog.w(TAG, "revert rejected slot=$slotId reason=slot-missing")
+            return false
+        }
         // 幂等锚点：只有"已产生结论"的槽位才可撤销，与 takeDose/skipDose 的返回语义保持一致
         if (slot.status != SlotStatus.COMPLETED && slot.status != SlotStatus.SKIPPED) {
+            AppLog.w(TAG, "revert rejected slot=$slotId reason=no-conclusion status=${slot.status}")
             return false
         }
         // 槽位必须真有事实（跳过也会留一条 SKIPPED 事实）
-        if (recordDao.getAllRecordsBySlotId(slotId).isEmpty()) return false
+        if (recordDao.getAllRecordsBySlotId(slotId).isEmpty()) {
+            AppLog.w(TAG, "revert rejected slot=$slotId reason=no-records")
+            return false
+        }
 
         val rollbacks = recordDao.getCompletedRecordsBySlot(slotId).mapNotNull { rec ->
             val net = inventoryDao.getSumOfChangeByRecordId(rec.id) ?: 0
@@ -230,7 +271,10 @@ class DoseTrackingService(private val db: AppDatabase) {
         }
 
         // 条件回退（原子；受影响行数为 0 表示并发下已被别人撤销）
-        if (slotDao.revertToPending(slotId) == 0) return false
+        if (slotDao.revertToPending(slotId) == 0) {
+            AppLog.w(TAG, "revert rejected slot=$slotId reason=lost-race (concurrently reverted)")
+            return false
+        }
 
         // 事实层：保留记录，仅改状态（append-only 的补偿，而不是抹除）
         recordDao.markRevertedBySlot(slotId)
@@ -245,6 +289,10 @@ class DoseTrackingService(private val db: AppDatabase) {
                 note = "用户误触打卡撤销冲正"
             )
         }
+        AppLog.i(
+            TAG,
+            "revert ok slot=$slotId med=${slot.medicationId} rollbacks=${rollbacks.size}"
+        )
         return true
     }
 
@@ -284,18 +332,27 @@ class DoseTrackingService(private val db: AppDatabase) {
         target: RecordStatus,
         note: String? = null
     ): Boolean = db.withTransaction {
-        val slot = slotDao.getSlotById(slotId) ?: return@withTransaction false
-        val medication = medDao.getMedicationById(slot.medicationId) ?: return@withTransaction false
+        val slot = slotDao.getSlotById(slotId) ?: run {
+            AppLog.w(TAG, "restate rejected slot=$slotId reason=slot-missing")
+            return@withTransaction false
+        }
+        val medication = medDao.getMedicationById(slot.medicationId) ?: run {
+            AppLog.w(TAG, "restate rejected slot=$slotId med=${slot.medicationId} reason=med-missing")
+            return@withTransaction false
+        }
 
         // 幂等：已经是目标结论 ⇒ 什么都不做
         if (target == RecordStatus.COMPLETED && slot.status == SlotStatus.COMPLETED) {
+            AppLog.w(TAG, "restate rejected slot=$slotId reason=already-target target=COMPLETED")
             return@withTransaction false
         }
         if (target == RecordStatus.SKIPPED && slot.status == SlotStatus.SKIPPED) {
+            AppLog.w(TAG, "restate rejected slot=$slotId reason=already-target target=SKIPPED")
             return@withTransaction false
         }
         // 只有"已产生结论"的槽位才谈得上改判
         if (slot.status != SlotStatus.COMPLETED && slot.status != SlotStatus.SKIPPED) {
+            AppLog.w(TAG, "restate rejected slot=$slotId reason=no-conclusion status=${slot.status}")
             return@withTransaction false
         }
 
@@ -307,6 +364,7 @@ class DoseTrackingService(private val db: AppDatabase) {
         when (target) {
             RecordStatus.COMPLETED -> {
                 if (slotDao.markCompletedIfOpen(slotId, restatedTs) == 0) {
+                    AppLog.w(TAG, "restate rejected slot=$slotId reason=not-open-after-revert")
                     return@withTransaction false
                 }
                 val record = DoseRecordEntity(
@@ -334,6 +392,7 @@ class DoseTrackingService(private val db: AppDatabase) {
 
             RecordStatus.SKIPPED -> {
                 if (slotDao.markSkippedIfOpen(slotId, restatedTs) == 0) {
+                    AppLog.w(TAG, "restate rejected slot=$slotId reason=not-open-after-revert")
                     return@withTransaction false
                 }
                 recordDao.insert(
@@ -351,6 +410,7 @@ class DoseTrackingService(private val db: AppDatabase) {
             // REVERTED 不是"结论"，改判到它请走 undoDose
             else -> return@withTransaction false
         }
+        AppLog.i(TAG, "restate ok slot=$slotId med=${slot.medicationId} target=$target ts=$restatedTs")
         return@withTransaction true
     }
 
@@ -372,9 +432,15 @@ class DoseTrackingService(private val db: AppDatabase) {
      * - 幂等锚点：只接受 `COMPLETED` / `SKIPPED`，已 `REVERTED` 的返回 false
      */
     suspend fun undoManualDose(recordId: Long): Boolean = db.withTransaction {
-        val record = recordDao.getRecordById(recordId) ?: return@withTransaction false
+        val record = recordDao.getRecordById(recordId) ?: run {
+            AppLog.w(TAG, "undoManual rejected record=$recordId reason=record-missing")
+            return@withTransaction false
+        }
         // 幂等锚点：只有"已产生结论"的事实才可撤销
-        if (record.status == RecordStatus.REVERTED) return@withTransaction false
+        if (record.status == RecordStatus.REVERTED) {
+            AppLog.w(TAG, "undoManual rejected record=$recordId reason=already-reverted")
+            return@withTransaction false
+        }
         if (record.slotId != null) {
             // 有槽位的走 undoDose：它还要把槽位退回 PENDING，
             // 否则下一次打卡会因为槽位已是 COMPLETED 而被幂等拦掉。
@@ -382,7 +448,10 @@ class DoseTrackingService(private val db: AppDatabase) {
         }
 
         val net = inventoryDao.getSumOfChangeByRecordId(recordId) ?: 0
-        if (recordDao.markReverted(recordId) == 0) return@withTransaction false
+        if (recordDao.markReverted(recordId) == 0) {
+            AppLog.w(TAG, "undoManual rejected record=$recordId reason=lost-race")
+            return@withTransaction false
+        }
 
         if (net < 0) {
             appendLedger(
@@ -393,6 +462,7 @@ class DoseTrackingService(private val db: AppDatabase) {
                 note = "临时服药记录撤销冲正"
             )
         }
+        AppLog.i(TAG, "undoManual ok record=$recordId med=${record.medicationId} rolledBackMilli=$(-net.coerceAtMost(0))")
         true
     }
 
@@ -431,8 +501,14 @@ class DoseTrackingService(private val db: AppDatabase) {
         require(newDoseAmount == null || (newDoseAmount > 0f && newDoseAmount.isFinite())) {
             "服药剂量必须大于 0，当前 $newDoseAmount"
         }
-        val record = recordDao.getRecordById(recordId) ?: return@withTransaction false
-        if (record.status == RecordStatus.REVERTED) return@withTransaction false
+        val record = recordDao.getRecordById(recordId) ?: run {
+            AppLog.w(TAG, "editDose rejected record=$recordId reason=record-missing")
+            return@withTransaction false
+        }
+        if (record.status == RecordStatus.REVERTED) {
+            AppLog.w(TAG, "editDose rejected record=$recordId reason=already-reverted")
+            return@withTransaction false
+        }
 
         // 时间不允许改到未来：服药是**已发生**的事实，
         // 记一条"未来吃过"会让依从率统计凭空多出一次。
@@ -443,20 +519,27 @@ class DoseTrackingService(private val db: AppDatabase) {
         val fromSlot = record.slotId != null
         // 槽位来源的记录：时间与剂量都拒改（理由见 KDoc）
         if (fromSlot && newActualTs != null && newActualTs != record.actualTs) {
+            AppLog.w(TAG, "editDose rejected record=$recordId reason=slot-source-time-immutable")
             return@withTransaction false
         }
         if (fromSlot && newDoseAmount != null && Dose.of(newDoseAmount).milli != record.doseTaken) {
+            AppLog.w(TAG, "editDose rejected record=$recordId reason=slot-source-dose-immutable")
             return@withTransaction false
         }
 
         var changed = false
+        var doseChangeDesc = ""
+        var timeChanged = false
+        var noteChanged = false
 
         // ---- 时间：纯事实修正，不动台账 ----
         if (newActualTs != null && newActualTs != record.actualTs) {
             if (recordDao.updateActualTs(recordId, newActualTs) == 0) {
+                AppLog.w(TAG, "editDose rejected record=$recordId reason=update-ts-miss")
                 return@withTransaction false
             }
             changed = true
+            timeChanged = true
         }
 
         // ---- 剂量：先算差额，再补流水 ----
@@ -465,6 +548,7 @@ class DoseTrackingService(private val db: AppDatabase) {
             if (newDose.milli != record.doseTaken) {
                 val net = inventoryDao.getSumOfChangeByRecordId(recordId) ?: 0
                 if (recordDao.updateDose(recordId, newDose.milli) == 0) {
+                    AppLog.w(TAG, "editDose rejected record=$recordId reason=update-dose-miss")
                     return@withTransaction false
                 }
                 // 目标是把该记录的净额从 `-旧剂量` 挪到 `-新剂量`，
@@ -491,6 +575,7 @@ class DoseTrackingService(private val db: AppDatabase) {
                     }
                 }
                 changed = true
+                doseChangeDesc = " doseMilli=${record.doseTaken}->${newDose.milli}"
             }
         }
 
@@ -498,8 +583,18 @@ class DoseTrackingService(private val db: AppDatabase) {
         if (newNote != null && newNote != record.note) {
             recordDao.updateNote(recordId, newNote.ifBlank { null })
             changed = true
+            noteChanged = true
         }
 
+        if (changed) {
+            AppLog.i(
+                TAG,
+                "editDose ok record=$recordId med=${record.medicationId}" +
+                    (if (timeChanged) " time=changed" else "") +
+                    doseChangeDesc +
+                    (if (noteChanged) " note=changed" else "")
+            )
+        }
         changed
     }
 
@@ -551,6 +646,11 @@ class DoseTrackingService(private val db: AppDatabase) {
             )
         }
 
+        AppLog.i(
+            TAG,
+            "logManualDose ok med=$medicationId record=$recordId doseMilli=${Dose.of(doseAmount).milli}" +
+                " retrospective=$isRetrospective deductStock=${deductStock && medication.isStockTracked}"
+        )
         return@withTransaction recordId
     }
 
@@ -572,10 +672,18 @@ class DoseTrackingService(private val db: AppDatabase) {
         require(actualStock >= 0f && actualStock.isFinite()) {
             "实测库存不能为负数，当前 $actualStock"
         }
-        val medication = medDao.getMedicationById(medicationId) ?: return@withTransaction false
+        val medication = medDao.getMedicationById(medicationId) ?: run {
+            AppLog.w(TAG, "calibrateStock rejected med=$medicationId reason=med-missing")
+            return@withTransaction false
+        }
         val currentBalance = balanceOf(medicationId)
         val delta = Dose.of(actualStock) - Dose(currentBalance)
-        if (delta.isZero) return@withTransaction false
+        if (delta.isZero) {
+            // 良性 no-op：账面与实物本来就一致。INFO 而非 WARN，
+            // 给"用户以为校准了"一个可查的痕迹即可
+            AppLog.i(TAG, "calibrateStock no-op med=$medicationId balanceMilli=$currentBalance")
+            return@withTransaction false
+        }
 
         appendLedger(
             medicationId = medicationId,
@@ -583,6 +691,10 @@ class DoseTrackingService(private val db: AppDatabase) {
             changeAmount = delta,
             txType = TransactionType.CALIBRATION_ADJUST,
             note = note ?: "库存盘点校准 (账面 ${Dose(currentBalance).asFloat} → 实物 ${Dose.of(actualStock).asFloat})"
+        )
+        AppLog.i(
+            TAG,
+            "calibrateStock ok med=$medicationId fromMilli=$currentBalance toMilli=${Dose.of(actualStock).milli} deltaMilli=${delta.milli}"
         )
         return@withTransaction true
     }
@@ -598,7 +710,10 @@ class DoseTrackingService(private val db: AppDatabase) {
         enabled: Boolean,
         initialStock: Float? = null
     ): Boolean = db.withTransaction {
-        val medication = medDao.getMedicationById(medicationId) ?: return@withTransaction false
+        val medication = medDao.getMedicationById(medicationId) ?: run {
+            AppLog.w(TAG, "setStockTracking rejected med=$medicationId reason=med-missing")
+            return@withTransaction false
+        }
         medDao.updateStockTracking(medicationId, enabled)
 
         if (enabled) {
@@ -617,6 +732,7 @@ class DoseTrackingService(private val db: AppDatabase) {
                     txType = TransactionType.CALIBRATION_ADJUST,
                     note = "开启库存追踪建档"
                 )
+                AppLog.i(TAG, "setStockTracking ok med=$medicationId enabled=true branch=create-from-zero targetMilli=${target.milli}")
             } else if (target.milli != current) {
                 // 用户给了与账面不同的初值 → 走盘点校准，绝不直接改账面
                 appendLedger(
@@ -626,7 +742,12 @@ class DoseTrackingService(private val db: AppDatabase) {
                     txType = TransactionType.CALIBRATION_ADJUST,
                     note = "开启库存追踪建档校准"
                 )
+                AppLog.i(TAG, "setStockTracking ok med=$medicationId enabled=true branch=calibrate fromMilli=$current targetMilli=${target.milli}")
+            } else {
+                AppLog.i(TAG, "setStockTracking ok med=$medicationId enabled=true branch=no-ledger balanceMilli=$current")
             }
+        } else {
+            AppLog.i(TAG, "setStockTracking ok med=$medicationId enabled=false")
         }
         return@withTransaction true
     }
@@ -647,7 +768,10 @@ class DoseTrackingService(private val db: AppDatabase) {
         require(addedAmount > 0f && addedAmount.isFinite()) {
             "入库数量必须大于 0，当前 $addedAmount"
         }
-        val medication = medDao.getMedicationById(medicationId) ?: return@withTransaction false
+        val medication = medDao.getMedicationById(medicationId) ?: run {
+            AppLog.w(TAG, "refillStock rejected med=$medicationId reason=med-missing")
+            return@withTransaction false
+        }
 
         val balanceAfter = balanceOf(medicationId) + Dose.of(addedAmount).milli
         inventoryDao.insert(
@@ -661,6 +785,10 @@ class DoseTrackingService(private val db: AppDatabase) {
                 batchNumber = batchNumber,
                 expiryDate = expiryDate
             )
+        )
+        AppLog.i(
+            TAG,
+            "refillStock ok med=$medicationId addedMilli=${Dose.of(addedAmount).milli} balanceAfter=$balanceAfter"
         )
         return@withTransaction true
     }
@@ -756,7 +884,7 @@ class DoseTrackingService(private val db: AppDatabase) {
         }
 
         // ---- 删（投机区）：窗口之外的未来整段丢弃 ----
-        slotDao.deleteSpeculativeFutureSlots(medicationId, toStr)
+        val speculativeDeleted = slotDao.deleteSpeculativeFutureSlots(medicationId, toStr)
 
         // ---- 留（被命中）：保留原 id（闹钟身份因此稳定），但同步可派生的列 ----
         //
@@ -803,6 +931,15 @@ class DoseTrackingService(private val db: AppDatabase) {
             // 而不是整批插入失败。
             slotDao.insertAll(toInsert)
         }
+
+        // diff 汇总（G1）：P1-5 幂等 diff 出问题时，这一行是归因起点。
+        // 每药每轮一条，量级可控；循环体内的逐槽日志被 D7 纪律禁止。
+        AppLog.i(
+            TAG,
+            "reconcileSchedule med=$medicationId window=$fromStr..$toStr projected=${projectedSlots.size}" +
+                " deleted=${obsolete.size} speculativeDeleted=$speculativeDeleted" +
+                " derivedUpdated=${staleDerived.size} inserted=${toInsert.size}"
+        )
     }
 
     /** 槽位的业务唯一键，与 `dose_slots` 的 UNIQUE 索引定义保持一致 */

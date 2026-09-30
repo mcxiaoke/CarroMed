@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
@@ -57,6 +58,10 @@ class InventoryViewModel(
     application: Application,
     private val medId: Long
 ) : AndroidViewModel(application) {
+
+    private companion object {
+        const val TAG = "InventoryViewModel"
+    }
 
     private val db = AppDatabase.getInstance(application)
     private val medDao = db.medicationDao()
@@ -166,6 +171,8 @@ class InventoryViewModel(
                 _uiState.value = _uiState.value.copy(message = "已导出 ${file.name}")
                 com.mcxiaoke.carromed.core.data.DataExporter.shareFile(app, file, "text/csv")
             } catch (e: Exception) {
+                // 吞异常降级成 UI error 的地方必须留痕（PLAN-LOGGING G4）
+                AppLog.w(TAG, "exportLedger failed", e)
                 _uiState.value = _uiState.value.copy(error = "导出失败: ${e.message}")
             }
         }

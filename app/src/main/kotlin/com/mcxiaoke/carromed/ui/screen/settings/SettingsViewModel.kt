@@ -9,6 +9,7 @@ import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.DataExporter
 import com.mcxiaoke.carromed.core.data.entity.AppSettingEntity
+import com.mcxiaoke.carromed.core.domain.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,6 +47,10 @@ sealed interface RestoreSource {
 }
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
+
+    private companion object {
+        const val TAG = "SettingsViewModel"
+    }
 
     private val db = AppDatabase.getInstance(application)
     private val settingDao = db.appSettingDao()
@@ -92,6 +97,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 }
                 DataExporter.shareFile(app, file, "text/csv")
             } catch (e: Exception) {
+                // 吞异常降级成 Toast 的地方必须留痕（PLAN-LOGGING G4）
+                AppLog.w(TAG, "exportCsv failed", e)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(app, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
@@ -114,6 +121,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 }
                 DataExporter.shareFile(app, file, "application/json")
             } catch (e: Exception) {
+                AppLog.w(TAG, "exportBackup failed", e)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(app, "备份失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }

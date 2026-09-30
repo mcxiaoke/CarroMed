@@ -6,8 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.util.Log
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
+import com.mcxiaoke.carromed.core.domain.AppLog
 
 /**
  * 精确闹钟调度器（三档降级链路）
@@ -176,6 +176,11 @@ object AlarmScheduler {
      * 排一个闹钟。
      *
      * @param kind 决定闹钟身份，三种种类互不干扰。
+     *
+     * 成功路径必须落一条 INFO（G2）：uri + 触发时刻 + **实际生效的精度档位**。
+     * 这是"档位降级可查可见"纪律在时间线上的落实——自检页只能查"当前"档位，
+     * 而排查"闹钟没响"需要的是"当时每一次排程各落在哪一档"。
+     * 降级（EXACT 被拒 → ALARM_CLOCK）与最终兜底（INEXACT，+1h 窗口）一律 WARN。
      */
     fun schedule(
         context: Context,
@@ -187,16 +192,19 @@ object AlarmScheduler {
         val pi = pendingIntent(
             context, slot.medicationId, slot.scheduledDate, slot.scheduledTime, slot.id, kind
         ) ?: return
+        val uri = alarmUri(slot.medicationId, slot.scheduledDate, slot.scheduledTime, kind)
+        val triggerAt = "=$triggerAtMillis (${formatTs(triggerAtMillis)})"
 
         when (currentPrecision(alarmManager)) {
             Precision.EXACT -> {
                 try {
                     alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi)
+                    AppLog.i(TAG, "scheduled uri=$uri triggerAt$triggerAt precision=EXACT")
                     return
                 } catch (e: SecurityException) {
                     // 权限被运行时回收（用户刚在系统设置里关掉 / 某些 ROM 的额外限制），
                     // 落入下方兜底
-                    Log.w(TAG, "exact alarm denied, falling back: ${e.message}")
+                    AppLog.w(TAG, "exact alarm denied, falling back: ${e.message}")
                 }
             }
             else -> Unit
@@ -208,12 +216,14 @@ object AlarmScheduler {
                 AlarmManager.AlarmClockInfo(triggerAtMillis, showIntent(context)),
                 pi
             )
+            AppLog.i(TAG, "scheduled uri=$uri triggerAt$triggerAt precision=ALARM_CLOCK")
             return
         } catch (e: SecurityException) {
             // 部分 ROM 上 setAlarmClock 同样要求精确闹钟权限
-            Log.w(TAG, "setAlarmClock denied, falling back to inexact: ${e.message}")
+            AppLog.w(TAG, "setAlarmClock denied, falling back to inexact: ${e.message}")
         }
         alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi)
+        AppLog.w(TAG, "scheduled uri=$uri triggerAt$triggerAt precision=INEXACT (may fire ~1h late)")
     }
 
     /** 状态栏闹钟图标的落点：点开直接进 App，不做任何业务动作 */
@@ -292,5 +302,14 @@ object AlarmScheduler {
                 context, medicationId, date, time, slotId, kind, forCancel = true
             )?.let { alarmManager.cancel(it) }
         }
+        AppLog.i(
+            TAG,
+            "cancelled alarms slot=$slotId med=$medicationId date=$date time=$time kinds=${kinds.joinToString(",") { it.code }}"
+        )
     }
+
+    /** 触发时刻的人类可读形式：排查"没响"时先对钟，毫秒数对不上日历没用 */
+    private fun formatTs(ts: Long): String =
+        java.time.Instant.ofEpochMilli(ts).atZone(java.time.ZoneId.systemDefault())
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
 }

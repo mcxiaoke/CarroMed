@@ -8,6 +8,7 @@ import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.DataExporter
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
@@ -113,6 +114,7 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
     private val recordDao = db.doseRecordDao()
 
     private companion object {
+        const val TAG = "ProgressViewModel"
         /**
          * 每页条数。60 条约等于"一个月、两味药、每天各两次"，
          * 也就是用户默认能看到的范围（见 UX 方案 §4.1.2）。
@@ -282,7 +284,9 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
                 _hasMoreTimeline.value = older.size >= FIRST_PAGE_SIZE
             } catch (t: Throwable) {
                 // 加载更多失败**不静默**：把它当"没有更多"，用户滚到底会停在原地，
-                // 而不是反复重试把电池耗光。真正的错误已在 DAO 层抛出。
+                // 而不是反复重试把电池耗光。降级本身是刻意设计，但必须有日志——
+                // 否则"列表怎么没加载完"这类问题在事后无迹可查（PLAN-LOGGING G4）
+                AppLog.w(TAG, "loadMoreTimeline failed, stopping pagination", t)
                 _hasMoreTimeline.value = false
             } finally {
                 _isLoadingMore.value = false
@@ -366,6 +370,8 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
                 }
                 DataExporter.shareFile(app, file, "text/csv")
             } catch (e: Exception) {
+                // 吞异常降级成 Toast 的地方必须留痕（PLAN-LOGGING G4）
+                AppLog.w(TAG, "exportReport failed", e)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(app, "导出失败: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
