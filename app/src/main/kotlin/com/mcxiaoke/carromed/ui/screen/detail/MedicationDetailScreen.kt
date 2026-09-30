@@ -64,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,6 +74,7 @@ import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
 import com.mcxiaoke.carromed.ui.component.Quantity
+import com.mcxiaoke.carromed.ui.component.TestTags
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
@@ -264,6 +266,7 @@ fun MedicationDetailScreen(
                         icon = Icons.Default.Medication,
                         title = "药品信息",
                         subtitle = buildProfileSummary(uiState),
+                        testTag = TestTags.DETAIL_ROW_EDIT,
                         onClick = { onNavigateToEditInfo(med.id) }
                     )
                     DetailEntryRow(
@@ -273,6 +276,7 @@ fun MedicationDetailScreen(
                         // ⚠️ 没有计划时高亮。理由见 buildReminderSummary：
                         // 这一行不能长得和"已配置"一样，否则用户以为设好了而药永远不响。
                         highlight = uiState.policy == null,
+                        testTag = TestTags.DETAIL_ROW_REMINDER,
                         onClick = { onNavigateToReminder(med.id) }
                     )
                     DetailEntryRow(
@@ -280,6 +284,7 @@ fun MedicationDetailScreen(
                         title = "库存管理",
                         subtitle = buildInventorySummary(uiState),
                         highlight = uiState.isStockAlert && med.isStockTracked,
+                        testTag = TestTags.DETAIL_ROW_INVENTORY,
                         onClick = { onNavigateToInventory(med.id) }
                     )
                 }
@@ -738,13 +743,15 @@ private fun DetailEntryRow(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
-    highlight: Boolean = false
+    highlight: Boolean = false,
+    testTag: String? = null
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = if (highlight) WarningAmberContainer else MaterialTheme.colorScheme.surface,
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
             .clickable(onClick = onClick)
     ) {
         Row(

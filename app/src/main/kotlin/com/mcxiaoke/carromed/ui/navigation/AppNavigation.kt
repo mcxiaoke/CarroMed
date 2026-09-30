@@ -24,7 +24,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
+import com.mcxiaoke.carromed.ui.component.TestTags
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.viewmodel.initializer
@@ -76,6 +80,7 @@ val BottomNavItems = listOf(
     BottomNavItem(Screen.Stats.route, "统计", Icons.Default.QueryStats)
 )
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -84,7 +89,18 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
     val isTopLevel = BottomNavItems.any { it.route == currentRoute }
 
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            // 语义标识（PLAN-UI-TEST-20260929.md §1）：Compose 测试默认找不到
+            // testTag（它不映射成 resource-id），必须显式打开。仅 debug 生效——
+            // release 不泄露测试标识，语义树也保持最小。
+            .then(
+                if (com.mcxiaoke.carromed.BuildConfig.DEBUG) {
+                    Modifier.semantics { testTagsAsResourceId = true }
+                } else {
+                    Modifier
+                }
+            ),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (isTopLevel) {
@@ -94,7 +110,15 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 ) {
                     BottomNavItems.forEach { item ->
                         val selected = currentRoute == item.route
+                        val tabTag = when (item.route) {
+                            Screen.Today.route -> TestTags.TAB_TODAY
+                            Screen.Cabinet.route -> TestTags.TAB_CABINET
+                            Screen.Progress.route -> TestTags.TAB_PROGRESS
+                            Screen.Stats.route -> TestTags.TAB_STATS
+                            else -> null
+                        }
                         NavigationBarItem(
+                            modifier = if (tabTag != null) Modifier.testTag(tabTag) else Modifier,
                             selected = selected,
                             onClick = {
                                 if (currentRoute != item.route) {

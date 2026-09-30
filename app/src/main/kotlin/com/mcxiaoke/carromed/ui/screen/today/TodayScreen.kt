@@ -55,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,6 +63,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.ui.component.HomeTabHeader
 import com.mcxiaoke.carromed.ui.component.Quantity
+import com.mcxiaoke.carromed.ui.component.TestTags
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
@@ -361,6 +363,7 @@ private fun PendingDoseCard(
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag(TestTags.doseCard(item.slot.id))
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -472,6 +475,7 @@ private fun PendingDoseCard(
                 onClick = onTakeDose,
                 modifier = Modifier
                     .size(42.dp)
+                    .testTag(TestTags.doseConfirm(item.slot.id))
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
                     .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), CircleShape)

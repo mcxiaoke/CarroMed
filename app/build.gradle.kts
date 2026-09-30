@@ -7,6 +7,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
+    id("io.github.takahirom.roborazzi")
 }
 
 val keystorePropertiesFile = rootProject.file("key.properties")
@@ -155,6 +156,30 @@ dependencies {
     // 让现存 JUnit 4 + Robolectric 测试继续在 JUnit 5 Platform 上被发现与执行
     testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
 
+    // Roborazzi 视觉回归（PLAN-UI-TEST-20260929.md P2）：跑在 Robolectric 里，
+    // 直接进现有 testDebugUnitTest 循环，零新增环境。
+    // ⚠️ 版本必须与根插件的 1.40.1 一致（1.72.0 的 Kotlin 2.3 元数据不兼容本项目）。
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.40.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.40.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.40.1")
+    // Robolectric 里跑 createComposeRule / createAndroidComposeRule 需要 ui-test 全家桶
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.compose.ui:ui-test-manifest")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Compose UI 冒烟测试（PLAN-UI-TEST-20260929.md P1，堵 §2 坑 5：
+    // viewModel 工厂反射路径只有 instrumented 测试能覆盖）。
+    // BOM 已在上方 composeBom 管理 ui-test-junit4 的版本，无需再写版本号。
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:rules:1.6.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    // 滚动到折叠线以下的 Compose 节点（LazyColumn 未滚到的项不在语义树里）
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    androidTestImplementation("com.google.truth:truth:1.4.4")
 }

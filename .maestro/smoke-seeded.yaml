@@ -1,0 +1,59 @@
+appId: com.mcxiaoke.carromed
+name: smoke-seeded
+---
+# 试点 flow（PLAN-UI-TEST-20260929.md P3）：对照 tools/app_screenshots.py 的走查清单。
+# ⚠️ 前置：种子数据由 .maestro/run-smoke.ps1 在运行前通过 dev.SEED 广播灌入
+#（Maestro flow 内没有稳定的 adb 通道，播种放在驱动脚本里）。
+# 定位纪律：tab 用 ^...$ 精确正则（避免"药箱"撞"我的药箱"），
+# 卡片/按钮用 testTag 的 resource-id 正则（testTagsAsResourceId 仅 debug 开启），
+# 带计数的分区标题用 \(\d+\) 正则（assertVisible 默认全等匹配，首跑踩过）。
+
+- launchApp
+- assertVisible: 今日清单
+- takeScreenshot: 01_today
+
+- tapOn:
+    text: "^药箱$"
+- assertVisible: 我的药箱
+- takeScreenshot: 02_cabinet
+
+- tapOn:
+    text: "^进展$"
+- assertVisible: 进展追踪
+- takeScreenshot: 03_progress
+
+- tapOn:
+    text: "^统计$"
+- assertVisible: 统计报表
+- takeScreenshot: 04_stats
+
+# 进药品详情（种子数据第一张药卡）
+- tapOn:
+    text: "^药箱$"
+- tapOn:
+    id: ".*med_card.*"
+    index: 0
+- assertVisible: 药品设置
+- takeScreenshot: 05_med_detail
+# ⚠️ 二级页没有底栏，先返回药箱再切 Tab（首跑踩过：直接 tapOn ^今日$ 找不到）
+- back
+
+# 回今日页，打卡 → 已服区出现
+- tapOn:
+    text: "^今日$"
+- assertVisible: '待服药 \(\d+\)'
+- tapOn:
+    id: ".*dose_confirm.*"
+    index: 0
+- assertVisible: '今日已服 \(\d+\)'
+- takeScreenshot: 06_taken
+
+# 打开一条已服记录 → 撤销 → 待服数回补
+- tapOn:
+    text: "^已服$"
+    index: 0
+- assertVisible: 撤销（回到未确认）
+- takeScreenshot: 07_record_detail
+- tapOn: 撤销（回到未确认）
+- assertVisible: '待服药 \(\d+\)'
+- takeScreenshot: 08_undone

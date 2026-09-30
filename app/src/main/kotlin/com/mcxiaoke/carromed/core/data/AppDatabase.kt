@@ -148,5 +148,24 @@ abstract class AppDatabase : RoomDatabase() {
                     .also { INSTANCE = it }
             }
         }
+
+        /**
+         * 仅测试用：关闭并丢弃单例。
+         *
+         * Robolectric 每个**测试方法**都重建沙箱文件系统，而 companion 单例跨方法
+         * 存活 —— 复用的实例持有指向已删除库文件的失效句柄，事务状态错乱
+         * （症状是第二条测试起 `clearAllTables` 报 "no current transaction"）。
+         * 与 `CurrentDateHolder.resetForTest` 同一模式。生产代码不得调用。
+         */
+        fun resetForTest() {
+            synchronized(this) {
+                try {
+                    INSTANCE?.close()
+                } catch (_: Throwable) {
+                    // 连接已失效时 close 本身也可能抛；目标是丢掉引用，不必留痕
+                }
+                INSTANCE = null
+            }
+        }
     }
 }
