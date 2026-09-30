@@ -59,4 +59,18 @@
     <!-- 未来槽位日期说明 -->
     <string name="today_future_tomorrow">明天</string>
     <string name="today_date_md">%1$d月%2$d日</string>
+
+    <!-- 连续天数与月度历史打卡 -->
+    <string name="today_streak_cd">连续服药 %1$d 天，点击查看月度记录</string>
+    <string name="today_streak_title">%1$d 连续天数</string>
+    <string name="today_streak_praise_good">你做得很好！保持良好节奏</string>
+    <string name="today_streak_praise_zero">今天也是新的起点，按时服药吧！</string>
+    <string name="today_calendar_month_format">%1$d年%2$d月</string>
+    <string name="today_calendar_legend_fully_taken">已全服</string>
+    <string name="today_calendar_legend_partial">部分服药</string>
+    <string name="today_calendar_legend_missed">漏服</string>
+    <string name="today_calendar_legend_skipped">已跳过</string>
+    <string name="today_calendar_prev_month">上一月</string>
+    <string name="today_calendar_next_month">下一月</string>
+    <string name="today_calendar_close">关闭</string>
 </resources>

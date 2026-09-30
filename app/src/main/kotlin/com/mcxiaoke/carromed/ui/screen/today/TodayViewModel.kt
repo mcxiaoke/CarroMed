@@ -24,10 +24,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.YearMonth
 
 /**
  * 一条待服 / 已服 / 已跳过槽位的展示模型。
@@ -79,6 +81,12 @@ data class TodayUiState(
     val globalSnoozeMinutes: Int = 30,
     /** 药箱里是否已有任何在服药品。用于区分"全新用户"与"这一天恰好没排班" */
     val hasAnyMedication: Boolean = false,
+    /** 连续服药打卡天数 */
+    val streakDays: Int = 0,
+    /** 打卡历史月历当前选中的月份 */
+    val calendarMonth: YearMonth = YearMonth.now(),
+    /** 当前月各自然日的打卡达成状态 */
+    val calendarDayStates: Map<LocalDate, StatsEngine.DayAdherenceState> = emptyMap(),
     val isLoading: Boolean = true
 )
 
@@ -126,7 +134,48 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         // `DevSampleDataSeeder` 手动触发。
     }
 
-    val uiState: StateFlow<TodayUiState> = combine(
+    private val _calendarMonth = MutableStateFlow(YearMonth.now())
+
+    /**
+     * 连续服药打卡天数（Streak）。
+     * 观察最近 365 天直至今日的槽位完成状态，在打卡/撤销/补录或跨夜时响应式重算。
+     */
+    private val streakDaysFlow: Flow<Int> = CurrentDateHolder.today.flatMapLatest { today ->
+        val startDate = today.minusDays(365).format(SlotProjectionEngine.DATE_FORMATTER)
+        val endDate = today.format(SlotProjectionEngine.DATE_FORMATTER)
+        slotDao.observeSlotStatusCounts(startDate, endDate).map { rows ->
+            val dailyBreakdowns = StatsEngine.aggregateDailyOverallBreakdowns(rows)
+            StatsEngine.calculateStreak(today, dailyBreakdowns)
+        }
+    }
+
+    /**
+     * 当前月历查看月份的单日达成状态。
+     * 随 [_calendarMonth] 或当前日变化按月聚合槽位状态。
+     */
+    private val calendarDayStatesFlow: Flow<Pair<YearMonth, Map<LocalDate, StatsEngine.DayAdherenceState>>> =
+        combine(_calendarMonth, CurrentDateHolder.today) { month, today ->
+            month to today
+        }.flatMapLatest { (month, today) ->
+            val startDate = month.atDay(1)
+            val endDate = month.atEndOfMonth()
+            val startStr = startDate.format(SlotProjectionEngine.DATE_FORMATTER)
+            val endStr = endDate.format(SlotProjectionEngine.DATE_FORMATTER)
+            slotDao.observeSlotStatusCounts(startStr, endStr).map { rows ->
+                val dailyBreakdowns = StatsEngine.aggregateDailyOverallBreakdowns(rows)
+                val resultMap = mutableMapOf<LocalDate, StatsEngine.DayAdherenceState>()
+                var d = startDate
+                while (!d.isAfter(endDate)) {
+                    val b = dailyBreakdowns[d.format(SlotProjectionEngine.DATE_FORMATTER)]
+                        ?: StatsEngine.DayStatusBreakdown()
+                    resultMap[d] = StatsEngine.resolveDayState(b, isFutureDay = d.isAfter(today))
+                    d = d.plusDays(1)
+                }
+                month to resultMap
+            }
+        }
+
+    private val baseUiState: Flow<TodayUiState> = combine(
         _selectedDate,
         // "今天"参与 combine（M3-2）：跨午夜后即使 `_selectedDate` 被夹回今天，
         // 页面标题、日期选择器、告警文案都需要跟着重算。
@@ -203,6 +252,18 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             hasAnyMedication = overviews.isNotEmpty(),
             isLoading = false
         )
+    }
+
+    val uiState: StateFlow<TodayUiState> = combine(
+        baseUiState,
+        streakDaysFlow,
+        calendarDayStatesFlow
+    ) { base, streak, (month, dayStates) ->
+        base.copy(
+            streakDays = streak,
+            calendarMonth = month,
+            calendarDayStates = dayStates
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -211,6 +272,10 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             weekDates = (-3L..3L).map { LocalDate.now().plusDays(it) }
         )
     )
+
+    fun selectCalendarMonth(month: YearMonth) {
+        _calendarMonth.value = month
+    }
 
     fun selectDate(date: LocalDate) {
         _selectedDate.value = date

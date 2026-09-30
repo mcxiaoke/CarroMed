@@ -6,6 +6,8 @@ import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import com.mcxiaoke.carromed.core.data.model.SlotStatusCountRow
+import java.time.LocalDate
 import org.junit.Test
 
 /**
@@ -95,6 +97,66 @@ class StatsEngineTest {
         )
         val sum = StatsEngine.sumDoseByDate(records)
         assertThat(sum.asFloat).isEqualTo(3.5f)
+    }
+
+    @Test
+    fun aggregateDailyOverallBreakdowns_aggregatesAcrossMedications() {
+        val rows = listOf(
+            SlotStatusCountRow(medicationId = 1L, scheduledDate = "2026-09-29", status = SlotStatus.COMPLETED, count = 2),
+            SlotStatusCountRow(medicationId = 2L, scheduledDate = "2026-09-29", status = SlotStatus.COMPLETED, count = 1),
+            SlotStatusCountRow(medicationId = 1L, scheduledDate = "2026-09-30", status = SlotStatus.PENDING, count = 1)
+        )
+        val map = StatsEngine.aggregateDailyOverallBreakdowns(rows)
+        assertThat(map["2026-09-29"]?.completed).isEqualTo(3)
+        assertThat(map["2026-09-29"]?.total).isEqualTo(3)
+        assertThat(map["2026-09-30"]?.pending).isEqualTo(1)
+    }
+
+    @Test
+    fun calculateStreak_scenarios() {
+        val today = LocalDate.of(2026, 9, 30)
+
+        // 场景 1：历史 3 天全服，今天全服 -> 4 天连续
+        val map1 = mapOf(
+            "2026-09-27" to StatsEngine.DayStatusBreakdown(completed = 1),
+            "2026-09-28" to StatsEngine.DayStatusBreakdown(completed = 2),
+            "2026-09-29" to StatsEngine.DayStatusBreakdown(completed = 1),
+            "2026-09-30" to StatsEngine.DayStatusBreakdown(completed = 1)
+        )
+        assertThat(StatsEngine.calculateStreak(today, map1)).isEqualTo(4)
+
+        // 场景 2：历史 3 天全服，今天还没到服药时间 (pending=1, completed=0) -> 不断签，保留截止昨天的 3 天
+        val map2 = mapOf(
+            "2026-09-27" to StatsEngine.DayStatusBreakdown(completed = 1),
+            "2026-09-28" to StatsEngine.DayStatusBreakdown(completed = 2),
+            "2026-09-29" to StatsEngine.DayStatusBreakdown(completed = 1),
+            "2026-09-30" to StatsEngine.DayStatusBreakdown(pending = 1)
+        )
+        assertThat(StatsEngine.calculateStreak(today, map2)).isEqualTo(3)
+
+        // 场景 3：今天发生漏服 (missed=1) -> 今天破签，streak=0
+        val map3 = mapOf(
+            "2026-09-29" to StatsEngine.DayStatusBreakdown(completed = 1),
+            "2026-09-30" to StatsEngine.DayStatusBreakdown(missed = 1)
+        )
+        assertThat(StatsEngine.calculateStreak(today, map3)).isEqualTo(0)
+
+        // 场景 4：昨天漏服 (missed=1)，今天还没服 -> streak=0
+        val map4 = mapOf(
+            "2026-09-28" to StatsEngine.DayStatusBreakdown(completed = 1),
+            "2026-09-29" to StatsEngine.DayStatusBreakdown(missed = 1),
+            "2026-09-30" to StatsEngine.DayStatusBreakdown(pending = 1)
+        )
+        assertThat(StatsEngine.calculateStreak(today, map4)).isEqualTo(0)
+
+        // 场景 5：隔日服药（9-27 服、9-28 无排班、9-29 服、9-30 无排班） -> 2 天有效连续
+        val map5 = mapOf(
+            "2026-09-27" to StatsEngine.DayStatusBreakdown(completed = 1),
+            // 9-28 无记录
+            "2026-09-29" to StatsEngine.DayStatusBreakdown(completed = 1)
+            // 9-30 无记录
+        )
+        assertThat(StatsEngine.calculateStreak(today, map5)).isEqualTo(2)
     }
 
     private fun createSlot(status: SlotStatus) = DoseSlotEntity(

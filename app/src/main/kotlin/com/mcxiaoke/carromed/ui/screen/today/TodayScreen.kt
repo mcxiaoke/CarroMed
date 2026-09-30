@@ -49,7 +49,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -118,6 +121,8 @@ fun TodayScreen(
         }
     }
 
+    var showHistoryCalendarSheet by rememberSaveable { mutableStateOf(false) }
+
     Scaffold(
         // 顶栏必须走 Scaffold 的 topBar 槽位（PLAN-TITLEBAR-STANDARDIZATION-20260930.md）：
         // 旧实现是本 Scaffold 不带 topBar、标题手绘在 LazyColumn 第一个 item 里，
@@ -126,7 +131,13 @@ fun TodayScreen(
         // 进了 topBar 槽位后 TopAppBar 自己吃掉状态栏，innerPadding.top 归零。
         topBar = {
             CarroMedTopAppBar(
-                title = stringResource(R.string.today_title)
+                title = stringResource(R.string.today_title),
+                actions = {
+                    TodayStreakBadge(
+                        streakDays = uiState.streakDays,
+                        onClick = { showHistoryCalendarSheet = true }
+                    )
+                }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -383,6 +394,16 @@ fun TodayScreen(
         }
     }
 
+    if (showHistoryCalendarSheet) {
+        DoseHistoryCalendarSheet(
+            streakDays = uiState.streakDays,
+            calendarMonth = uiState.calendarMonth,
+            dayStates = uiState.calendarDayStates,
+            today = uiState.today,
+            onSelectMonth = viewModel::selectCalendarMonth,
+            onDismissRequest = { showHistoryCalendarSheet = false }
+        )
+    }
 }
 
 @Composable

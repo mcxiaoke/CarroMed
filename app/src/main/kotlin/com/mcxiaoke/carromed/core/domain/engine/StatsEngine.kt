@@ -305,6 +305,100 @@ object StatsEngine {
     }
 
     /**
+     * 把 DAO 的 [SlotStatusCountRow] 聚合结果汇总为「全部药品」的单日状态分布。
+     * key 为 "yyyy-MM-dd" 格式的日期字符串。
+     */
+    fun aggregateDailyOverallBreakdowns(
+        rows: List<SlotStatusCountRow>
+    ): Map<String, DayStatusBreakdown> {
+        val result = LinkedHashMap<String, DayStatusBreakdown>()
+        for (row in rows) {
+            val current = result[row.scheduledDate] ?: DayStatusBreakdown()
+            result[row.scheduledDate] = when (row.status) {
+                SlotStatus.COMPLETED -> current.copy(completed = current.completed + row.count)
+                SlotStatus.SKIPPED -> current.copy(skipped = current.skipped + row.count)
+                SlotStatus.EXPIRED -> current.copy(missed = current.missed + row.count)
+                SlotStatus.PENDING, SlotStatus.SNOOZED ->
+                    current.copy(pending = current.pending + row.count)
+            }
+        }
+        return result
+    }
+
+    /**
+     * 计算当前连续服药打卡天数（Streak）。
+     *
+     * ## 算法与判定规则（对齐临床依从性直觉与无排班容错）：
+     *
+     * 1. **单日达成标准**：当天有排班（`total > 0`）且全部排班均已完成（`completed == total && missed == 0 && skipped == 0`）。
+     * 2. **今天（today）的状态判定**：
+     *    - 今天若已全服：连续天数包含今天（从今天开始算第 1 天），继续往前回溯。
+     *    - 今天若仍在进行中（尚有 `pending > 0` 待服，且无任何 `missed > 0` 或 `skipped > 0`）：不断签，连续天数继承截止到昨天的回溯结果。
+     *    - 今天若已经发生了漏服（`missed > 0`）或跳过（`skipped > 0`）：今天已破签，当前 Streak 归 0。
+     * 3. **历史天（昨天及更早）的回溯**：
+     *    - 遇到达成（全服）：Streak 累加 1 天，继续往前一天回溯。
+     *    - 遇到无排班（`total == 0`）：若该天在已知最早记录日之后（如隔日服药、周末无排班的间隙日），**跳过不中断也不增加**；若已越过最早记录日，回溯结束。
+     *    - 遇到未达成（有漏服 `missed > 0`、有跳过 `skipped > 0` 或部分未完成）：连续中断，回溯结束。
+     *
+     * @param today 当前自然日
+     * @param dailyBreakdowns 日期字符串 (yyyy-MM-dd) 到单日状态的映射
+     * @param maxLookbackDays 最大回溯天数（默认 365 天）
+     */
+    fun calculateStreak(
+        today: LocalDate,
+        dailyBreakdowns: Map<String, DayStatusBreakdown>,
+        maxLookbackDays: Int = 365
+    ): Int {
+        if (dailyBreakdowns.isEmpty()) return 0
+
+        val validDates = dailyBreakdowns.keys.mapNotNull {
+            runCatching { LocalDate.parse(it) }.getOrNull()
+        }
+        if (validDates.isEmpty()) return 0
+        val earliestDate = validDates.minOrNull() ?: return 0
+
+        val todayStr = today.toString()
+        val todayBreakdown = dailyBreakdowns[todayStr] ?: DayStatusBreakdown()
+
+        var streak = 0
+        val startLookbackDate: LocalDate
+
+        if (todayBreakdown.isEmpty()) {
+            startLookbackDate = today.minusDays(1)
+        } else if (todayBreakdown.completed == todayBreakdown.total && todayBreakdown.missed == 0 && todayBreakdown.skipped == 0) {
+            streak = 1
+            startLookbackDate = today.minusDays(1)
+        } else if (todayBreakdown.missed > 0 || todayBreakdown.skipped > 0) {
+            return 0
+        } else {
+            startLookbackDate = today.minusDays(1)
+        }
+
+        var currentDate = startLookbackDate
+        var daysChecked = 0
+
+        while (daysChecked < maxLookbackDays && !currentDate.isBefore(earliestDate)) {
+            val b = dailyBreakdowns[currentDate.toString()]
+            if (b == null || b.isEmpty()) {
+                currentDate = currentDate.minusDays(1)
+                daysChecked++
+                continue
+            }
+
+            if (b.completed == b.total && b.missed == 0 && b.skipped == 0) {
+                streak++
+                currentDate = currentDate.minusDays(1)
+                daysChecked++
+            } else {
+                break
+            }
+        }
+
+        return streak
+    }
+
+
+    /**
      * 汇总某药品在给定日期集合上的状态分布 (用于"近 7 天 / 近 30 天依从率")。
      */
     fun sumBreakdowns(
