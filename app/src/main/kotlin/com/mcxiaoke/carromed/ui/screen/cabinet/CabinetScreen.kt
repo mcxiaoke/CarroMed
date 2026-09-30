@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.ui.screen.cabinet
 import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
+import com.mcxiaoke.carromed.core.domain.model.PauseStatus
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -362,7 +363,13 @@ fun CabinetMedCard(
                 // ⚠️ "今天"取 [CurrentDateHolder.today]（M3-4）：它是墙上时钟驱动的，
                 // 跨过恢复日而进程仍活着时，`LocalDate.now()` 之外的任何缓存都会
                 // 让徽标停留在「已暂停，N 天后恢复」，而药其实早已恢复提醒。
-                val pauseText = item.overview.pauseDescription(today)
+                val pauseText = when (val ps = item.overview.pauseStatus(today)) {
+                    PauseStatus.NotPaused -> null
+                    PauseStatus.PausedIndefinitely -> stringResource(R.string.common_pause_paused)
+                    is PauseStatus.PausedWithResume ->
+                        if (ps.days <= 1) stringResource(R.string.common_pause_resume_tomorrow)
+                        else stringResource(R.string.common_pause_resume_days, ps.days)
+                }
                 if (pauseText != null) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Surface(

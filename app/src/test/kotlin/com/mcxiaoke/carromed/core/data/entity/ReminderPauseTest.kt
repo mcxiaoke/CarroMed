@@ -1,6 +1,7 @@
 package com.mcxiaoke.carromed.core.data.entity
 
 import com.google.common.truth.Truth.assertThat
+import com.mcxiaoke.carromed.core.domain.model.PauseStatus
 import org.junit.Test
 import java.time.LocalDate
 
@@ -33,7 +34,7 @@ class ReminderPauseTest {
     @Test
     fun `null 表示未暂停`() {
         assertThat(settings(null).isPausedOn(today)).isFalse()
-        assertThat(settings(null).pauseDescription(today)).isNull()
+        assertThat(settings(null).pauseStatus(today)).isEqualTo(PauseStatus.NotPaused)
         assertThat(settings(null).daysUntilResume(today)).isNull()
     }
 
@@ -44,14 +45,14 @@ class ReminderPauseTest {
         // 十年后仍然算暂停 —— 无限期就是无限期
         assertThat(s.isPausedOn(today.plusYears(10))).isTrue()
         assertThat(s.daysUntilResume(today)).isNull()   // 不会自动恢复 ⇒ 没有恢复日
-        assertThat(s.pauseDescription(today)).isEqualTo("提醒已暂停")
+        assertThat(s.pauseStatus(today)).isEqualTo(PauseStatus.PausedIndefinitely)
     }
 
     @Test
     fun `日期表示有限期暂停`() {
         val s = settings("2026-10-15")
         assertThat(s.isPausedOn(today)).isTrue()
-        assertThat(s.pauseDescription(today)).isEqualTo("提醒已暂停，18 天后恢复")
+        assertThat(s.pauseStatus(today)).isEqualTo(PauseStatus.PausedWithResume(days = 18))
     }
 
     // ---------------- 含当天（最容易写错的一条） ----------------
@@ -74,7 +75,7 @@ class ReminderPauseTest {
         // 今天是最后一天 ⇒ 明天恢复 ⇒ "1 天后"
         val s = settings(today.toString())
         assertThat(s.daysUntilResume(today)).isEqualTo(1)
-        assertThat(s.pauseDescription(today)).isEqualTo("提醒已暂停，明天恢复")
+        assertThat(s.pauseStatus(today)).isEqualTo(PauseStatus.PausedWithResume(days = 1))
     }
 
     // ---------------- 按钮档位与徽标必须自洽（M3-3） ----------------
@@ -109,7 +110,7 @@ class ReminderPauseTest {
         assertThat(s.isPausedOn(today)).isTrue()              // 今天静默
         assertThat(s.isPausedOn(today.plusDays(1))).isFalse() // 明天恢复
         assertThat(s.daysUntilResume(today)).isEqualTo(1)
-        assertThat(s.pauseDescription(today)).isEqualTo("提醒已暂停，明天恢复")
+        assertThat(s.pauseStatus(today)).isEqualTo(PauseStatus.PausedWithResume(days = 1))
     }
 
     @Test
@@ -121,7 +122,7 @@ class ReminderPauseTest {
         assertThat(s.isPausedOn(today.plusDays(6))).isTrue()
         assertThat(s.isPausedOn(today.plusDays(7))).isFalse()
         assertThat(s.daysUntilResume(today)).isEqualTo(7)
-        assertThat(s.pauseDescription(today)).isEqualTo("提醒已暂停，7 天后恢复")
+        assertThat(s.pauseStatus(today)).isEqualTo(PauseStatus.PausedWithResume(days = 7))
     }
 
     /**
@@ -156,7 +157,7 @@ class ReminderPauseTest {
         val after = LocalDate.of(2026, 10, 16)
         assertThat(s.pausedUntil).isNotNull()             // 前提：字段没被清
         assertThat(s.isPausedOn(after)).isFalse()          // 结论：判定正确
-        assertThat(s.pauseDescription(after)).isNull()     // UI 也不该再显示"已暂停"
+        assertThat(s.pauseStatus(after)).isEqualTo(PauseStatus.NotPaused)     // UI 也不该再显示"已暂停"
     }
 
     @Test

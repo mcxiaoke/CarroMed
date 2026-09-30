@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.domain.model.Dose
+import com.mcxiaoke.carromed.core.domain.model.PauseStatus
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.TransactionType
@@ -157,11 +158,17 @@ fun MedicationDetailScreen(
         // 闹钟也照常排了。用户会以为这个药还在停药期里而漏服。
         // 页面在 state 里 observe 这个 Flow（M3-2），跨过恢复日会重新组合。
         val today by CurrentDateHolder.today.collectAsStateWithLifecycle(LocalDate.now())
-        val pauseText = uiState.reminderSettings.pauseDescription(today)
-        val isPaused = pauseText != null
+        val isPaused = uiState.reminderSettings.pauseStatus(today) != PauseStatus.NotPaused
+        val pauseText = when (val ps = uiState.reminderSettings.pauseStatus(today)) {
+            PauseStatus.NotPaused -> ""
+            PauseStatus.PausedIndefinitely -> stringResource(R.string.common_pause_paused)
+            is PauseStatus.PausedWithResume ->
+                if (ps.days <= 1) stringResource(R.string.common_pause_resume_tomorrow)
+                else stringResource(R.string.common_pause_resume_days, ps.days)
+        }
         val statusText = when {
             med.isArchived -> stringResource(R.string.mdetail_status_archived)
-            isPaused -> pauseText!!
+            isPaused -> pauseText
             isPrn -> stringResource(R.string.mdetail_status_prn)
             else -> stringResource(R.string.mdetail_status_active)
         }

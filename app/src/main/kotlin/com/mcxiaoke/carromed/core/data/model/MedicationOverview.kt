@@ -4,6 +4,7 @@ import androidx.room.Embedded
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.domain.model.Dose
+import com.mcxiaoke.carromed.core.domain.model.PauseStatus
 import java.time.LocalDate
 
 /**
@@ -63,6 +64,6 @@ data class MedicationOverview(
      */
     fun isPausedOn(today: LocalDate): Boolean = reminderSettings.isPausedOn(today)
 
-    /** 供 UI 直接显示的暂停说明；未暂停时返回 null。 */
-    fun pauseDescription(today: LocalDate): String? = reminderSettings.pauseDescription(today)
+    /** 结构化暂停状态；展示层负责格式化（B4，D-A）。 */
+    fun pauseStatus(today: LocalDate): PauseStatus = reminderSettings.pauseStatus(today)
 }

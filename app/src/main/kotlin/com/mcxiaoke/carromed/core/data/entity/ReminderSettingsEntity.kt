@@ -4,6 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.PrimaryKey
+import com.mcxiaoke.carromed.core.domain.model.PauseStatus
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
 
@@ -98,14 +99,14 @@ data class ReminderSettingsEntity(
         return days + 1   // 含当天：今天到期 ⇒ 明天恢复
     }
 
-    /** 人类可读的暂停说明，供药箱 / 详情页直接显示。 */
-    fun pauseDescription(today: LocalDate): String? {
-        if (pausedUntil == null) return null
-        if (!isPausedOn(today)) return null
-        if (pausedUntil.isBlank()) return "提醒已暂停"
-        val days = daysUntilResume(today) ?: return "提醒已暂停"
-        return if (days <= 1) "提醒已暂停，明天恢复" else "提醒已暂停，$days 天后恢复"
-    }
+    /** 暂停状态的结构化结果，展示层负责格式化为本地化文案（B4，D-A）。 */
+    fun pauseStatus(today: LocalDate): PauseStatus =
+        PauseStatus.of(
+            pausedUntil = pausedUntil,
+            isPausedOn = { isPausedOn(it) },
+            daysUntilResume = { daysUntilResume(it) },
+            today = today
+        )
 
     private fun parseDate(raw: String): LocalDate? = try {
         LocalDate.parse(raw.trim())

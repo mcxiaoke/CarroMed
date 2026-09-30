@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 通用暂停徽标文案（展示层格式化 PauseStatus，B4 D-A） -->
+    <string name="common_pause_paused">提醒已暂停</string>
+    <string name="common_pause_resume_tomorrow">提醒已暂停，明天恢复</string>
+    <string name="common_pause_resume_days">提醒已暂停，%1$d 天后恢复</string>
+</resources>
