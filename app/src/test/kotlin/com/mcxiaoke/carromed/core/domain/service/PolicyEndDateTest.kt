@@ -228,10 +228,17 @@ class PolicyEndDateTest {
 
         val before = System.currentTimeMillis()
         assertThat(tracking.snoozeDose(slotId, Int.MAX_VALUE)).isTrue()
+        val after = System.currentTimeMillis()
         val ts = db.doseSlotDao().getSlotById(slotId)!!.snoozeUntilTs!!
 
-        // ★ 必须在未来且不超过 4 小时
+        // ★ 必须在未来且不超过 4 小时。
+        //
+        // ⚠️ 上界必须用 `after` 而不是 `before`：`snoozeDose` 内部**自己读一次挂钟**
+        // 来算 `now + 4h`，那次读数落在 [before, after] 之间。拿 `before + 4h`
+        // 当上界时，只要内部读数比 `before` 晚 1ms 就会假红 ——
+        // 2026-09-30 实跑踩到过（`expected ≤ ...843 but was ...844`），
+        // 而且它随机发生、复跑即绿，是最难查的一类红灯。
         assertThat(ts).isGreaterThan(before)
-        assertThat(ts).isAtMost(before + 240L * 60_000L)
+        assertThat(ts).isAtMost(after + 240L * 60_000L)
     }
 }
