@@ -96,7 +96,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 withContext(Dispatchers.Main) {
                     Toast.makeText(app, app.getString(R.string.set_export_csv_done, file.name), Toast.LENGTH_LONG).show()
                 }
-                DataExporter.shareFile(app, file, "text/csv")
+                if (!DataExporter.shareFile(app, file, "text/csv")) {
+                    // 分享面板没能启动：不能让"已导出"提示变成空头支票（L11）
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(app, R.string.set_share_failed, Toast.LENGTH_SHORT).show()
+                    }
+                }
             } catch (e: Exception) {
                 // 吞异常降级成 Toast 的地方必须留痕（PLAN-LOGGING G4）
                 AppLog.w(TAG, "exportCsv failed", e)
@@ -120,7 +125,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 withContext(Dispatchers.Main) {
                     Toast.makeText(app, app.getString(R.string.set_backup_done, file.name), Toast.LENGTH_LONG).show()
                 }
-                DataExporter.shareFile(app, file, "application/json")
+                if (!DataExporter.shareFile(app, file, "application/json")) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(app, R.string.set_share_failed, Toast.LENGTH_SHORT).show()
+                    }
+                }
             } catch (e: Exception) {
                 AppLog.w(TAG, "exportBackup failed", e)
                 withContext(Dispatchers.Main) {

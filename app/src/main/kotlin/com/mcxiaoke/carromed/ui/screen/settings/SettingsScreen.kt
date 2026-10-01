@@ -3,6 +3,7 @@ package com.mcxiaoke.carromed.ui.screen.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +29,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -204,8 +206,7 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // 1. 通知与提醒行为
+        ) {            // 1. 通知与提醒行为
             item {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -436,10 +437,33 @@ fun SettingsScreen(
                             }
                             OutlinedButton(
                                 onClick = { backupPickerLauncher.launch(arrayOf("application/json")) },
+                                enabled = !uiState.isInspectingBackup,
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.heightIn(min = 48.dp) // 触摸目标 ≥48dp（orsbf P1-15）
                             ) {
                                 Text(stringResource(R.string.set_pick_file_button), fontSize = 12.sp)
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        // 备份解析是全量 JSON 读取（数百毫秒到数秒）：期间两个入口都禁用，
+                        // 并显示行内进度，否则用户选完文件后界面静止像没反应（M6）
+                        if (uiState.isInspectingBackup) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    stringResource(R.string.set_inspecting_backup),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
 
@@ -460,6 +484,7 @@ fun SettingsScreen(
                             }
                             OutlinedButton(
                                 onClick = { viewModel.openLocalBackupPicker() },
+                                enabled = !uiState.isInspectingBackup,
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.heightIn(min = 48.dp) // 触摸目标 ≥48dp（orsbf P1-15）
                             ) {
@@ -475,6 +500,8 @@ fun SettingsScreen(
                         // shareFile 的 chooser 标题与 Toast 在非 composable 回调里，
                         // 无法直接 stringResource —— 在 composable 作用域先取好。
                         val shareLogTitle = stringResource(R.string.set_share_log_title)
+                        // 慢 IO（合并 7 天日志 + 写文件）：导出期间禁用防连点（L8）
+                        var exportingLogs by remember { mutableStateOf(false) }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -486,24 +513,39 @@ fun SettingsScreen(
                             }
                             OutlinedButton(
                                 onClick = {
+                                    if (exportingLogs) return@OutlinedButton
+                                    exportingLogs = true
                                     logExportScope.launch {
                                         try {
                                             val file = DataExporter.exportDiagnosticLogs(logExportContext)
                                             if (file != null) {
-                                                DataExporter.shareFile(logExportContext, file, "text/plain", shareLogTitle)
+                                                if (!DataExporter.shareFile(logExportContext, file, "text/plain", shareLogTitle)) {
+                                                    // chooser 启动失败不能再吞（L11）
+                                                    Toast.makeText(logExportContext, logExportContext.getString(R.string.set_share_failed), Toast.LENGTH_SHORT).show()
+                                                }
                                             } else {
                                                 Toast.makeText(logExportContext, logExportContext.getString(R.string.set_no_log_files), Toast.LENGTH_SHORT).show()
                                             }
                                         } catch (e: Exception) {
                                             AppLog.w("SettingsScreen", "export diagnostic logs failed", e)
                                             Toast.makeText(logExportContext, logExportContext.getString(R.string.set_export_failed, e.message), Toast.LENGTH_SHORT).show()
+                                        } finally {
+                                            exportingLogs = false
                                         }
                                     }
                                 },
+                                enabled = !exportingLogs,
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.heightIn(min = 48.dp) // 触摸目标 ≥48dp（orsbf P1-15）
                             ) {
-                                Text(stringResource(R.string.set_export_log_button), fontSize = 12.sp)
+                                if (exportingLogs) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Text(stringResource(R.string.set_export_log_button), fontSize = 12.sp)
+                                }
                             }
                         }
                     }
@@ -523,6 +565,28 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+        }
+
+        // 覆盖式恢复进行中（M5）：对话框在确认后即关闭，若无可见进度，
+        // 用户面对的是一动不动的页面，分不清是在恢复还是卡死
+        if (uiState.isRestoring) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.4f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(12.dp))
+                        Text(stringResource(R.string.set_restoring))
+                    }
                 }
             }
         }

@@ -97,7 +97,9 @@ data class ProgressUiState(
     val overallAdherence: Float = 0f,
     val isLoading: Boolean = true,
     val isTimelineLoadingMore: Boolean = false,
-    val hasMoreTimeline: Boolean = false
+    val hasMoreTimeline: Boolean = false,
+    /** 触底加载失败（M10）：footer 显示错误 + 重试，不再伪装成"到底了" */
+    val timelineLoadFailed: Boolean = false
 )
 
 /**
@@ -140,6 +142,7 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
     private val _timelineRecords = MutableStateFlow<List<TimelineItem>>(emptyList())
     private val _hasMoreTimeline = MutableStateFlow(false)
     private val _isLoadingMore = MutableStateFlow(false)
+    private val _timelineLoadFailed = MutableStateFlow(false)
 
     /**
      * "今天"来自 [CurrentDateHolder]，不是 `LocalDate.now()` 字段（M3-2）。
@@ -205,7 +208,8 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
         todayFlow,
         _timelineRecords,
         _hasMoreTimeline,
-        _isLoadingMore
+        _isLoadingMore,
+        _timelineLoadFailed
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val tab = values[0] as Int
@@ -216,6 +220,7 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
         val hasMore = values[4] as Boolean
         @Suppress("UNCHECKED_CAST")
         val loadingMore = values[5] as Boolean
+        val loadFailed = values[6] as Boolean
 
         ProgressUiState(
             selectedTab = tab,
@@ -224,7 +229,8 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
             overallAdherence = matrix.overallAdherence,
             isLoading = false,
             isTimelineLoadingMore = loadingMore,
-            hasMoreTimeline = hasMore
+            hasMoreTimeline = hasMore,
+            timelineLoadFailed = loadFailed
         )
     }.stateIn(
         scope = viewModelScope,
@@ -251,6 +257,8 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
             .onEach { items ->
                 _timelineRecords.value = items
                 _hasMoreTimeline.value = items.size >= FIRST_PAGE_SIZE
+                // 首屏重新发射（数据已变）时旧失败态不再有意义
+                _timelineLoadFailed.value = false
             }
 
     init {
@@ -269,6 +277,9 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
      */
     fun loadMoreTimeline() {
         if (_isLoadingMore.value || !_hasMoreTimeline.value) return
+        // 失败后停止自动重试：触底触发器会持续命中，无人为门槛的话会一直打库。
+        // 用户点 footer 的「重试」才恢复（见 [retryTimeline]）。
+        if (_timelineLoadFailed.value) return
         val current = _timelineRecords.value
         if (current.isEmpty()) return
         // 复合游标 (actualTs, id)（orsbf P1-3）：同毫秒记录簇之间也要有全序，
@@ -297,15 +308,20 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
                 }
                 _hasMoreTimeline.value = older.size >= FIRST_PAGE_SIZE
             } catch (t: Throwable) {
-                // 加载更多失败**不静默**：把它当"没有更多"，用户滚到底会停在原地，
-                // 而不是反复重试把电池耗光。降级本身是刻意设计，但必须有日志——
-                // 否则"列表怎么没加载完"这类问题在事后无迹可查（PLAN-LOGGING G4）
-                AppLog.w(TAG, "loadMoreTimeline failed, stopping pagination", t)
-                _hasMoreTimeline.value = false
+                // 加载失败必须让用户看见（M10）：旧实现把它置成"没有更多"，
+                // 错误被伪装成正常结束。现在进独立的失败态，footer 给出「重试」入口。
+                AppLog.w(TAG, "loadMoreTimeline failed, entering failed state", t)
+                _timelineLoadFailed.value = true
             } finally {
                 _isLoadingMore.value = false
             }
         }
+    }
+
+    /** 用户点了 footer 的「重试」：清失败态并再试一次 */
+    fun retryTimeline() {
+        _timelineLoadFailed.value = false
+        loadMoreTimeline()
     }
 
     private suspend fun loadMedMap(records: List<DoseRecordEntity>): Map<Long, MedicationEntity> {

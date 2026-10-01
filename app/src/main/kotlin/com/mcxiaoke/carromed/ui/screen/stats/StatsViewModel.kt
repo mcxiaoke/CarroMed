@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -235,6 +236,10 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _selectedPeriod = MutableStateFlow(StatsPeriod.WEEK)
 
+    /** 导出进行中（M7）：导出是全量 CSV 生成 + 分享，无闸门时可连点重复导出 */
+    private val _isExporting = MutableStateFlow(false)
+    val isExporting: StateFlow<Boolean> = _isExporting.asStateFlow()
+
     val uiState: StateFlow<StatsUiState> = combine(
         _selectedPeriod,
         builder.decidedSlotCountProbe(),
@@ -253,14 +258,20 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 导出服药明细 CSV (生成 + 系统分享面板) */
     fun exportReport() {
+        if (_isExporting.value) return
         val app = getApplication<Application>()
+        _isExporting.value = true
         viewModelScope.launch {
             try {
                 val file = DataExporter.exportDoseRecordsCsv(app, AppDatabase.getInstance(app))
                 withContext(Dispatchers.Main) {
                     Toast.makeText(app, app.getString(R.string.stats_export_done, file.name), Toast.LENGTH_LONG).show()
                 }
-                DataExporter.shareFile(app, file, "text/csv")
+                if (!DataExporter.shareFile(app, file, "text/csv")) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(app, R.string.set_share_failed, Toast.LENGTH_SHORT).show()
+                    }
+                }
             } catch (e: Exception) {
                 // 吞异常降级成 Toast 的地方必须留痕（PLAN-LOGGING G4）：
                 // e.message 可能为 null，堆栈才是归因依据
@@ -268,6 +279,8 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(app, app.getString(R.string.stats_export_failed, e.message), Toast.LENGTH_SHORT).show()
                 }
+            } finally {
+                _isExporting.value = false
             }
         }
     }

@@ -1270,14 +1270,18 @@ object DataExporter {
     // ---------------- 分享 ----------------
 
     /**
-     * 通过系统分享面板分享导出文件 (FileProvider 授权)
+     * 通过系统分享面板分享导出文件 (FileProvider 授权)。
+     *
+     * @return 分享面板是否成功启动。chooser 启动失败（无 Activity 可处理等）
+     *         旧实现被 runCatching 吞掉，而调用方的"已导出"提示已先行弹出 ——
+     *         用户被告知成功却什么都看不到（L11）。现在把结果交给调用方决定。
      */
     fun shareFile(
         context: Context,
         file: File,
         mime: String,
         title: String = context.getString(R.string.csv_share_title)
-    ) {
+    ): Boolean {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val send = Intent(Intent.ACTION_SEND).apply {
             type = mime
@@ -1285,6 +1289,8 @@ object DataExporter {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         val chooser = Intent.createChooser(send, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        runCatching { context.startActivity(chooser) }
+        return runCatching { context.startActivity(chooser) }
+            .onFailure { AppLog.w(TAG, "shareFile: chooser start failed for ${file.name}", it) }
+            .isSuccess
     }
 }

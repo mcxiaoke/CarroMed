@@ -31,4 +31,6 @@
     <string name="prog_status_reverted">已撤销</string>
     <string name="prog_timeline_more">继续下滑查看更早的记录</string>
     <string name="prog_timeline_end">没有更早的记录了</string>
+    <string name="prog_timeline_load_failed">加载失败</string>
+    <string name="prog_timeline_retry">重试</string>
 </resources>

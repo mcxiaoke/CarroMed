@@ -219,7 +219,9 @@ class InventoryViewModel(
                 val file = com.mcxiaoke.carromed.core.data.DataExporter
                     .exportInventoryLedgerCsv(app, db)
                 _uiState.value = _uiState.value.copy(message = app.getString(R.string.inv_exported, file.name))
-                com.mcxiaoke.carromed.core.data.DataExporter.shareFile(app, file, "text/csv")
+                if (!com.mcxiaoke.carromed.core.data.DataExporter.shareFile(app, file, "text/csv")) {
+                    _uiState.value = _uiState.value.copy(error = app.getString(R.string.set_share_failed))
+                }
             } catch (e: Exception) {
                 // 吞异常降级成 UI error 的地方必须留痕（PLAN-LOGGING G4）
                 AppLog.w(TAG, "exportLedger failed", e)

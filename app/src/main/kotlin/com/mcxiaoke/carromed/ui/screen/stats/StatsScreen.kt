@@ -277,8 +277,10 @@ fun StatsScreen(
             }
 
             item {
+                val isExporting by viewModel.isExporting.collectAsStateWithLifecycle()
                 Button(
                     onClick = { viewModel.exportReport() },
+                    enabled = !isExporting,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp),

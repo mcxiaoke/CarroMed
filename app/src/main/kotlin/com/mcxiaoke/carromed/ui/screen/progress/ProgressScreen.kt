@@ -36,6 +36,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -156,7 +157,9 @@ fun ProgressScreen(
                     item(key = "timeline-tail") {
                         TimelineFooter(
                             loading = uiState.isTimelineLoadingMore,
-                            hasMore = uiState.hasMoreTimeline
+                            hasMore = uiState.hasMoreTimeline,
+                            failed = uiState.timelineLoadFailed,
+                            onRetry = viewModel::retryTimeline
                         )
                     }
                 }
@@ -635,7 +638,7 @@ private fun RecordStatusChip(timeLabel: String, status: RecordStatus) {
 }
 
 @Composable
-private fun TimelineFooter(loading: Boolean, hasMore: Boolean) {
+private fun TimelineFooter(loading: Boolean, hasMore: Boolean, failed: Boolean, onRetry: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -647,7 +650,19 @@ private fun TimelineFooter(loading: Boolean, hasMore: Boolean) {
                 modifier = Modifier.size(22.dp),
                 strokeWidth = 2.dp
             )
-            // 说清"到底了"而不是留一片空白：用户不知道是加载失败还是没有更多
+            // 加载失败 ≠ 没有更多（M10）：给出错误说明与重试入口，
+            // 旧实现把失败伪装成"到底了"，用户以为记录就这么多
+            failed -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(R.string.prog_timeline_load_failed),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+                Spacer(Modifier.width(10.dp))
+                TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text(stringResource(R.string.prog_timeline_retry), style = MaterialTheme.typography.labelSmall)
+                }
+            }
             hasMore -> Text(
                 text = stringResource(R.string.prog_timeline_more),
                 style = MaterialTheme.typography.labelSmall,
