@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -46,9 +47,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,6 +87,32 @@ fun InventoryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val med = uiState.medication
+
+    // 有效期/预警线是草稿字段，不点顶栏「保存」直接返回会静默丢失（M4）：
+    // 有未保存修改时拦截返回键，让用户明确选择。
+    val isDirty = remember(uiState) { viewModel.isDirty() }
+    var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = isDirty && med != null) {
+        showDiscardDialog = true
+    }
+    if (showDiscardDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            title = { Text(stringResource(R.string.inv_unsaved_title), fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.inv_unsaved_msg)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDiscardDialog = false
+                    onNavigateBack()
+                }) { Text(stringResource(R.string.inv_unsaved_discard)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardDialog = false }) {
+                    Text(stringResource(R.string.inv_unsaved_stay))
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -378,6 +410,7 @@ fun InventoryScreen(
                         Spacer(Modifier.height(10.dp))
                         OutlinedButton(
                             onClick = { viewModel.exportLedger() },
+                            enabled = !uiState.isSaving,
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Icon(

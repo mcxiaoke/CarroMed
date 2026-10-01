@@ -58,6 +58,10 @@
     <string name="inv_err_alert_invalid">预警线无效：请输入 0 或正数（0 表示关闭低库存告警）</string>
     <string name="inv_save_failed">保存失败，请重试</string>
     <string name="inv_saved">已保存</string>
+    <string name="inv_unsaved_title">有未保存的修改</string>
+    <string name="inv_unsaved_msg">本页的修改尚未保存，直接返回将丢失这些修改。</string>
+    <string name="inv_unsaved_discard">放弃并返回</string>
+    <string name="inv_unsaved_stay">留在此页</string>
 
     <!-- 频次描述文案 -->
     <string name="inv_freq_none">未设提醒</string>

@@ -193,9 +193,27 @@ class InventoryViewModel(
         _uiState.value = _uiState.value.copy(expiryDate = v)
     }
 
-    /** 导出库存流水 CSV (生成 + 系统分享面板) */
+    /**
+     * 本页是否有未保存的草稿修改（有效期 / 预警线）。
+     *
+     * 这两个字段都是"改完必须点顶栏「保存」才落库"的草稿（M4）：
+     * 旧实现没有任何 dirty 提示，用户改完直接按返回，改动静默丢失。
+     * 屏幕层据此拦截返回键弹确认框。
+     */
+    fun isDirty(): Boolean {
+        val s = _uiState.value
+        val med = s.medication ?: return false
+        if (s.expiryDate != med.expiryDate) return true
+        val alert = DecimalInput.parseNonNegative(s.minStockAlertInput)
+        return alert != null && alert != Dose(med.minStockAlert).asFloat
+    }
+
+    /** 导出库存流水 CSV (生成 + 系统分享面板)。
+     *  慢 IO 操作：isSaving 闸门防连点重复导出/叠分享面板（L7）。 */
     fun exportLedger() {
+        if (_uiState.value.isSaving) return
         val app = getApplication<Application>()
+        _uiState.value = _uiState.value.copy(isSaving = true, error = null, message = null)
         viewModelScope.launch {
             try {
                 val file = com.mcxiaoke.carromed.core.data.DataExporter
@@ -206,6 +224,8 @@ class InventoryViewModel(
                 // 吞异常降级成 UI error 的地方必须留痕（PLAN-LOGGING G4）
                 AppLog.w(TAG, "exportLedger failed", e)
                 _uiState.value = _uiState.value.copy(error = app.getString(R.string.inv_export_failed, e.message))
+            } finally {
+                _uiState.value = _uiState.value.copy(isSaving = false)
             }
         }
     }
@@ -232,19 +252,31 @@ class InventoryViewModel(
     fun setTracking(enabled: Boolean) {
         val app = getApplication<Application>()
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSaving = true, error = null)
-            runCatching {
+            _uiState.value = _uiState.value.copy(isSaving = true, error = null, message = null)
+            val outcome = runCatching {
                 trackingService.setStockTracking(medId, enabled, initialStock = null)
-                runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db) }
-            }.onFailure { t ->
+            }
+            val ok = outcome.getOrElse { t ->
                 // 不透出 t.message：领域层抛的是不变量违约文本，用户看不懂。细节进日志。
-                AppLog.e("InventoryVM", "setTracking failed med=$medId enabled=$enabled", t)
+                AppLog.e(TAG, "setTracking failed med=$medId enabled=$enabled", t)
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
                     error = app.getString(R.string.inv_op_failed)
                 )
                 return@launch
             }
+            // false ≠ 成功（L2）：药品已被删除时服务层静默返回 false，
+            // 旧实现照样显示「已开启追踪」—— 先查存在性再决定说什么。
+            if (!ok && medDao.getMedicationById(medId) == null) {
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = app.getString(R.string.inv_err_not_found)
+                )
+                return@launch
+            }
+            // 追踪开关不影响槽位/闹钟，但保留原实现对账动作；失败仅留痕
+            runCatching { AlarmReconciler.rescheduleAll(getApplication(), db) }
+                .onFailure { AppLog.w(TAG, "rescheduleAll after setTracking failed med=$medId", it) }
             _uiState.value = _uiState.value.copy(
                 isSaving = false,
                 message = app.getString(
@@ -272,14 +304,24 @@ class InventoryViewModel(
             return
         }
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSaving = true, error = null)
-            val changed = runCatching {
+            _uiState.value = _uiState.value.copy(isSaving = true, error = null, message = null)
+            val outcome = runCatching {
                 trackingService.calibrateStock(medId, target, note)
-            }.getOrElse { t ->
-                AppLog.e("InventoryVM", "calibrate failed med=$medId", t)
+            }
+            val changed = outcome.getOrElse { t ->
+                AppLog.e(TAG, "calibrate failed med=$medId", t)
                 _uiState.value = _uiState.value.copy(
                     isSaving = false,
                     error = app.getString(R.string.inv_calibrate_failed)
+                )
+                return@launch
+            }
+            // false 有两种语义（L3）：差额为 0 的良性 no-op，或药品不存在。
+            // 旧实现对后者也说「账面与实物一致」—— 先查存在性再决定说什么。
+            if (!changed && medDao.getMedicationById(medId) == null) {
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = app.getString(R.string.inv_err_not_found)
                 )
                 return@launch
             }
@@ -327,7 +369,7 @@ class InventoryViewModel(
         val expiry = s.expiryDate.takeIf { it != s.medication?.expiryDate }
         if (s.isSaving) return
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSaving = true, error = null)
+            _uiState.value = _uiState.value.copy(isSaving = true, error = null, message = null)
             runCatching {
                 if (expiry != null) {
                     medDao.updateExpiryDate(medId, expiry)
