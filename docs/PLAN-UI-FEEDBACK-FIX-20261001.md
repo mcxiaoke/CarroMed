@@ -1,5 +1,11 @@
 # UI 操作无反馈审查与修复计划（2026-10-01）
 
+> **状态：已全部完成（2026-10-01 17:49）。** 8 个批次对应 6 条 commit：
+> `6553081`（Batch 1）、`39654b5`（Batch 2）、`ef6daef`（Batch 3）、`87e51d8`（Batch 4）、
+> `f10add4`（Batch 5+6）、`1e63f9e`（Batch 7+8）。
+> 每批 debug 编译 + 单测全绿；`assembleRelease` 通过；模拟器走查 59 步断言 100% 通过并逐屏看图。
+> 摘要见 `CHANGES-20261001.md` 顶部条目。下文为原始审查结论与计划，行号以当日 master（49049c6）为准。
+
 > 审查范围：全部 14 个屏幕 + 对应 ViewModel 的每条 onClick 链路（含长按、开关、菜单项、Dialog 按钮）。
 > 审查方法：逐控件追踪 `onClick → ViewModel → 服务/DAO` 链路，核对错误返回值、异常分支、
 > Snackbar/Toast/Dialog/导航/状态变化等可见反馈，以及 loading / 防重复点击闸门。
