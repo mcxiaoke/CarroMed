@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -127,7 +129,17 @@ fun InventoryScreen(
             return@Scaffold
         }
 
+        // 保存按钮在顶栏、校准在下方卡片区，提示条（NoticeBar）固定在列表顶部：
+        // 页面滚动到流水区后操作时提示在视口外（M3）。有新提示时滚回顶部让它可见。
+        val listState = rememberLazyListState()
+        LaunchedEffect(uiState.error, uiState.message) {
+            if (uiState.error != null || uiState.message != null) {
+                // error banner 排在 message 之后（见下方两个条件 item），滚到它的实际下标
+                listState.animateScrollToItem(if (uiState.message != null) 1 else 0)
+            }
+        }
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)

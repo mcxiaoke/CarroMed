@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -163,7 +164,14 @@ fun AddEditMedicationScreen(
             return@Scaffold
         }
 
+        // 保存按钮在 TopAppBar，错误 banner 在列表顶部：用户滚到长表单底部点保存时
+        // banner 在视口外，表现为"点了没反应"（M1）。错误出现时滚回顶部让 banner 可见。
+        val listState = rememberLazyListState()
+        LaunchedEffect(uiState.error) {
+            if (uiState.error != null) listState.animateScrollToItem(0)
+        }
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)

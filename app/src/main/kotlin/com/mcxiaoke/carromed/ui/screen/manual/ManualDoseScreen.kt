@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -46,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,7 +99,14 @@ fun ManualDoseScreen(
             )
         }
     ) { innerPadding ->
+        // 保存按钮在页面最底部，错误 banner 在列表第 2 项（提示卡之后）：
+        // 剂量这类错误恰好发生在底部区域，banner 在视口外（M2）。错误出现时滚回顶部。
+        val listState = rememberLazyListState()
+        LaunchedEffect(uiState.error) {
+            if (uiState.error != null) listState.animateScrollToItem(1)
+        }
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
