@@ -55,6 +55,7 @@
     <!-- ViewModel 错误消息 -->
     <string name="today_err_future_slot">未来的服药时间不能提前确认</string>
     <string name="today_err_already_handled">该服药记录已处理过，未重复扣减库存</string>
+    <string name="today_err_op_failed">操作失败，请重试</string>
 
     <!-- 未来槽位日期说明 -->
     <string name="today_future_tomorrow">明天</string>

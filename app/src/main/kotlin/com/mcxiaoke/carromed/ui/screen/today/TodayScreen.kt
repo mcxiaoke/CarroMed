@@ -836,6 +836,12 @@ private fun DateSelectorRow(
         dates.forEach { date ->
             val isSelected = date == selectedDate
             val isToday = date == today
+            // 可查看窗口与 VM 的 clamp 同一套界（TodayViewModel 常量）：
+            // 窗口外的日期格直接禁用置灰（L4）。旧实现在选中日期已被夹到
+            // 下界时，窗口左端 3 个格点了会被 clamp 回原值 —— 高亮不动、
+            // 列表不刷新，点击像没发生。
+            val inRange = date >= today.minusDays(TodayViewModel.MIN_HISTORY_DAYS) &&
+                date <= today.plusDays(TodayViewModel.MAX_FUTURE_DAYS)
             val dayOfWeekChinese = when (date.dayOfWeek.value) {
                 1 -> stringResource(R.string.today_weekday_1)
                 2 -> stringResource(R.string.today_weekday_2)
@@ -866,7 +872,7 @@ private fun DateSelectorRow(
                         if (isSelected) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     )
-                    .clickable { onSelectDate(date) }
+                    .clickable(enabled = inRange) { onSelectDate(date) }
                     // 语义描述（可访问性 + 走查脚本的定位锚点）：
                     // 未来日**仍然可点**（预览排班是产品功能），所以刻意不写"已禁用"——
                     // 只如实标注它是未来。日期格没有稳定文本（只有一个"30"这种数字），
@@ -889,8 +895,11 @@ private fun DateSelectorRow(
                     text = date.dayOfMonth.toString(),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                    else MaterialTheme.colorScheme.onSurface
+                    color = when {
+                        isSelected -> MaterialTheme.colorScheme.onPrimary
+                        !inRange -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
                 )
                 Spacer(Modifier.height(6.dp))
                 Box(

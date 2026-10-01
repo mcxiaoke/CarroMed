@@ -27,4 +27,5 @@
     <string name="perm_vendor_title">4. 锁屏显示与后台自启动</string>
     <string name="perm_status_manual">需手动确认</string>
     <string name="perm_vendor_desc">主流手机厂商（小米、华为、OPPO、vivo 等）建议在系统设置中允许【后台自启动】与【锁屏通知】，防止熄屏时漏提醒。</string>
+    <string name="perm_open_settings_failed">无法打开系统设置，请手动前往系统设置查找本应用</string>
 </resources>

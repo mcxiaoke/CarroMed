@@ -76,10 +76,12 @@ class RefillViewModel(
         )
     }
 
-    fun onChannelChange(ch: String) { _uiState.value = _uiState.value.copy(channel = ch) }
-    fun onBatchNumberChange(v: String) { _uiState.value = _uiState.value.copy(batchNumber = v.trim()) }
-    fun onExpiryDateChange(v: String) { _uiState.value = _uiState.value.copy(expiryDate = v) }
-    fun onNoteChange(v: String) { _uiState.value = _uiState.value.copy(note = v) }
+    // 任意字段修改都清旧错误（L10）：旧实现只在改数量时清，
+    // 校正了别处的错误后横幅仍滞留到下次提交，看起来像还有问题
+    fun onChannelChange(ch: String) { _uiState.value = _uiState.value.copy(channel = ch, error = null) }
+    fun onBatchNumberChange(v: String) { _uiState.value = _uiState.value.copy(batchNumber = v.trim(), error = null) }
+    fun onExpiryDateChange(v: String) { _uiState.value = _uiState.value.copy(expiryDate = v, error = null) }
+    fun onNoteChange(v: String) { _uiState.value = _uiState.value.copy(note = v, error = null) }
 
     fun confirmRefill(onSuccess: () -> Unit) {
         val s = _uiState.value

@@ -242,6 +242,11 @@ private fun openAppDetails(context: Context) {
                 Uri.parse("package:${context.packageName}")
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         )
+    }.onFailure {
+        // 最终兜底也失败时不能再静默（L12）：用户点「去设置」却停在原地
+        android.widget.Toast.makeText(
+            context, R.string.perm_open_settings_failed, android.widget.Toast.LENGTH_LONG
+        ).show()
     }
 }
 

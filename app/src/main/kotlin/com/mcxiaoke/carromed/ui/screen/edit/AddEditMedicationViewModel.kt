@@ -473,6 +473,24 @@ class AddEditMedicationViewModel(
             }
         }
 
+        // ⭐ 默认剂量必须**显式合法**（M8）：旧实现在保存时
+        // `parsePositive(s.defaultDose) ?: 1.0f` —— 填 "0" 或清空后保存
+        // "成功"，但落库值被静默改成 1.0，与表单显示不一致且无任何提示。
+        if (DecimalInput.parsePositive(s.defaultDose) == null) {
+            _uiState.value = s.copy(error = app.getString(DEFAULT_DOSE_ERROR))
+            return
+        }
+        // 初始库存 / 预警线同样不得静默回落（L9）：非法输入以前被 toFloatOrNull
+        // 悄悄折算成 0 —— 库存不建档、低库存告警被关闭，用户毫不知情。
+        if (!s.isEdit && s.currentStock.isNotBlank() && s.currentStock.toFloatOrNull() == null) {
+            _uiState.value = s.copy(error = app.getString(R.string.medit_error_stock_invalid))
+            return
+        }
+        if (s.minStockAlert.isNotBlank() && s.minStockAlert.toFloatOrNull() == null) {
+            _uiState.value = s.copy(error = app.getString(R.string.medit_error_alert_invalid))
+            return
+        }
+
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true, error = null)
 
@@ -612,5 +630,6 @@ class AddEditMedicationViewModel(
         val DOW_ERROR = R.string.medit_error_dow_required
         val TIME_ERROR = R.string.medit_error_time_required
         val DUPLICATE_TIME_ERROR = R.string.medit_error_duplicate_time
+        val DEFAULT_DOSE_ERROR = R.string.medit_error_default_dose_invalid
     }
 }

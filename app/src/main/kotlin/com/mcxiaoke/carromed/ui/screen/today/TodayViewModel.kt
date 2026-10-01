@@ -11,6 +11,7 @@ import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.MedicationOverview
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -94,6 +96,15 @@ data class TodayUiState(
 @OptIn(ExperimentalCoroutinesApi::class)
 class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        private const val TAG = "TodayViewModel"
+
+        /** 可查看的历史下界：今天-14 天（与 [selectDate] 的 clamp、屏幕日期格的禁用判定共用） */
+        const val MIN_HISTORY_DAYS = 14L
+        /** 可预览的未来上界：今天+3 天 */
+        const val MAX_FUTURE_DAYS = 3L
+    }
+
     private val db = AppDatabase.getInstance(application)
     /**
      * 动作编排（打卡 / 跳过 / 推迟 / 撤销 / 改判 + 闹钟与通知的副作用）。
@@ -148,6 +159,10 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             val dailyBreakdowns = StatsEngine.aggregateDailyOverallBreakdowns(rows)
             StatsEngine.calculateStreak(today, dailyBreakdowns)
         }
+    }.catch { t ->
+        // 查询异常不让整条 stateIn 链死掉（L5）：徽章降级为 0 而不是列表冻结
+        AppLog.e(TAG, "streak flow failed", t)
+        emit(0)
     }
 
     /**
@@ -174,6 +189,10 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 month to resultMap
             }
+        }.catch { t ->
+            // 同 streakDaysFlow：月历查询失败降级为空图，不让日历 sheet 冻结（L5）
+            AppLog.e(TAG, "calendar flow failed", t)
+            emit(YearMonth.now() to mutableMapOf<LocalDate, StatsEngine.DayAdherenceState>())
         }
 
     private val baseUiState: Flow<TodayUiState> = combine(
@@ -188,6 +207,11 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             val dayStartTs = date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             val dayEndTs = dayStartTs + 24 * 60 * 60 * 1000L
             slotDao.observeSlotsForDateWithSnoozed(dateStr, dayStartTs, dayEndTs)
+                .catch { t ->
+                    // 查询失败降级为空清单（L5）：宁可显示空的一天也不让整个列表静默冻结
+                    AppLog.e(TAG, "slots flow failed date=$dateStr", t)
+                    emit(emptyList())
+                }
         },
         db.appSettingDao().observeValue(
             com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES
@@ -282,8 +306,8 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectDate(date: LocalDate) {
         val today = CurrentDateHolder.today.value
-        val minAllowed = today.minusDays(14)
-        val maxAllowed = today.plusDays(3)
+        val minAllowed = today.minusDays(MIN_HISTORY_DAYS)
+        val maxAllowed = today.plusDays(MAX_FUTURE_DAYS)
         val clamped = when {
             date < minAllowed -> minAllowed
             date > maxAllowed -> today
@@ -297,12 +321,21 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             val app = getApplication<Application>()
             // 三种结果必须说三种话：未来槽位说"已处理过"是撒谎
             // （事实是从未有机会处理），说"未重复扣减"也会让用户以为打卡生效了。
-            when (actions.confirm(slotId)) {
-                DoseActionResult.APPLIED -> Unit
-                DoseActionResult.FUTURE_SLOT -> emitEvent(app.getString(R.string.today_err_future_slot))
-                DoseActionResult.ALREADY_HANDLED ->
-                    emitEvent(app.getString(R.string.today_err_already_handled))
-            }
+            // 服务抛异常（DB 损坏/磁盘满等）也不能沿协程崩掉整个应用（L6），
+            // 降级成与其它失败同款的提示。
+            runCatching { actions.confirm(slotId) }
+                .onFailure { AppLog.e(TAG, "takeDose failed slot=$slotId", it) }
+                .fold(
+                    onSuccess = { result ->
+                        when (result) {
+                            DoseActionResult.APPLIED -> Unit
+                            DoseActionResult.FUTURE_SLOT -> emitEvent(app.getString(R.string.today_err_future_slot))
+                            DoseActionResult.ALREADY_HANDLED ->
+                                emitEvent(app.getString(R.string.today_err_already_handled))
+                        }
+                    },
+                    onFailure = { emitEvent(app.getString(R.string.today_err_op_failed)) }
+                )
         }
     }
 
