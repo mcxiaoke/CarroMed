@@ -142,6 +142,19 @@ interface DoseSlotDao {
     @Query("SELECT * FROM dose_slots WHERE scheduled_date = :dateStr ORDER BY scheduled_ts ASC")
     fun observeSlotsForDate(dateStr: String): Flow<List<DoseSlotEntity>>
 
+    /**
+     * 观察指定日期的槽位：包括计划在该日的槽位，以及从更早日期推迟到该日的开放槽位（SNOOZED）。
+     */
+    @Query(
+        """
+        SELECT * FROM dose_slots
+        WHERE scheduled_date = :dateStr
+           OR (status = 'SNOOZED' AND snooze_until_ts >= :dayStartTs AND snooze_until_ts < :dayEndTs)
+        ORDER BY scheduled_ts ASC
+        """
+    )
+    fun observeSlotsForDateWithSnoozed(dateStr: String, dayStartTs: Long, dayEndTs: Long): Flow<List<DoseSlotEntity>>
+
     @Query("SELECT * FROM dose_slots WHERE scheduled_date = :dateStr ORDER BY scheduled_ts ASC")
     suspend fun getSlotsForDate(dateStr: String): List<DoseSlotEntity>
 

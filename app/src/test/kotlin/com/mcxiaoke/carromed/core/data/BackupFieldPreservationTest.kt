@@ -58,7 +58,7 @@ class BackupFieldPreservationTest {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        service = DoseTrackingService(db)
+        service = DoseTrackingService(db, todayProvider = { today })
     }
 
     @After

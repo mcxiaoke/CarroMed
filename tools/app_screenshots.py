@@ -85,7 +85,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = REPO_ROOT / "temp" / "appscreenshots"
 
 # 底部导航栏文字（同时也是四个一级页面的校验锚点）
-TABS = ("今日", "药箱", "进展", "统计")
+TABS = ("今日", "药箱", "记录", "统计")
 
 
 # --------------------------------------------------------------------------- #
@@ -111,22 +111,14 @@ EMPTY_DB_MARKER = "药箱还是空的"
 
 # 13 个全屏页面的走查路径。顺序经过优化，尽量少来回跳。
 PROGRAM: list[Step] = [
-    Step("home", note="冷启动，回到今日清单"),
+    Step("home", note="冷启动，回到今日用药"),
 
-    # ---- 1. 今日清单 ------------------------------------------------------- #
+    # ---- 1. 今日用药 ------------------------------------------------------- #
     Step("shot", key="today", shots=2, note="待服 / 已服分区、库存告警横幅、手动补录 FAB"),
 
     # ---- 1a. 未来日 = 只读预览（PLAN-FUTURE-SLOT-20260929）----------------- #
-    # 日期格的 contentDescription 形如「日期 10月1日 周四，未来排班预览」
-    # （今天之后的三格都带这句），所以匹配必须用 contains ——
-    # 精确匹配 "未来排班预览" 会永远找不到节点（2026-09-30 真实踩过：
-    # 该步静默失败 → 后面的 back 从根页面把 App 退到桌面 → 后续步骤全在桌面上滑通知栏）。
-    # 按文档顺序取第一个命中 = 明天。
-    #
-    # 这一段的**负向断言**（absent_desc）才是重点：
-    # 只断言"看到只读文案"证明不了 ✓ 没被渲染出来（两者可以同时存在）。
-    Step("desc", "未来排班预览", index=0, contains=True, note="切到明天（未来日只读预览）",
-         expect="未来排班预览 · 到达当天才能打卡"),
+    Step("desc", "未来用药预览", index=0, contains=True, note="切到明天（未来日只读预览）",
+         expect="未来用药预览 · 到达当天方可记录"),
     Step("shot", key="today_future", note="未来日：待服卡无 ✓，改为「明天 10:30 服用」只读说明"),
     Step("absent_desc", "确认服药", note="未来日**不该**存在任何「确认服药」节点"),
     Step("text", "明天", index=0, contains=True, note="点开未来日的待服卡（只读预览详情）",
@@ -135,12 +127,12 @@ PROGRAM: list[Step] = [
          note="未来槽位详情：计划日期+剂量+余量，无确认/推迟/跳过，页脚说明原因",
          requires_data=True),
     Step("absent_desc", "确认服用", note="未来槽位详情页**不该**有「确认服用」按钮"),
-    # ⚠️ 这里**不能**用 back 回今日清单：该页就在根路由上，back 会把整个 App
+    # ⚠️ 这里**不能**用 back 回今日用药：该页就在根路由上，back 会把整个 App
     # 退到桌面，而桌面上的 swipe 会拉下通知栏，之后所有步骤全拍通知栏。
     # 用 home（冷启动）复位，代价是两秒，换的是"失败不会扩散"。
-    Step("home", note="冷启动回到今日清单（不用 back：会退出 App）", expect="今日清单"),
+    Step("home", note="冷启动回到今日用药（不用 back：会退出 App）", expect="今日用药"),
     Step("desc", "，今天", contains=True, note="切回今天",
-         expect="点开可推迟或跳过"),
+         expect="点按可推迟或跳过"),
     Step("present_desc", "确认服药", note="回到今天后 ✓ 又回来了（防修过头：不能把今天也锁死）"),
 
     # ---- 1b. 记录详情页（统一承载待服 / 已服 / 已跳过，非 sheet）----------- #
@@ -151,7 +143,7 @@ PROGRAM: list[Step] = [
     Step("shot", key="dose_detail_expired",
          note="已逾期形态：确认服用 / 跳过本次（逾期不给「推迟」）",
          requires_data=True),
-    Step("back", note="返回今日清单", expect="今日清单"),
+    Step("back", note="返回今日用药", expect="今日用药"),
 
     # 第二张"环孢素"是当晚 22:00 那条 —— 只要走查不在深夜跑，它就是 PENDING，
     # 用来覆盖"待服形态含推迟档位"这条唯一没被上面两张图拍到的分支。
@@ -160,27 +152,27 @@ PROGRAM: list[Step] = [
     Step("shot", key="dose_detail_pending",
          note="待服形态：确认服用 / 推迟档位 / 跳过本次 / 备注（随确认落库）",
          requires_data=True),
-    Step("back", note="返回今日清单", expect="今日清单"),
+    Step("back", note="返回今日用药", expect="今日用药"),
 
     Step("text", "羟氯喹", note="第一张已服卡（演示数据里 09:00 那味）",
          expect="记录详情", requires_data=True),
     Step("shot", key="dose_detail_completed",
          note="已服形态：跳过（改判）+ 撤销（仅当天）", requires_data=True),
-    Step("back", note="返回今日清单", expect="今日清单"),
+    Step("back", note="返回今日用药", expect="今日用药"),
 
     # ---- 2. 手动补录服药 --------------------------------------------------- #
-    Step("desc", "补录", note="今日页 FAB", expect="手动补录服药"),
+    Step("desc", "补记一次已服用的药", contains=True, note="今日页 FAB", expect="单次服药"),
     Step("shot", key="manual_dose", shots=2, note="补录时间选择器、是否扣库存"),
-    Step("back", note="返回今日清单", expect="今日清单"),
+    Step("back", note="返回今日用药", expect="今日用药"),
 
     # ---- 3. 系统设置 ------------------------------------------------------- #
-    Step("desc", "系统设置", note="今日页右上角齿轮", expect="系统设置"),
+    Step("desc", "系统设置", note="今日页右上角齿轮", expect="设置"),
     Step("shot", key="settings", shots=2, note="推迟时长 / 夜间静音 / 导出备份"),
-    Step("text", "系统特权自检", note="进入系统自检",
-         expect="系统特权自检与保活指引", contains=True),
+    Step("text", "后台保活与防漏提醒指引", note="进入系统自检",
+         expect="防漏提醒指南", contains=True),
     Step("shot", key="permission_check", shots=2, note="4 项系统特权与保活指引"),
-    Step("back", note="返回系统设置", expect="系统设置"),
-    Step("back", note="返回今日清单", expect="今日清单"),
+    Step("back", note="返回设置", expect="设置"),
+    Step("back", note="返回今日用药", expect="今日用药"),
 
     # ---- 4. 我的药箱 ------------------------------------------------------- #
     Step("tab", "药箱", expect="我的药箱"),
@@ -193,7 +185,7 @@ PROGRAM: list[Step] = [
 
     # ---- 6. 药品详情（三段式分节入口）------------------------------------- #
     # 以下 5 段都依赖"至少有一个药品"，空库走查时自动跳过
-    Step("desc", "查看详情", note="第一张药品卡片", expect="药品详情", requires_data=True),
+    Step("text", "钙和维生素D", note="第一张药品卡片", expect="药品详情", requires_data=True),
     Step("shot", key="med_detail", shots=3, note="药品信息 / 提醒设置 / 库存管理三段入口 + 用药统计",
          requires_data=True),
 
@@ -213,29 +205,29 @@ PROGRAM: list[Step] = [
          requires_data=True),
 
     # ---- 10. 补药入库 ------------------------------------------------------ #
-    Step("text", "补药入库", note="库存页按钮", expect="补药入库", requires_data=True),
+    Step("text", "补充余药", note="库存页按钮", expect="补充余药", requires_data=True),
     Step("shot", key="refill", shots=2, note="入库数量 / 批号 / 有效期 / 备注", requires_data=True),
     Step("back", note="返回库存管理", expect="库存管理", requires_data=True),
     Step("back", note="返回药品详情", expect="药品详情", requires_data=True),
     Step("back", note="返回我的药箱", expect="我的药箱", requires_data=True),
 
-    # ---- 11. 进展追踪 ------------------------------------------------------ #
-    Step("tab", "进展", expect="进展追踪"),
-    Step("shot", key="progress", shots=2, note="7 天打卡矩阵（多次服药画多个点）"),
+    # ---- 11. 服药记录 ------------------------------------------------------ #
+    Step("tab", "记录", expect="服药记录"),
+    Step("shot", key="progress", shots=2, note="7 天服药日历"),
 
-    # 服药流水是**第二个 tab**，要点进去才截得到 —— 只截 progress 永远拍的是矩阵
-    Step("text", "服药流水", note="进展页第二个 tab", expect="服药流水", index=-1),
-    Step("shot", key="progress_timeline", shots=2, note="服药流水：按日分组 / 倒序 / 触底加载"),
+    # 服药时间线是第二个 tab
+    Step("text", "服药时间线", note="记录页第二个 tab", expect="服药时间线", index=-1),
+    Step("shot", key="progress_timeline", shots=2, note="服药时间线：按日分组 / 倒序 / 触底加载"),
 
-    # 单个药品的历史：点第一张矩阵卡进详情
-    Step("text", "7 天打卡矩阵", note="切回矩阵 tab", expect="7 天打卡矩阵", index=0),
-    Step("desc", "查看详情", note="矩阵卡可点进单药历史", expect="服药历史",
+    # 单个药品的历史：点第一张日历卡进详情
+    Step("text", "7 天服药日历", note="切回日历 tab", expect="7 天服药日历", index=0),
+    Step("desc", "查看详情", note="日历卡可点进单药历史", expect="服药历史",
          contains=True, requires_data=True),
     Step("shot", key="med_history", shots=2, note="单药历史：按月分组 / 每行可进详情", requires_data=True),
-    Step("back", note="返回进展页", expect="进展追踪"),
+    Step("back", note="返回记录页", expect="服药记录"),
 
     # ---- 12. 统计报表 ------------------------------------------------------ #
-    Step("tab", "统计", expect="统计报表"),
+    Step("tab", "统计", expect="用药统计"),
     Step("shot", key="stats", shots=2, note="周期切换 / 依从率构成 / 各药消耗"),
 ]
 

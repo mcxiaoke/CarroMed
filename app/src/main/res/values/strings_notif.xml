@@ -22,4 +22,8 @@
     <string name="notif_action_take">确认已服</string>
     <string name="notif_action_snooze">推迟 %1$d 分钟</string>
     <string name="notif_action_skip">跳过本次</string>
+
+    <!-- 超出补响窗口的当日待办汇总提醒 -->
+    <string name="notif_title_overdue_summary">今日用药待办</string>
+    <string name="notif_body_overdue_summary">今天还有 %1$d 次服药尚未确认，点击查看今日清单</string>
 </resources>

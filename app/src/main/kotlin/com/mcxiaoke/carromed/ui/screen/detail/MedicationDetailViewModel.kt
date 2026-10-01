@@ -71,6 +71,7 @@ class MedicationDetailViewModel(
     val uiState: StateFlow<MedDetailUiState> = _uiState.asStateFlow()
 
     private var loadJob: Job? = null
+    private var isDeleting = false
 
     init {
         loadData()
@@ -106,6 +107,7 @@ class MedicationDetailViewModel(
     }
 
     private suspend fun loadDataOnce() {
+            if (isDeleting) return
             val overview = medDao.getOverviewById(medId)
             if (overview == null) {
                 val app = getApplication<Application>()
@@ -239,10 +241,18 @@ class MedicationDetailViewModel(
     fun deleteMedication(onDeleted: () -> Unit) {
         val med = _uiState.value.medication ?: return
         viewModelScope.launch {
-            // 快照必须在删行**之前**拍（osbf P3-9）：FK 级联会删掉该药全部槽位，
+            if (!med.isArchived) {
+                // 在服药品不可直接删除，必须先停药归档
+                _uiState.value = _uiState.value.copy(
+                    error = getApplication<Application>().getString(R.string.mdetail_error_must_archive_before_delete)
+                )
+                return@launch
+            }
+            isDeleting = true
+            // 快照必须在删行**之前**拍（osbf P3-9）：级联会删掉该药全部槽位，
             // rescheduleAll 内部拍的快照看不到已删的行，对应闹钟就成了孤儿。
             val presnap = com.mcxiaoke.carromed.core.alarm.AlarmReconciler.snapshotOpenAlarms(db)
-            medDao.deleteById(med.id)
+            medDao.permanentlyDelete(med.id)
             rescheduleAlarms(presnap)
             onDeleted()
         }

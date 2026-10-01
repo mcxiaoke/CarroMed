@@ -92,11 +92,15 @@ class DoseEntryActions(
         note: String? = null,
         noteKey: String? = null
     ): DoseActionResult {
+        val slot = db.doseSlotDao().getSlotById(slotId)
+        val today = todayProvider().toString()
+        val isRetro = slot?.let { it.scheduledDate < today } ?: false
         val ok = tracking.takeDose(
             slotId = slotId,
             takenAmount = takenAmount,
             note = note,
-            noteKey = noteKey
+            noteKey = noteKey,
+            isRetrospective = isRetro
         )
         if (!ok) {
             val failure = classifyFailure(slotId)

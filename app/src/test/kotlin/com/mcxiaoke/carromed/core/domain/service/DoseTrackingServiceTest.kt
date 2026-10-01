@@ -364,4 +364,73 @@ class DoseTrackingServiceTest {
         // 10 - 1 = 9：补记的事实照常入账
         db.assertLedgerBalance(medId, 9.0f)
     }
+
+    @Test
+    fun `手动补录若命中同日未完成槽位则自动结清并关联槽位`() = runTest {
+        val medDao = db.medicationDao()
+        val slotDao = db.doseSlotDao()
+        val recordDao = db.doseRecordDao()
+
+        val medId = medDao.insert(MedicationEntity(name = "补录关联药", unit = "片"))
+        val today = LocalDate.now()
+        val todayStr = today.toString()
+        val slotTs = today.atTime(9, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+        val slotId = slotDao.insert(
+            DoseSlotEntity(
+                medicationId = medId,
+                policyId = 1L,
+                scheduledDate = todayStr,
+                scheduledTime = "09:00",
+                scheduledTs = slotTs,
+                doseAmount = 1000,
+                status = SlotStatus.PENDING
+            )
+        )
+
+        // 用户在 09:15 补录该药
+        val actualTs = slotTs + 15 * 60_000L
+        val recordId = service.logManualDose(medicationId = medId, actualTs = actualTs, doseAmount = 1.0f)
+        assertThat(recordId).isGreaterThan(0L)
+
+        // 验证槽位已被结清为 COMPLETED
+        val slot = slotDao.getSlotById(slotId)
+        assertThat(slot?.status).isEqualTo(SlotStatus.COMPLETED)
+        assertThat(slot?.actualTakenTs).isEqualTo(actualTs)
+
+        // 验证服药记录关联了该槽位
+        val record = recordDao.getAllRecords().first { it.medicationId == medId }
+        assertThat(record.slotId).isEqualTo(slotId)
+    }
+
+    @Test
+    fun `restateSlot 允许对 EXPIRED 槽位改判为 COMPLETED`() = runTest {
+        val medDao = db.medicationDao()
+        val slotDao = db.doseSlotDao()
+        val recordDao = db.doseRecordDao()
+
+        val medId = medDao.insert(MedicationEntity(name = "改判逾期药", unit = "片"))
+        val slotId = slotDao.insert(
+            DoseSlotEntity(
+                medicationId = medId,
+                policyId = 1L,
+                scheduledDate = "2026-09-25",
+                scheduledTime = "12:00",
+                scheduledTs = 1790299200000L,
+                doseAmount = 2000,
+                status = SlotStatus.EXPIRED
+            )
+        )
+
+        val ok = service.restateSlot(slotId = slotId, target = RecordStatus.COMPLETED, note = "事实已服")
+        assertThat(ok).isTrue()
+
+        val slot = slotDao.getSlotById(slotId)
+        assertThat(slot?.status).isEqualTo(SlotStatus.COMPLETED)
+
+        val record = recordDao.getRecordBySlotId(slotId)
+        assertThat(record).isNotNull()
+        assertThat(record?.status).isEqualTo(RecordStatus.COMPLETED)
+        assertThat(record?.isRetrospective).isTrue()
+    }
 }

@@ -7,6 +7,7 @@ import android.net.Uri
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.AppLog
+import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -77,7 +78,10 @@ class AlarmReceiver : BroadcastReceiver() {
                 // 且提醒运行态顺带一次取回（原先要再查第三次）。
                 val overview = db.medicationDao().getOverviewById(slot.medicationId)
                 val med = overview?.medication
-                val paused = overview?.isPausedOn(LocalDate.now()) == true
+                val slotDate = runCatching {
+                    LocalDate.parse(slot.scheduledDate, SlotProjectionEngine.DATE_FORMATTER)
+                }.getOrNull() ?: LocalDate.now()
+                val paused = overview?.isPausedOn(slotDate) == true
                 AppLog.i("AlarmReceiver", "med loaded: ${med?.name}, paused=$paused, archived=${med?.isArchived}")
                 if (overview == null || paused || overview.medication.isArchived) return@launch
 

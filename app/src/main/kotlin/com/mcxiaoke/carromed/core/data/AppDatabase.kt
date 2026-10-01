@@ -38,6 +38,8 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
  * | 5 | A3 | `dose_slots` 的 `(medication_id, scheduled_date, scheduled_time)` 改 **UNIQUE 索引** |
  * | 6 | M8-5 | 删 `medications.icon_name`（有列、有备份字段，但全链路**无写入、无消费**） |
  * | 7 | osbf P3-4 | `inventory_transactions` 加 `Index(record_id)`（改剂量/撤销按事实 id 聚合流水的高频过滤） |
+ * | 8 | B5 | `inventory_transactions` 加 `note_key` 列（PLAN-I18N-20260930 D-C） |
+ * | 9 | CODE-REVIEW | `dose_records` & `inventory_transactions` 外键改为 `RESTRICT` 阻止级联删历史 |
  *
  * ⚠️ **A1 当时漏升了版本（3 → 3）**，靠 A2 的 3 → 4 顺带补救。
  * 这属于**运气**不是设计。核实依据（反编译 `room-runtime-2.6.1.aar` 的
@@ -57,18 +59,18 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
  */
 @Database(
     entities = [
-        MedicationEntity::class,
-        SchedulePolicyEntity::class,
-        PolicyTimeEntity::class,
-        DoseSlotEntity::class,
         DoseRecordEntity::class,
         InventoryTransactionEntity::class,
-        AppSettingEntity::class,
-        ReminderSettingsEntity::class
+        DoseSlotEntity::class,
+        PolicyTimeEntity::class,
+        SchedulePolicyEntity::class,
+        ReminderSettingsEntity::class,
+        MedicationEntity::class,
+        AppSettingEntity::class
     ],
-    // v8：inventory_transactions 增加 note_key 列（B5 流水备注 key 化，PLAN-I18N-20260930 D-C）。
+    // v9：dose_records 与 inventory_transactions 外键改为 RESTRICT（阻止删药时级联抹杀核心历史数据）。
     // 未发布不写迁移：schema 变更一律删库重装。
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(AppConverters::class)

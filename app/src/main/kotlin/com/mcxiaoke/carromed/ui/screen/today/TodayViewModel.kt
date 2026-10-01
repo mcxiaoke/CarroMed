@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.ZoneId
 
 /**
  * 一条待服 / 已服 / 已跳过槽位的展示模型。
@@ -184,7 +185,9 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         medDao.observeActiveOverviews(),
         _selectedDate.flatMapLatest { date ->
             val dateStr = date.format(SlotProjectionEngine.DATE_FORMATTER)
-            slotDao.observeSlotsForDate(dateStr)
+            val dayStartTs = date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val dayEndTs = dayStartTs + 24 * 60 * 60 * 1000L
+            slotDao.observeSlotsForDateWithSnoozed(dateStr, dayStartTs, dayEndTs)
         },
         db.appSettingDao().observeValue(
             com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES
@@ -278,7 +281,15 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectDate(date: LocalDate) {
-        _selectedDate.value = date
+        val today = CurrentDateHolder.today.value
+        val minAllowed = today.minusDays(14)
+        val maxAllowed = today.plusDays(3)
+        val clamped = when {
+            date < minAllowed -> minAllowed
+            date > maxAllowed -> today
+            else -> date
+        }
+        _selectedDate.value = clamped
     }
 
     fun takeDose(slotId: Long) {

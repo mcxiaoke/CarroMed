@@ -42,7 +42,9 @@
     <string name="mdetail_cancel">取消</string>
     <string name="mdetail_archive_confirm_resume">确认恢复为在服状态？其提醒设置将重新生效。</string>
     <string name="mdetail_archive_confirm_archive">确认停药归档？未来提醒将被取消，历史服药记录与余量变动将完整保留，可随时恢复。</string>
-    <string name="mdetail_delete_confirm">确认删除「%1$s」？该药品的全部提醒、服药记录与余量明细将被永久删除且不可恢复。\n\n若仅为暂停服用，建议选择「停药归档」以保留历史数据。</string>
+    <string name="mdetail_delete_confirm">确认永久删除「%1$s」？该药品的全部档案、历史服药记录与余量明细将被彻底删除且不可恢复。</string>
+    <string name="mdetail_error_must_archive_before_delete">在服药品不可直接删除，请先停药归档后再执行永久删除。</string>
+    <string name="mdetail_error_has_history_cannot_delete">该药品已有服药记录或余量明细，不可直接删除。请选择「停药归档」以保留真实历史。</string>
 
     <!-- 暂停提醒对话框 -->
     <string name="mdetail_pause_dialog_title">暂停提醒到什么时候？</string>

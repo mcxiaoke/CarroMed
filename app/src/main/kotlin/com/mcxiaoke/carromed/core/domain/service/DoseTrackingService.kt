@@ -167,7 +167,8 @@ class DoseTrackingService(
         actualTs: Long = System.currentTimeMillis(),
         takenAmount: Float? = null,
         note: String? = null,
-        noteKey: String? = null
+        noteKey: String? = null,
+        isRetrospective: Boolean = false
     ): Boolean = db.withTransaction {
         // 显式传入的剂量同样必须为正（M2-2）。
         // 负剂量打卡 = 扣减变成**加**库存，是这条路径上最恶劣的失败模式。
@@ -208,13 +209,14 @@ class DoseTrackingService(
             return@withTransaction false
         }
 
+        val effectiveRetro = isRetrospective || (slot.scheduledDate < today)
         val record = DoseRecordEntity(
             slotId = slotId,
             medicationId = slot.medicationId,
             actualTs = actualTs,
             doseTaken = finalDose.milli,
             status = RecordStatus.COMPLETED,
-            isRetrospective = false,
+            isRetrospective = effectiveRetro,
             note = note,
             noteKey = noteKey
         )
@@ -228,7 +230,7 @@ class DoseTrackingService(
                 changeAmount = -finalDose,
                 txType = TransactionType.TAKEN_DEDUCT,
                 note = note,
-                noteKey = LedgerNoteKey.TAKE_DEDUCT.name
+                noteKey = if (isRetrospective) LedgerNoteKey.RETRO_DEDUCT.name else LedgerNoteKey.TAKE_DEDUCT.name
             )
         }
 
@@ -455,8 +457,8 @@ class DoseTrackingService(
             AppLog.w(TAG, "restate rejected slot=$slotId reason=already-target target=SKIPPED")
             return@withTransaction false
         }
-        // 只有"已产生结论"的槽位才谈得上改判
-        if (slot.status != SlotStatus.COMPLETED && slot.status != SlotStatus.SKIPPED) {
+        // 只有已结算(EXPIRED)或已产生结论(COMPLETED/SKIPPED)的槽位才谈得上改判/结清
+        if (slot.status != SlotStatus.COMPLETED && slot.status != SlotStatus.SKIPPED && slot.status != SlotStatus.EXPIRED) {
             AppLog.w(TAG, "restate rejected slot=$slotId reason=no-conclusion status=${slot.status}")
             return@withTransaction false
         }
@@ -464,7 +466,10 @@ class DoseTrackingService(
         // 结论未定之前先记下来：回退会清空 actual_taken_ts
         val restatedTs = slot.actualTakenTs ?: System.currentTimeMillis()
 
-        if (!revertSlotInternal(slotId)) return@withTransaction false
+        // 仅对已产生过结论的槽位执行冲正；EXPIRED 未产生过事实，直接施加新结论
+        if (slot.status == SlotStatus.COMPLETED || slot.status == SlotStatus.SKIPPED) {
+            if (!revertSlotInternal(slotId)) return@withTransaction false
+        }
 
         when (target) {
             RecordStatus.COMPLETED -> {
@@ -472,13 +477,14 @@ class DoseTrackingService(
                     AppLog.w(TAG, "restate rejected slot=$slotId reason=not-open-after-revert")
                     return@withTransaction false
                 }
+                val isRetro = slot.scheduledDate < today
                 val record = DoseRecordEntity(
                     slotId = slotId,
                     medicationId = slot.medicationId,
                     actualTs = restatedTs,
                     doseTaken = slot.doseAmount,
                     status = RecordStatus.COMPLETED,
-                    isRetrospective = false,
+                    isRetrospective = isRetro,
                     note = note,
                     noteKey = if (note == null) RecordNoteKey.REJUDGE_TAKEN.name else null
                 )
@@ -492,7 +498,7 @@ class DoseTrackingService(
                         changeAmount = -Dose(slot.doseAmount),
                         txType = TransactionType.TAKEN_DEDUCT,
                         note = note,
-                        noteKey = LedgerNoteKey.REJUDGE_TAKEN.name
+                        noteKey = if (isRetro) LedgerNoteKey.RETRO_DEDUCT.name else LedgerNoteKey.REJUDGE_TAKEN.name
                     )
                 }
             }
@@ -761,13 +767,26 @@ class DoseTrackingService(
         val medication = medDao.getMedicationById(medicationId)
             ?: throw IllegalArgumentException("Medication not found: $medicationId")
 
+        val actualDateStr = actualDate.format(SlotProjectionEngine.DATE_FORMATTER)
+        val candidateSlots = slotDao.getSlotsForDate(actualDateStr).filter {
+            it.medicationId == medicationId &&
+                (it.status == SlotStatus.PENDING || it.status == SlotStatus.SNOOZED || it.status == SlotStatus.EXPIRED)
+        }
+        val matchedSlot = candidateSlots.minByOrNull { Math.abs(it.scheduledTs - actualTs) }
+        val targetSlotId = matchedSlot?.id
+
+        if (matchedSlot != null) {
+            slotDao.markCompletedIfOpen(matchedSlot.id, actualTs, todayStr())
+        }
+
+        val effectiveRetro = isRetrospective || (actualDate < todayProvider())
         val record = DoseRecordEntity(
-            slotId = null,
+            slotId = targetSlotId,
             medicationId = medicationId,
             actualTs = actualTs,
             doseTaken = doseMilli,
             status = RecordStatus.COMPLETED,
-            isRetrospective = isRetrospective,
+            isRetrospective = effectiveRetro,
             note = note,
             noteKey = if (note == null) RecordNoteKey.MANUAL_BACKFILL.name else null
         )
@@ -780,7 +799,7 @@ class DoseTrackingService(
                 changeAmount = -Dose(doseMilli),
                 txType = TransactionType.TAKEN_DEDUCT,
                 note = note,
-                noteKey = if (isRetrospective) {
+                noteKey = if (effectiveRetro) {
                     LedgerNoteKey.RETRO_DEDUCT.name
                 } else {
                     LedgerNoteKey.PRN_DEDUCT.name

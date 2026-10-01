@@ -104,6 +104,13 @@ enum class BackupProblemKind(val blocksRestore: Boolean) {
     DANGLING_SLOT_REF(false),
 
     /**
+     * `inventory_transactions.record_id` 指向不存在的 `dose_records.id`。
+     * 该字段可空（补药/盘点时为 null），非空时指向服药记录；由于无 DB 物理外键，
+     * 设为 false 以提示警告而不阻断恢复。
+     */
+    DANGLING_RECORD_REF(false),
+
+    /**
      * `dose_records` / `inventory_transactions` / `schedule_policies` / `policy_times`
      * 的**主键**重复。
      *
@@ -252,7 +259,7 @@ object DataExporter {
     }
 
     private fun timestamp(): String =
-        SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(Date())
 
     // ---------------- CSV 服药明细导出 ----------------
 
@@ -260,10 +267,13 @@ object DataExporter {
      * 导出全量服药明细记录为 CSV 文件 (计划打卡 + 补录 + 跳过)，返回生成的文件
      */
     suspend fun exportDoseRecordsCsv(context: Context, db: AppDatabase): File {
-        val medMap = db.medicationDao().getAllMedications().associateBy { it.id }
-        val records = db.doseRecordDao().getAllRecords() // actual_ts 升序
+        val (medMap, records) = db.withTransaction {
+            val meds = db.medicationDao().getAllMedications().associateBy { it.id }
+            val recs = db.doseRecordDao().getAllRecords() // actual_ts 升序
+            meds to recs
+        }
 
-        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
         val sb = StringBuilder()
         sb.append(BOM)
         sb.append(context.getString(R.string.csv_header_dose_records)).append('\n')
@@ -308,10 +318,13 @@ object DataExporter {
      * 本表回答"账面怎么变成现在这样的"，可与药盒实物逐条核对。
      */
     suspend fun exportInventoryLedgerCsv(context: Context, db: AppDatabase): File {
-        val medMap = db.medicationDao().getAllMedications().associateBy { it.id }
-        val txs = db.inventoryTransactionDao().getAllTransactions()
+        val (medMap, txs) = db.withTransaction {
+            val meds = db.medicationDao().getAllMedications().associateBy { it.id }
+            val transactions = db.inventoryTransactionDao().getAllTransactions()
+            meds to transactions
+        }
 
-        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
         val sb = StringBuilder()
         sb.append(BOM)
         sb.append(context.getString(R.string.csv_header_inventory)).append('\n')
@@ -576,6 +589,7 @@ object DataExporter {
         val medIds = backup.medications.map { it.id }.toSet()
         val policyIds = backup.schedulePolicies.map { it.id }.toSet()
         val slotIds = backup.doseSlots.map { it.id }.toSet()
+        val recordIds = backup.doseRecords.map { it.id }.toSet()
 
         backup.reminderSettings.forEach {
             if (it.medicationId !in medIds) {
@@ -610,6 +624,10 @@ object DataExporter {
         backup.inventoryTransactions.forEach {
             if (it.medicationId !in medIds) {
                 report(BackupProblemKind.DANGLING_FK, R.string.backup_err_dangling_ledger, it.id, it.medicationId)
+            }
+            // recordId 可空（补药入库/盘点），非空时指向服药记录
+            if (it.recordId != null && it.recordId !in recordIds) {
+                report(BackupProblemKind.DANGLING_RECORD_REF, R.string.backup_err_dangling_ledger_record, it.id, it.recordId)
             }
         }
 

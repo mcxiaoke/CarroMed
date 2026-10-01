@@ -249,6 +249,54 @@ object Notifications {
         NotificationManagerCompat.from(context).cancel(slotId.toInt())
     }
 
+    const val ID_OVERDUE_SUMMARY = 99999
+
+    /**
+     * 发布低优先级待服聚合提醒通知。
+     * 当开机或对账发现当天存在早于补响窗口（>2h）且托盘无独立通知的未服待办时提醒用户，
+     * 避免因长时间关机或通知被清空而导致漏药无人知晓。
+     */
+    fun showOverdueSummaryNotification(context: Context, count: Int): Boolean {
+        if (count <= 0) {
+            cancelOverdueSummaryNotification(context)
+            return false
+        }
+        ensureChannel(context)
+        val nm = NotificationManagerCompat.from(context)
+        if (!nm.areNotificationsEnabled()) return false
+
+        val contentIntent = PendingIntent.getActivity(
+            context,
+            ID_OVERDUE_SUMMARY,
+            Intent(context, MainActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = context.getString(R.string.notif_title_overdue_summary)
+        val body = context.getString(R.string.notif_body_overdue_summary, count)
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_DOSE_REMINDER_SILENT)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setAutoCancel(true)
+            .setContentIntent(contentIntent)
+            .build()
+
+        return runCatching {
+            nm.notify(ID_OVERDUE_SUMMARY, notification)
+            true
+        }.onFailure { AppLog.e("Notifications", "notify overdue summary failed", it) }
+            .getOrDefault(false)
+    }
+
+    fun cancelOverdueSummaryNotification(context: Context) {
+        NotificationManagerCompat.from(context).cancel(ID_OVERDUE_SUMMARY)
+    }
+
     /**
      * 通知出口当前是否可达：应用级通知权限已授予，且两个提醒渠道都未被用户关闭。
      *

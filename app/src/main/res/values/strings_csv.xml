@@ -51,6 +51,7 @@
     <string name="backup_err_dangling_record">服药记录 #%1$d 引用了不存在的药品 #%2$d</string>
     <string name="backup_err_dangling_record_slot">服药记录 #%1$d 引用了已不存在的槽位 #%2$d</string>
     <string name="backup_err_dangling_ledger">库存流水 #%1$d 引用了不存在的药品 #%2$d</string>
+    <string name="backup_err_dangling_ledger_record">库存流水 #%1$d 引用了不存在的服药记录 #%2$d</string>
     <string name="backup_err_dup_medication">药品 #%1$d 在备份中出现了 %2$d 次</string>
     <string name="backup_err_dup_slot_key">药品 #%1$d 在 %2$s %3$s 有 %4$d 条重复槽位</string>
     <string name="backup_err_dup_slot_pk">槽位 #%1$d 在备份中出现了 %2$d 次（主键重复会静默覆盖）</string>

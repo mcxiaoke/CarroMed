@@ -23,6 +23,7 @@ import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.InventoryTransactionEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
+import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
@@ -484,5 +485,109 @@ class AppDatabaseRealTest {
 
         // 默认值与不存在 key 验证
         assertThat(settingDao.getValue("unknown_key")).isNull()
+    }
+
+    @Test
+    fun `有服药记录或台账流水时 countHistoricalRecords 返回正确计数`() = runTest {
+        val medId = medDao.insert(MedicationEntity(name = "记录药品"))
+        assertThat(medDao.countHistoricalRecords(medId)).isEqualTo(0)
+
+        // 添加服药记录
+        val recId = recordDao.insert(
+            DoseRecordEntity(medicationId = medId, actualTs = System.currentTimeMillis(), doseTaken = 1000)
+        )
+        assertThat(medDao.countHistoricalRecords(medId)).isEqualTo(1)
+
+        // 添加库存流水
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = medId,
+                recordId = recId,
+                changeAmount = -1000,
+                balanceAfter = 0,
+                txType = TransactionType.TAKEN_DEDUCT,
+                createdAt = System.currentTimeMillis()
+            )
+        )
+        assertThat(medDao.countHistoricalRecords(medId)).isEqualTo(2)
+    }
+
+    @Test
+    fun `外键 RESTRICT 禁止物理删除存在服药记录或流水的药品`() = runTest {
+        val medId = medDao.insert(MedicationEntity(name = "受保护药品"))
+        recordDao.insert(
+            DoseRecordEntity(medicationId = medId, actualTs = System.currentTimeMillis(), doseTaken = 1000)
+        )
+
+        // 外键设为 RESTRICT，禁止直接物理删除，必须抛出 SQLiteConstraintException
+        var threw = false
+        try {
+            medDao.deleteById(medId)
+        } catch (e: android.database.sqlite.SQLiteConstraintException) {
+            threw = true
+        }
+        assertThat(threw).isTrue()
+        assertThat(medDao.getMedicationById(medId)).isNotNull()
+    }
+
+    @Test
+    fun `permanentlyDelete 能在单个事务中按拓扑顺序安全彻底清理药品及其全部关联数据`() = runTest {
+        val medId = medDao.insert(MedicationEntity(name = "待粉碎药品", isArchived = true))
+        val policyId = policyDao.insertPolicy(
+            SchedulePolicyEntity(medicationId = medId, policyType = PolicyType.DAILY, startDate = "2026-09-01")
+        )
+        policyDao.insertTimes(
+            listOf(PolicyTimeEntity(policyId = policyId, timeOfDay = "08:00", doseAmount = 1000, label = "早"))
+        )
+        val slotId = slotDao.insert(
+            DoseSlotEntity(
+                medicationId = medId,
+                policyId = policyId,
+                scheduledDate = "2026-09-01",
+                scheduledTime = "08:00",
+                scheduledTs = 1_700_000_000_000L,
+                doseAmount = 1000
+            )
+        )
+        val recId = recordDao.insert(
+            DoseRecordEntity(
+                slotId = slotId,
+                medicationId = medId,
+                actualTs = 1_700_000_000_000L,
+                doseTaken = 1000
+            )
+        )
+        inventoryDao.insert(
+            InventoryTransactionEntity(
+                medicationId = medId,
+                recordId = recId,
+                changeAmount = -1000,
+                balanceAfter = 0,
+                txType = TransactionType.TAKEN_DEDUCT,
+                createdAt = 1_700_000_000_000L
+            )
+        )
+        db.reminderSettingsDao().insert(
+            ReminderSettingsEntity(medicationId = medId)
+        )
+
+        // 验证插入成功且事实存在
+        assertThat(medDao.countHistoricalRecords(medId)).isEqualTo(2)
+        assertThat(slotDao.getSlotsForDate("2026-09-01")).isNotEmpty()
+        assertThat(policyDao.getTimesForPolicy(policyId)).isNotEmpty()
+
+        // 执行永久彻底删除
+        medDao.permanentlyDelete(medId)
+
+        // 验证主表及所有关联子表全部安全清空，不违反外键约束
+        assertThat(medDao.getMedicationById(medId)).isNull()
+        assertThat(medDao.countHistoricalRecords(medId)).isEqualTo(0)
+        assertThat(recordDao.getRecordsForMedication(medId)).isEmpty()
+        assertThat(recordDao.getRecordById(recId)).isNull()
+        assertThat(inventoryDao.getTransactionsForMedication(medId)).isEmpty()
+        assertThat(slotDao.getSlotsForDate("2026-09-01")).isEmpty()
+        assertThat(policyDao.getActivePolicyForMedication(medId)).isNull()
+        assertThat(policyDao.getTimesForPolicy(policyId)).isEmpty()
+        assertThat(db.reminderSettingsDao().getByMedicationId(medId)).isNull()
     }
 }

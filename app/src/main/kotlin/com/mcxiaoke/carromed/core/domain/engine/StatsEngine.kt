@@ -329,24 +329,20 @@ object StatsEngine {
         return result
     }
 
+    /** 无排班或停药时允许的最大空档天数，超过该阈值判定连续服药中断 */
+    const val MAX_STREAK_GAP_DAYS = 7
+
     /**
      * 计算当前连续服药打卡天数（Streak）。
      *
-     * ## 算法与判定规则（对齐临床依从性直觉与无排班容错）：
-     *
-     * 1. **单日达成标准**：当天有排班（`total > 0`）且全部排班均已完成（`completed == total && missed == 0 && skipped == 0`）。
-     * 2. **今天（today）的状态判定**：
-     *    - 今天若已全服：连续天数包含今天（从今天开始算第 1 天），继续往前回溯。
-     *    - 今天若仍在进行中（尚有 `pending > 0` 待服，且无任何 `missed > 0` 或 `skipped > 0`）：不断签，连续天数继承截止到昨天的回溯结果。
-     *    - 今天若已经发生了漏服（`missed > 0`）或跳过（`skipped > 0`）：今天已破签，当前 Streak 归 0。
-     * 3. **历史天（昨天及更早）的回溯**：
-     *    - 遇到达成（全服）：Streak 累加 1 天，继续往前一天回溯。
-     *    - 遇到无排班（`total == 0`）：若该天在已知最早记录日之后（如隔日服药、周末无排班的间隙日），**跳过不中断也不增加**；若已越过最早记录日，回溯结束。
-     *    - 遇到未达成（有漏服 `missed > 0`、有跳过 `skipped > 0` 或部分未完成）：连续中断，回溯结束。
-     *
-     * @param today 当前自然日
-     * @param dailyBreakdowns 日期字符串 (yyyy-MM-dd) 到单日状态的映射
-     * @param maxLookbackDays 最大回溯天数（默认 365 天）
+     * ## 算法与判定规则：
+     * 1. **单日达成标准**：当天有排班，实际服药且无任何漏服（`completed > 0 && completed + skipped == total && missed == 0`）。
+     * 2. **跳过（SKIPPED）豁免**：整天主动跳过或部分跳过属遵医嘱行为，不断签也不加签。
+     * 3. **空档熔断**：无排班连续超过 [MAX_STREAK_GAP_DAYS]（7天，如停药数月），判定中断，不再无休止穿透历史。
+     * 4. **今天状态**：
+     *    - 全服：算作达成（1天），并继续往前回溯；
+     *    - 正在进行（尚有待服且无漏服）或全天跳过：不断签，继承截止到昨天的回溯结果；
+     *    - 已有漏服（`missed > 0`）：今天直接中断断签。
      */
     fun calculateStreak(
         today: LocalDate,
@@ -369,28 +365,42 @@ object StatsEngine {
 
         if (todayBreakdown.isEmpty()) {
             startLookbackDate = today.minusDays(1)
-        } else if (todayBreakdown.completed == todayBreakdown.total && todayBreakdown.missed == 0 && todayBreakdown.skipped == 0) {
+        } else if (todayBreakdown.missed > 0) {
+            return 0
+        } else if (todayBreakdown.completed > 0 && todayBreakdown.completed + todayBreakdown.skipped == todayBreakdown.total) {
             streak = 1
             startLookbackDate = today.minusDays(1)
-        } else if (todayBreakdown.missed > 0 || todayBreakdown.skipped > 0) {
-            return 0
         } else {
+            // 正在进行中 (pending > 0 且 missed == 0) 或全天跳过：不断签，继承昨天结果
             startLookbackDate = today.minusDays(1)
         }
 
         var currentDate = startLookbackDate
         var daysChecked = 0
+        var consecutiveEmptyDays = 0
 
         while (daysChecked < maxLookbackDays && !currentDate.isBefore(earliestDate)) {
             val b = dailyBreakdowns[currentDate.toString()]
             if (b == null || b.isEmpty()) {
+                consecutiveEmptyDays++
+                if (consecutiveEmptyDays > MAX_STREAK_GAP_DAYS) {
+                    break
+                }
                 currentDate = currentDate.minusDays(1)
                 daysChecked++
                 continue
             }
 
-            if (b.completed == b.total && b.missed == 0 && b.skipped == 0) {
+            consecutiveEmptyDays = 0
+
+            if (b.missed > 0) {
+                break
+            } else if (b.completed > 0 && b.completed + b.skipped == b.total) {
                 streak++
+                currentDate = currentDate.minusDays(1)
+                daysChecked++
+            } else if (b.skipped == b.total && b.total > 0) {
+                // 遵医嘱全天主动跳过：不断签也不加签，继续回溯
                 currentDate = currentDate.minusDays(1)
                 daysChecked++
             } else {

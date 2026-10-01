@@ -5,6 +5,7 @@ import androidx.room.Embedded
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
@@ -55,11 +56,22 @@ private const val OVERVIEW_SELECT = """
 @Dao
 interface MedicationDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(medication: MedicationEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAll(medications: List<MedicationEntity>): List<Long>
+
+    /** 统计该药品关联的不可变事实数 (服药记录 + 库存台账) */
+    @Query(
+        """
+        SELECT (
+            (SELECT COUNT(*) FROM dose_records WHERE medication_id = :medicationId) +
+            (SELECT COUNT(*) FROM inventory_transactions WHERE medication_id = :medicationId)
+        )
+        """
+    )
+    suspend fun countHistoricalRecords(medicationId: Long): Int
 
     /**
      * ⚠️ 已删除（osbf P3-1 / DB C-04）：`@Update update(medication)`。
@@ -250,6 +262,39 @@ interface MedicationDao {
 
     @Query("DELETE FROM medications WHERE id = :id")
     suspend fun deleteById(id: Long)
+
+    @Query("DELETE FROM inventory_transactions WHERE medication_id = :medicationId")
+    suspend fun deleteInventoryTransactionsByMedicationId(medicationId: Long): Int
+
+    @Query("DELETE FROM dose_records WHERE medication_id = :medicationId")
+    suspend fun deleteDoseRecordsByMedicationId(medicationId: Long): Int
+
+    @Query("DELETE FROM dose_slots WHERE medication_id = :medicationId")
+    suspend fun deleteDoseSlotsByMedicationId(medicationId: Long): Int
+
+    @Query("DELETE FROM policy_times WHERE policy_id IN (SELECT id FROM schedule_policies WHERE medication_id = :medicationId)")
+    suspend fun deletePolicyTimesByMedicationId(medicationId: Long): Int
+
+    @Query("DELETE FROM schedule_policies WHERE medication_id = :medicationId")
+    suspend fun deleteSchedulePoliciesByMedicationId(medicationId: Long): Int
+
+    @Query("DELETE FROM reminder_settings WHERE medication_id = :medicationId")
+    suspend fun deleteReminderSettingsByMedicationId(medicationId: Long): Int
+
+    /**
+     * 永久彻底删除药品及其所有关联数据 (历史记录、库存流水、排班策略、时点、提醒设置等)。
+     * 在单个事务中严格按外键拓扑逆序清理，保证在 RESTRICT 约束下安全执行。
+     */
+    @Transaction
+    suspend fun permanentlyDelete(medicationId: Long) {
+        deleteInventoryTransactionsByMedicationId(medicationId)
+        deleteDoseRecordsByMedicationId(medicationId)
+        deleteDoseSlotsByMedicationId(medicationId)
+        deletePolicyTimesByMedicationId(medicationId)
+        deleteSchedulePoliciesByMedicationId(medicationId)
+        deleteReminderSettingsByMedicationId(medicationId)
+        deleteById(medicationId)
+    }
 
     // ❗ `updatePauseStatus` 已删除 —— 暂停状态归 `reminder_settings.paused_until`，
     //    由 `ReminderSettingsDao.setPausedUntil` / `resume` 独占写入。

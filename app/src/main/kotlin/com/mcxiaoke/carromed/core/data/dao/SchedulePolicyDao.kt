@@ -16,13 +16,13 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface SchedulePolicyDao {
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertPolicy(policy: SchedulePolicyEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertAllPolicies(policies: List<SchedulePolicyEntity>): List<Long>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertTimes(times: List<PolicyTimeEntity>): List<Long>
 
     /**
@@ -139,8 +139,8 @@ interface SchedulePolicyDao {
         // 先清掉该药品**所有**历史计划的时点。
         // 只删将被 deactivate 的那些不够：新计划插入前它还没有 id。
         deleteTimesForMedication(policy.medicationId)
-        val policyId = insertPolicy(policy)
-        val timesWithPolicyId = times.map { it.copy(policyId = policyId) }
+        val policyId = insertPolicy(policy.copy(id = 0))
+        val timesWithPolicyId = times.map { it.copy(id = 0, policyId = policyId) }
         insertTimes(timesWithPolicyId)
         return policyId
     }

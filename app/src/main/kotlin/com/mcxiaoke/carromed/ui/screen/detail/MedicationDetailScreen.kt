@@ -54,6 +54,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -114,6 +115,14 @@ fun MedicationDetailScreen(
 
     var showPauseDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    LaunchedEffect(uiState.error) {
+        val err = uiState.error
+        if (!err.isNullOrBlank()) {
+            android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -539,37 +548,51 @@ fun MedicationDetailScreen(
 
             // ---------- 9. 危险操作 ----------
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+                if (med.isArchived) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showArchiveDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.mdetail_resume_active))
+                        }
+                        Button(
+                            onClick = { showDeleteDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(46.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.DeleteOutline,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(stringResource(R.string.mdetail_delete_forever), color = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                    }
+                } else {
                     OutlinedButton(
                         onClick = { showArchiveDialog = true },
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxWidth()
                             .height(46.dp),
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Icon(Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text(if (med.isArchived) stringResource(R.string.mdetail_resume_active) else stringResource(R.string.mdetail_archive))
-                    }
-                    Button(
-                        onClick = { showDeleteDialog = true },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(46.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.DeleteOutline,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(stringResource(R.string.mdetail_delete), color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text(stringResource(R.string.mdetail_archive))
                     }
                 }
             }
@@ -664,7 +687,7 @@ fun MedicationDetailScreen(
     if (showDeleteDialog && med != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text(stringResource(R.string.mdetail_delete), fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.mdetail_delete_forever), fontWeight = FontWeight.Bold) },
             text = {
                 Text(
                     stringResource(R.string.mdetail_delete_confirm, med.name)

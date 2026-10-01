@@ -18,7 +18,7 @@ import com.mcxiaoke.carromed.core.data.model.RecordStatus
             entity = MedicationEntity::class,
             parentColumns = ["id"],
             childColumns = ["medication_id"],
-            onDelete = ForeignKey.CASCADE
+            onDelete = ForeignKey.RESTRICT
         )
     ],
     indices = [

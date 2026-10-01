@@ -142,6 +142,10 @@ class BackupResilienceTest {
                 (if (rec != null) good.copy(
                     doseRecords = listOf(rec.copy(slotId = 987654))
                 ) else good.copy(reminderSettings = emptyList())),
+            BackupProblemKind.DANGLING_RECORD_REF to
+                (if (led != null) good.copy(
+                    inventoryTransactions = listOf(led.copy(recordId = 987654L))
+                ) else good.copy(reminderSettings = emptyList())),
             BackupProblemKind.DUPLICATE_MEDICATION_ID to
                 good.copy(medications = good.medications + good.medications.first()),
             BackupProblemKind.DUPLICATE_SLOT_KEY to good.copy(
@@ -210,13 +214,14 @@ class BackupResilienceTest {
                 assertThat(restored).isInstanceOf(DataExporter.RestoreResult.Invalid::class.java)
             }
 
-            // 分类与 kind 的语义一致：只有 MISSING_REMINDER_SETTINGS / DANGLING_SLOT_REF 不致命
+            // 分类与 kind 的语义一致：只有 MISSING_REMINDER_SETTINGS / DANGLING_SLOT_REF / DANGLING_RECORD_REF 不致命
             assertThat(fatal).isEqualTo(kind !in setOf(
                 BackupProblemKind.MISSING_REMINDER_SETTINGS,
-                BackupProblemKind.DANGLING_SLOT_REF
+                BackupProblemKind.DANGLING_SLOT_REF,
+                BackupProblemKind.DANGLING_RECORD_REF
             ))
-            // 每轮之后清掉，避免相互影响
-            spare.medicationDao().deleteAllMedications()
+            // 每轮之后清掉，避免相互影响（外键已改为 RESTRICT，通过 clearAllTables 按拓扑清空）
+            spare.clearAllTables()
         }
         assertThat(medId).isGreaterThan(0L)
     }

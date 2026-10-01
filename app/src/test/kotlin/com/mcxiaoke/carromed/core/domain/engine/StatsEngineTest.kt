@@ -157,6 +157,23 @@ class StatsEngineTest {
             // 9-30 无记录
         )
         assertThat(StatsEngine.calculateStreak(today, map5)).isEqualTo(2)
+
+        // 场景 6：空档熔断（停药超过 7 天无排班，判定连续中断，不再无休止穿透历史）
+        val map6 = mapOf(
+            "2026-08-01" to StatsEngine.DayStatusBreakdown(completed = 1),
+            "2026-08-02" to StatsEngine.DayStatusBreakdown(completed = 1)
+            // 中间空档 50+ 天无排班
+        )
+        assertThat(StatsEngine.calculateStreak(today, map6)).isEqualTo(0)
+
+        // 场景 7：遵医嘱跳过豁免（全天主动跳过不断签、不加签，继续继承前面连续天数）
+        val map7 = mapOf(
+            "2026-09-28" to StatsEngine.DayStatusBreakdown(completed = 1),
+            "2026-09-29" to StatsEngine.DayStatusBreakdown(skipped = 1), // 遵医嘱跳过
+            "2026-09-30" to StatsEngine.DayStatusBreakdown(completed = 1)
+        )
+        // 9-28 达成(1) + 9-29 跳过(继承) + 9-30 达成(1) = 2 天有效打卡连续
+        assertThat(StatsEngine.calculateStreak(today, map7)).isEqualTo(2)
     }
 
     private fun createSlot(status: SlotStatus) = DoseSlotEntity(

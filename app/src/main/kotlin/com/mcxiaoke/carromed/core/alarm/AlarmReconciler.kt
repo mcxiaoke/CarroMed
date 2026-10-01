@@ -312,6 +312,8 @@ object AlarmReconciler {
 
         // 4. 注册：库中仍开放、属于在服药品、且当日不在暂停期内的槽位
         val advanceByMed = schedulableMeds.associate { it.id to it.advanceMinutes }
+        val todayStr = today.format(SlotProjectionEngine.DATE_FORMATTER)
+        var overdueBeyondCatchupCount = 0
         var scheduled = 0
         for (slot in stillOpen.values) {
             if (slot.medicationId !in activeIds) continue
@@ -320,6 +322,17 @@ object AlarmReconciler {
             if (isPausedOn(slot)) continue
             val mainAt = slot.scheduledTs
             val snoozeAt = slot.snoozeUntilTs
+
+            // 统计今天已错过超过 catchup 窗口（>2h）且托盘无通知的待服槽位（开机/长时间静默待办聚合提醒）
+            val isToday = slot.scheduledDate == todayStr
+            val isPastCatchup = if (slot.status == SlotStatus.SNOOZED) {
+                snoozeAt != null && snoozeAt < catchupFloor
+            } else {
+                mainAt < catchupFloor
+            }
+            if (isToday && isPastCatchup && !Notifications.isDoseNotificationShown(context, slot.id)) {
+                overdueBeyondCatchupCount++
+            }
 
             // 推迟中的槽位：主闹钟已无意义（用户主动改期），只排推迟唤醒
             if (slot.status == SlotStatus.SNOOZED) {
@@ -385,10 +398,21 @@ object AlarmReconciler {
             }
         }
 
+        // 5. 今日超期（>2h）未服待办低优先级聚合提醒：
+        //    关机超过 2 小时开机后，旧闹钟已错过且超过 catchupFloor，不再夺命连环响，
+        //    但若托盘完全无通知，用户易彻底遗漏今日待服药。
+        //    若存在这类槽位且通知可达，则发一条低优先级常驻概览通知；若已全被处理，则撤销该聚合通知。
+        if (overdueBeyondCatchupCount > 0 && Notifications.areNotificationsReachable(context)) {
+            AppLog.i(TAG, "showing overdue summary notification for $overdueBeyondCatchupCount slots")
+            Notifications.showOverdueSummaryNotification(context, overdueBeyondCatchupCount)
+        } else {
+            Notifications.cancelOverdueSummaryNotification(context)
+        }
+
         AppLog.i(
             TAG,
             "done: horizon=${HORIZON_DAYS}d meds=${activeIds.size}, " +
-                "openSlots=${stillOpen.size}, scheduled=$scheduled, cancelled=$cancelled"
+                "openSlots=${stillOpen.size}, scheduled=$scheduled, cancelled=$cancelled, overdueBeyondCatchup=$overdueBeyondCatchupCount"
         )
     }
 }
