@@ -4,6 +4,8 @@
     <string name="rem_title">提醒设置</string>
     <string name="rem_save">保存</string>
     <string name="rem_saved">提醒设置已保存</string>
+    <string name="rem_saved_schedule_failed">设置已保存，但闹钟调度失败：提醒可能不响。请检查精确闹钟权限后重试</string>
+    <string name="rem_deleted_schedule_failed">计划已删除，但闹钟清理失败：可能残留无效闹钟。请检查精确闹钟权限后重试</string>
     <string name="rem_cd_back">返回</string>
     <string name="rem_error_with_icon">⚠️ %1$s</string>
 

@@ -230,19 +230,27 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val source = pending.second
         val app = getApplication<Application>()
         _uiState.value = _uiState.value.copy(pendingRestore = null, isRestoring = true)
-        viewModelScope.launch {
+        // 全程 IO（M5）：importBackup 内部是大 JSON 解析 + 快照文件写，
+        // rescheduleAll 也自切 IO；旧实现在 Main 上裸跑会冻结界面。
+        viewModelScope.launch(Dispatchers.IO) {
             val result = when (source) {
                 is RestoreSource.FromUri -> DataExporter.importBackup(app, db, source.uri)
                 is RestoreSource.FromFile -> DataExporter.importLocalBackup(app, db, source.file)
             }
             val message = when (result) {
                 is DataExporter.RestoreResult.Success -> {
-                    // 恢复后立刻按新数据重排全部闹钟
-                    runCatching { AlarmReconciler.rescheduleAll(app, db) }
+                    // 恢复后立刻按新数据重排全部闹钟。
+                    // 重排失败不推翻恢复本身（数据已还原），但必须让用户知道
+                    // 提醒可能不响（H3）——旧实现把失败咽成一句日志然后照报"恢复成功"。
+                    val rescheduled = runCatching { AlarmReconciler.rescheduleAll(app, db) }
+                        .onFailure { AppLog.e(TAG, "rescheduleAll after restore failed", it) }
+                        .isSuccess
                     val snap = result.snapshotFile
                         ?.let { app.getString(R.string.set_restore_snapshot_fmt, it.substringAfterLast('/')) }
                         ?: app.getString(R.string.set_restore_no_snapshot)
-                    app.getString(R.string.set_restore_success_fmt, result.medications, result.records) + snap
+                    val base = app.getString(R.string.set_restore_success_fmt, result.medications, result.records) + snap
+                    if (rescheduled) base
+                    else base + "\n" + app.getString(R.string.set_restore_schedule_failed)
                 }
                 is DataExporter.RestoreResult.Invalid -> app.getString(R.string.set_restore_error, result.reason)
                 is DataExporter.RestoreResult.Failure -> app.getString(R.string.set_restore_failed, result.message)

@@ -342,7 +342,7 @@ class ReminderSettingsViewModel(
 
     // ---------------- 保存 ----------------
 
-    fun save(onSuccess: () -> Unit = {}) {
+    fun save(onSuccess: (scheduleDegraded: Boolean) -> Unit = {}) {
         val s = _uiState.value
         val app = getApplication<Application>()
 
@@ -397,12 +397,17 @@ class ReminderSettingsViewModel(
             // 快照必须在保存**之前**拍（osbf P3-9）：改计划会经 reconcileSchedule
             // 删掉不再被投影命中的槽位行，rescheduleAll 内部的快照看不到已删的行，
             // 对应闹钟就成了到点空唤醒的孤儿（最长 14 天）。
-            val presnap = AlarmReconciler.snapshotOpenAlarms(db)
+            // 拍快照失败不阻断保存：presnap 留空时 rescheduleAll 会退回内部自拍，
+            // 代价只是删行前的孤儿闹钟找不回（H4：原先裸调用抛异常会未捕获崩溃）。
+            val presnap = runCatching { AlarmReconciler.snapshotOpenAlarms(db) }
+                .onFailure { AppLog.e("ReminderSettingsVM", "snapshotOpenAlarms failed med=$medId", it) }
+                .getOrDefault(emptySet())
 
             // ⚠️ 整条保存链包 runCatching（M2-3）。领域层的 `require`
             // （重复时点 / 药品不存在）在 ViewModel 里未捕获会一路打到主线程 → 崩溃，
             // 且 `isSaving` 永远停在 true ⇒ 保存按钮**永久禁用**。
-            runCatching {
+            // Result 的值是"闹钟重排是否成功"（H1），重排失败不回滚已落库的配置。
+            val saveOutcome = runCatching {
                 // N5（osbf P2-5）：计划与行为分属两个 service、原先各自开事务，
                 // 第 2 步抛异常 ⇒ 计划已保存、行为未保存，表单停在旧值而库里
                 // 已是新计划。现在两步包进**同一个外层事务**：要么全成、要么全回滚。
@@ -458,7 +463,11 @@ class ReminderSettingsViewModel(
                 // 暂停状态会被陈旧 UI 值覆盖回去。现在保存链完全不碰暂停。
 
                 trackingService.reconcileSchedule(medId)
-                runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db, presnap) }
+                // 重排失败不算保存失败（配置已落库），但要透传给 UI 降级提示（H1），
+                // 不能像旧实现那样把失败咽成一句日志 —— 用户会以为到点一定响。
+                runCatching { AlarmReconciler.rescheduleAll(getApplication(), db, presnap) }
+                    .onFailure { AppLog.e("ReminderSettingsVM", "rescheduleAll failed med=$medId", it) }
+                    .isSuccess
             }.onFailure { t ->
                 // 不透出 t.message：领域层抛的是不变量违约文本，用户看不懂。细节进日志。
                 AppLog.e("ReminderSettingsVM", "save failed med=$medId", t)
@@ -469,8 +478,10 @@ class ReminderSettingsViewModel(
                 return@launch
             }
 
+            // save 本体成功才会走到这：Boolean 即"重排是否成功"，false ⇒ UI 降级提示
+            val scheduleDegraded = !saveOutcome.getOrDefault(true)
             _uiState.value = _uiState.value.copy(isSaving = false, savedAt = System.currentTimeMillis())
-            onSuccess()
+            onSuccess(scheduleDegraded)
             load()
         }
     }
@@ -481,19 +492,25 @@ class ReminderSettingsViewModel(
      * 停用该药的排班策略、清理旧时点，并通过 `reconcileSchedule` 清理未来尚未执行的待决槽位，
      * 撤销对应闹钟。历史打卡事实与药品档案保持完好。
      */
-    fun deletePolicy(onDeleted: () -> Unit = {}) {
+    fun deletePolicy(onDeleted: (scheduleDegraded: Boolean) -> Unit = {}) {
         val s = _uiState.value
         val app = getApplication<Application>()
         if (s.isSaving) return
 
         viewModelScope.launch {
             _uiState.value = s.copy(isSaving = true, error = null)
-            val presnap = AlarmReconciler.snapshotOpenAlarms(db)
+            // 同 save()：快照失败不阻断删除，退回 rescheduleAll 内部自拍（H4）
+            val presnap = runCatching { AlarmReconciler.snapshotOpenAlarms(db) }
+                .onFailure { AppLog.e("ReminderSettingsVM", "snapshotOpenAlarms failed med=$medId", it) }
+                .getOrDefault(emptySet())
 
-            runCatching {
+            val deleteOutcome = runCatching {
                 adminService.deleteReminderPolicy(medId)
                 trackingService.reconcileSchedule(medId)
-                runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db, presnap) }
+                // 重排失败不算删除失败（计划已删），但要透传给 UI 降级提示（H2）
+                runCatching { AlarmReconciler.rescheduleAll(getApplication(), db, presnap) }
+                    .onFailure { AppLog.e("ReminderSettingsVM", "rescheduleAll failed med=$medId", it) }
+                    .isSuccess
             }.onFailure { t ->
                 AppLog.e("ReminderSettingsVM", "deletePolicy failed med=$medId", t)
                 _uiState.value = _uiState.value.copy(
@@ -504,7 +521,7 @@ class ReminderSettingsViewModel(
             }
 
             _uiState.value = _uiState.value.copy(isSaving = false)
-            onDeleted()
+            onDeleted(!deleteOutcome.getOrDefault(true))
         }
     }
 

@@ -123,8 +123,15 @@ fun ReminderSettingsScreen(
                     Button(
                         onClick = {
                             viewModel.save(
-                                onSuccess = {
-                                    Toast.makeText(context, R.string.rem_saved, Toast.LENGTH_SHORT).show()
+                                onSuccess = { scheduleDegraded ->
+                                    // 重排失败时数据已落库但闹钟可能没排上（H1），
+                                    // 用长 Toast 顶住导航返回后的下一屏
+                                    Toast.makeText(
+                                        context,
+                                        if (scheduleDegraded) R.string.rem_saved_schedule_failed
+                                        else R.string.rem_saved,
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                     onNavigateBack()
                                 }
                             )
@@ -599,8 +606,13 @@ fun ReminderSettingsScreen(
                         onClick = {
                             showDeleteDialog = false
                             viewModel.deletePolicy(
-                                onDeleted = {
-                                    Toast.makeText(context, R.string.rem_policy_deleted, Toast.LENGTH_SHORT).show()
+                                onDeleted = { scheduleDegraded ->
+                                    Toast.makeText(
+                                        context,
+                                        if (scheduleDegraded) R.string.rem_deleted_schedule_failed
+                                        else R.string.rem_policy_deleted,
+                                        Toast.LENGTH_LONG
+                                    ).show()
                                     onNavigateBack()
                                 }
                             )

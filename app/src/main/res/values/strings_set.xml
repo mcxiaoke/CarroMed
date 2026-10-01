@@ -56,6 +56,7 @@
     <string name="set_restore_snapshot_fmt">已留恢复前快照：%1$s</string>
     <string name="set_restore_no_snapshot">（未能生成恢复前快照）</string>
     <string name="set_restore_failed">恢复失败：%1$s</string>
+    <string name="set_restore_schedule_failed">⚠ 但闹钟调度失败：提醒可能不响。请检查精确闹钟权限后重试</string>
     <string name="set_export_log_title">导出诊断日志</string>
     <string name="set_export_log_desc">最近 7 天的运行日志，用于排查提醒与记录问题</string>
     <string name="set_share_log_title">分享诊断日志</string>
