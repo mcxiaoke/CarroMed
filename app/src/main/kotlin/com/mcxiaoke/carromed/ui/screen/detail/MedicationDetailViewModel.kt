@@ -13,6 +13,7 @@ import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService
@@ -50,7 +51,9 @@ data class MedDetailUiState(
     val adherenceDecided: Int = 0,
     val recentRecords: List<DoseRecordEntity> = emptyList(),
     val doseSum: Float = 0f,
-    val error: String? = null
+    val error: String? = null,
+    /** 任一写操作（暂停/恢复/归档/删除）进行中：按钮禁用 + 防连点 */
+    val isSaving: Boolean = false
 )
 
 class MedicationDetailViewModel(
@@ -213,16 +216,18 @@ class MedicationDetailViewModel(
      * 存的是**意图**，日期比较一律交给 `ReminderSettingsEntity.isPausedOn`。
      */
     fun pauseReminderUntil(until: LocalDate?) {
+        if (_uiState.value.isSaving) return
         viewModelScope.launch {
-            adminService.setPausedUntil(medId, until?.toString() ?: "")
+            runWrite(R.string.mdetail_error_op_failed) { adminService.setPausedUntil(medId, until?.toString() ?: "") }
             rescheduleAlarms()
             loadData()
         }
     }
 
     fun resumeReminder() {
+        if (_uiState.value.isSaving) return
         viewModelScope.launch {
-            adminService.resume(medId)
+            runWrite(R.string.mdetail_error_op_failed) { adminService.resume(medId) }
             rescheduleAlarms()
             loadData()
         }
@@ -230,9 +235,9 @@ class MedicationDetailViewModel(
 
     fun toggleArchive() {
         val med = _uiState.value.medication ?: return
+        if (_uiState.value.isSaving) return
         viewModelScope.launch {
-            val newArchived = !med.isArchived
-            medDao.updateArchiveStatus(med.id, newArchived)
+            runWrite(R.string.mdetail_error_op_failed) { medDao.updateArchiveStatus(med.id, !med.isArchived) }
             rescheduleAlarms()
             loadData()
         }
@@ -240,6 +245,7 @@ class MedicationDetailViewModel(
 
     fun deleteMedication(onDeleted: () -> Unit) {
         val med = _uiState.value.medication ?: return
+        if (_uiState.value.isSaving) return
         viewModelScope.launch {
             if (!med.isArchived) {
                 // 在服药品不可直接删除，必须先停药归档
@@ -249,27 +255,82 @@ class MedicationDetailViewModel(
                 return@launch
             }
             isDeleting = true
-            // 快照必须在删行**之前**拍（osbf P3-9）：级联会删掉该药全部槽位，
-            // rescheduleAll 内部拍的快照看不到已删的行，对应闹钟就成了孤儿。
-            val presnap = com.mcxiaoke.carromed.core.alarm.AlarmReconciler.snapshotOpenAlarms(db)
-            medDao.permanentlyDelete(med.id)
-            rescheduleAlarms(presnap)
+            _uiState.value = _uiState.value.copy(isSaving = true, error = null)
+            val failed = runCatching {
+                // 快照必须在删行**之前**拍（osbf P3-9）：级联会删掉该药全部槽位，
+                // rescheduleAll 内部拍的快照看不到已删的行，对应闹钟就成了孤儿。
+                val presnap = com.mcxiaoke.carromed.core.alarm.AlarmReconciler.snapshotOpenAlarms(db)
+                medDao.permanentlyDelete(med.id)
+                // 删除后页面即将销毁，error 状态没人看 —— 降级提示直接走 Toast
+                val rescheduled = rescheduleAlarms(presnap)
+                if (!rescheduled) {
+                    val app = getApplication<Application>()
+                    android.widget.Toast.makeText(
+                        app, app.getString(R.string.mdetail_error_schedule_failed),
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            }.isFailure
+            isDeleting = false
+            if (failed) {
+                _uiState.value = _uiState.value.copy(
+                    isSaving = false,
+                    error = getApplication<Application>().getString(R.string.mdetail_error_op_failed)
+                )
+                return@launch
+            }
             onDeleted()
         }
     }
 
-    /** 状态变更后按当前库内数据全量重排闹钟；带 `presnap` 时同时清理已删行的闹钟 */
+    /**
+     * 写操作统一包装：置 isSaving 防连点、清旧 error、异常兜底成用户可读文案
+     * （M9：服务层 `check()` 抛的 IllegalStateException 此前会未捕获崩溃）。
+     * 返回 true 表示写成功。
+     */
+    private suspend fun runWrite(errorRes: Int, block: suspend () -> Unit): Boolean {
+        val app = getApplication<Application>()
+        _uiState.value = _uiState.value.copy(isSaving = true, error = null)
+        return runCatching { block() }
+            .onFailure { AppLog.e(TAG, "write op failed med=$medId", it) }
+            .fold(
+                onSuccess = {
+                    _uiState.value = _uiState.value.copy(isSaving = false)
+                    true
+                },
+                onFailure = {
+                    _uiState.value = _uiState.value.copy(isSaving = false, error = app.getString(errorRes))
+                    false
+                }
+            )
+    }
+
+    /** 状态变更后按当前库内数据全量重排闹钟；带 `presnap` 时同时清理已删行的闹钟。
+     *  失败不抛出，返回 false 供调用方降级提示（H 系列同款：报成功 ≠ 闹钟排上了）。 */
     private suspend fun rescheduleAlarms(
         presnap: Set<com.mcxiaoke.carromed.core.alarm.AlarmReconciler.AlarmIdentity> = emptySet()
-    ) {
+    ): Boolean =
         runCatching {
             com.mcxiaoke.carromed.core.alarm.AlarmReconciler.rescheduleAll(
                 getApplication<Application>(), db, presnap
             )
-        }
-    }
+        }.fold(
+            onSuccess = { true },
+            onFailure = { t ->
+                AppLog.e(TAG, "rescheduleAll failed med=$medId", t)
+                // 页面仍存活（暂停/恢复/归档）时 error → Toast 可见；
+                // 删除路径页面即将销毁，由 deleteMedication 自行 Toast
+                if (!isDeleting) {
+                    _uiState.value = _uiState.value.copy(
+                        error = getApplication<Application>().getString(R.string.mdetail_error_schedule_failed)
+                    )
+                }
+                false
+            }
+        )
 
     companion object {
         const val RECENT_RECORD_LIMIT = 20
+        private const val TAG = "MedDetailVM"
     }
 }

@@ -45,6 +45,8 @@
     <string name="mdetail_delete_confirm">确认永久删除「%1$s」？该药品的全部档案、历史服药记录与余量明细将被彻底删除且不可恢复。</string>
     <string name="mdetail_error_must_archive_before_delete">在服药品不可直接删除，请先停药归档后再执行永久删除。</string>
     <string name="mdetail_error_has_history_cannot_delete">该药品已有服药记录或余量明细，不可直接删除。请选择「停药归档」以保留真实历史。</string>
+    <string name="mdetail_error_op_failed">操作失败，请重试</string>
+    <string name="mdetail_error_schedule_failed">操作已生效，但闹钟调度失败：提醒可能不响。请检查精确闹钟权限后重试</string>
 
     <!-- 暂停提醒对话框 -->
     <string name="mdetail_pause_dialog_title">暂停提醒到什么时候？</string>

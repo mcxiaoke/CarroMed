@@ -34,8 +34,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -322,6 +320,7 @@ fun MedicationDetailScreen(
                     onClick = {
                         if (isPaused) viewModel.resumeReminder() else showPauseDialog = true
                     },
+                    enabled = !uiState.isSaving,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(46.dp),
@@ -403,14 +402,21 @@ fun MedicationDetailScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 med.precautions.forEach { tag ->
-                                    AssistChip(
-                                        onClick = {},
-                                        label = { Text(tag, fontWeight = FontWeight.Medium) },
-                                        colors = AssistChipDefaults.assistChipColors(
-                                            containerColor = MaterialTheme.colorScheme.surface,
-                                            labelColor = MaterialTheme.colorScheme.onSurface
+                                    // 注意事项是纯展示信息，不能用 AssistChip：
+                                    // 它有 ripple 和按压态，点了却什么都不发生（L1）。
+                                    // 静态标签用非可交互的 Surface 承载（同屏 TagChip 同款写法）。
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.surface
+                                    ) {
+                                        Text(
+                                            text = tag,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
-                                    )
+                                    }
                                 }
                             }
                         }
@@ -555,6 +561,7 @@ fun MedicationDetailScreen(
                     ) {
                         OutlinedButton(
                             onClick = { showArchiveDialog = true },
+                            enabled = !uiState.isSaving,
                             modifier = Modifier
                                 .weight(1f)
                                 .height(46.dp),
@@ -566,6 +573,7 @@ fun MedicationDetailScreen(
                         }
                         Button(
                             onClick = { showDeleteDialog = true },
+                            enabled = !uiState.isSaving,
                             modifier = Modifier
                                 .weight(1f)
                                 .height(46.dp),
@@ -585,6 +593,7 @@ fun MedicationDetailScreen(
                 } else {
                     OutlinedButton(
                         onClick = { showArchiveDialog = true },
+                        enabled = !uiState.isSaving,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(46.dp),
