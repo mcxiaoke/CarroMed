@@ -173,7 +173,11 @@ fun PermissionCheckScreen(onNavigateBack: () -> Unit) {
                     title = stringResource(R.string.perm_vendor_title),
                     status = PermissionStatus(text = stringResource(R.string.perm_status_manual), ok = false),
                     desc = stringResource(R.string.perm_vendor_desc),
-                    icon = Icons.Default.Lock
+                    icon = Icons.Default.Lock,
+                    action = PermissionAction(
+                        label = stringResource(R.string.perm_action_vendor_settings),
+                        onClick = { VendorIntentHelper.openAutoStartOrAppDetails(context) }
+                    )
                 )
             }
         }

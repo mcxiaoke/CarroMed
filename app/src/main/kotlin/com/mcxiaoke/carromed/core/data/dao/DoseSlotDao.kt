@@ -280,7 +280,7 @@ interface DoseSlotDao {
     @Query(
         """
         UPDATE dose_slots
-        SET status = 'SNOOZED', snooze_until_ts = :snoozeUntilTs
+        SET status = 'SNOOZED', snooze_until_ts = :snoozeUntilTs, last_snooze_notified_ts = NULL
         WHERE id = :slotId
           AND status IN ('PENDING', 'SNOOZED')
           AND scheduled_date <= :todayStr
@@ -295,11 +295,19 @@ interface DoseSlotDao {
     @Query(
         """
         UPDATE dose_slots
-        SET status = 'PENDING', actual_taken_ts = NULL, snooze_until_ts = NULL
+        SET status = 'PENDING', actual_taken_ts = NULL, snooze_until_ts = NULL, last_snooze_notified_ts = NULL
         WHERE id = :slotId AND status IN ('COMPLETED', 'SKIPPED')
         """
     )
     suspend fun revertToPending(slotId: Long): Int
+
+    /** 记录主提醒已成功弹出，消除后续托盘被划掉后的重复补响 (P1-1) */
+    @Query("UPDATE dose_slots SET last_main_notified_ts = :notifiedTs WHERE id = :slotId")
+    suspend fun updateLastMainNotifiedTs(slotId: Long, notifiedTs: Long): Int
+
+    /** 记录推迟提醒已成功弹出 (P1-1) */
+    @Query("UPDATE dose_slots SET last_snooze_notified_ts = :notifiedTs WHERE id = :slotId")
+    suspend fun updateLastSnoozeNotifiedTs(slotId: Long, notifiedTs: Long): Int
 
     /**
      * 丢弃**投机区**（`scheduled_date > :afterDate`）里仍开放的槽位。

@@ -1,0 +1,24 @@
+appId: com.mcxiaoke.carromed
+name: smoke-permissions
+---
+- launchApp
+- assertVisible: 今日用药
+
+# 点击右上角设置图标进入设置页
+- tapOn: "系统设置"
+- assertVisible: 设置
+- takeScreenshot: 01_settings
+
+# 点击"后台保活与防漏提醒指引"进入自检页
+- tapOn:
+    text: ".*后台保活与防漏提醒指引.*"
+- assertVisible: 防漏提醒指南
+- assertVisible: "1. 精确闹钟.*"
+- assertVisible: "2. 发送通知.*"
+- assertVisible: "3. 忽略电池优化.*"
+- assertVisible: "4. 锁屏显示与后台自启动.*"
+- assertVisible: "前往设置"
+- takeScreenshot: 02_permission_check
+
+- back
+- assertVisible: 设置

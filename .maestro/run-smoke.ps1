@@ -9,6 +9,7 @@
 #（Maestro 默认行为），报告走 `maestro test` 的 stdout。
 
 $ErrorActionPreference = "Stop"
+$env:JAVA_TOOL_OPTIONS = "-Dfile.encoding=UTF-8"
 $serial = "emulator-5554"
 
 adb -s $serial shell am start -n com.mcxiaoke.carromed/.MainActivity | Out-Null

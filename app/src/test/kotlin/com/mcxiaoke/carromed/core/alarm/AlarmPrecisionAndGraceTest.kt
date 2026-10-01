@@ -206,34 +206,57 @@ class AlarmPrecisionAndGraceTest {
     }
 
     @Test
-    fun `托盘里还挂着通知就不补响 通知撤掉才补一次`() = runBlocking {
-        // 这条守的是"补响只响一次"的核心：AlarmReceiver 响铃后就地触发对账，
-        // 补响判据若只看时刻，刚响过的槽位 30 秒后再次满足条件，
-        // 每条未确认的服药都会以 30 秒为周期反复响到补响窗口结束。
-        // 变异验证：去掉 rescheduleAll 里的托盘查询，第一条断言立刻变红。
+    fun `未通知过的槽位托盘有通知不补响 托盘无通知才补一次`() = runBlocking {
+        // 这条守的是"补响只响一次"的核心：
+        // 场景 1：如果托盘里还挂着通知（未通知过但托盘已有），对账不补响；
+        // 场景 2：真正漏掉（未通知过且托盘无通知，如关机后开机），下一轮对账补响一次。
         AlarmReconciler.rescheduleAll(context, db)
         val template = db.doseSlotDao().getOpenSlots().first()
         val id = seedMissedSlot(template, "03:17", catchupWindowTs(minutesAgo = 30))
         val slot = db.doseSlotDao().getSlotById(id)!!
 
         // 按生产约定（Notifications 的通知 id 就是 slotId）发一条，
-        // 替身"AlarmReceiver 刚弹过通知"的世界状态。
+        // 替身"托盘里已有通知"的世界状态。
         Notifications.ensureChannel(context)
         NotificationManagerCompat.from(context).notify(
-            id.toInt(),
-            NotificationCompat.Builder(context, Notifications.CHANNEL_DOSE_REMINDER)
+            Notifications.notificationIdOf(id),
+            NotificationCompat.Builder(context, Notifications.CHANNEL_DOSE_REMINDER_V2)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .build()
         )
 
         AlarmReconciler.rescheduleAll(context, db)
-        // 通知在 = 已经提醒过 ⇒ 不补响
+        // 通知在 = 已经有通知挂着 ⇒ 不补响
         assertThat(shadowAlarms()).doesNotContain(pendingMainOf(slot))
 
-        // 用户划掉通知 / 重启清空托盘 ⇒ 下一轮对账补响一次
-        NotificationManagerCompat.from(context).cancel(id.toInt())
+        // 重启或系统清空托盘（且未记录过 lastMainNotifiedTs）⇒ 补响一次
+        NotificationManagerCompat.from(context).cancel(Notifications.notificationIdOf(id))
         AlarmReconciler.rescheduleAll(context, db)
         assertThat(shadowAlarms()).contains(pendingMainOf(slot))
+    }
+
+    @Test
+    fun `已成功通知过的槽位划掉通知不再补响 消除15分钟骚扰`() = runBlocking {
+        // P1-1 守门测试：
+        // 旧实现把「托盘无通知」等同于「未曾提醒过」，导致用户主动划掉通知后，
+        // 周期对账 Worker 每 15 分钟再次强行补响一次。
+        // 新实现：只要 lastMainNotifiedTs != null，即使托盘无通知，也绝不再次补响！
+        AlarmReconciler.rescheduleAll(context, db)
+        val template = db.doseSlotDao().getOpenSlots().first()
+        val id = seedMissedSlot(template, "03:18", catchupWindowTs(minutesAgo = 30))
+        // 模拟 AlarmReceiver 已经成功弹出通知并持久化记录了时间戳
+        db.doseSlotDao().updateLastMainNotifiedTs(id, System.currentTimeMillis() - 60_000L)
+        val slot = db.doseSlotDao().getSlotById(id)!!
+        assertThat(slot.lastMainNotifiedTs).isNotNull()
+
+        // 托盘通知被用户主动划掉（托盘上无通知）
+        NotificationManagerCompat.from(context).cancel(Notifications.notificationIdOf(id))
+
+        // 触发对账（例如 15 分钟后的周期 Worker）
+        AlarmReconciler.rescheduleAll(context, db)
+
+        // 核心断言：绝不给此槽位补响闹钟！彻底终结 15 分钟骚扰
+        assertThat(shadowAlarms()).doesNotContain(pendingMainOf(slot))
     }
 
     @Test

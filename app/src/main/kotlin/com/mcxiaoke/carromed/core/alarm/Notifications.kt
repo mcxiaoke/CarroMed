@@ -5,6 +5,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
@@ -24,6 +26,20 @@ import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
  */
 object Notifications {
 
+    /**
+     * V2 服药提醒渠道（P1-4）：
+     * 绑定 AudioAttributes.USAGE_ALARM，铃声走系统闹钟音频流，不受普通通知静音影响。
+     * Android 渠道属性一经创建即不可变，因此存量迁移必须通过更换 Channel ID 完成。
+     */
+    const val CHANNEL_DOSE_REMINDER_V2 = "dose_reminder_v2"
+
+    /**
+     * 重要药品专用强提醒渠道（P1-4）：
+     * 强力震动与闹钟音频流，确保关键处方药强效提醒。
+     */
+    const val CHANNEL_DOSE_REMINDER_CRITICAL = "dose_reminder_critical"
+
+    @Deprecated("Use CHANNEL_DOSE_REMINDER_V2 instead", ReplaceWith("CHANNEL_DOSE_REMINDER_V2"))
     const val CHANNEL_DOSE_REMINDER = "dose_reminder"
 
     /**
@@ -50,13 +66,37 @@ object Notifications {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
 
+        // 存量升级与清理（P1-4）：老渠道 dose_reminder 使用普通通知音频流，在此静默删除
+        runCatching { nm.deleteNotificationChannel(CHANNEL_DOSE_REMINDER) }
+
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ALARM)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+        val alarmSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+
         val loud = NotificationChannel(
-            CHANNEL_DOSE_REMINDER,
+            CHANNEL_DOSE_REMINDER_V2,
             context.getString(R.string.notif_channel_name),
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = context.getString(R.string.notif_channel_desc)
             enableVibration(true)
+            vibrationPattern = longArrayOf(0, 500, 200, 500)
+            setSound(alarmSoundUri, audioAttributes)
+            setShowBadge(true)
+        }
+
+        val critical = NotificationChannel(
+            CHANNEL_DOSE_REMINDER_CRITICAL,
+            context.getString(R.string.notif_channel_name_critical),
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = context.getString(R.string.notif_channel_desc_critical)
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 800, 300, 800, 300, 800)
+            setSound(alarmSoundUri, audioAttributes)
             setShowBadge(true)
         }
 
@@ -71,7 +111,7 @@ object Notifications {
             setShowBadge(true)
         }
 
-        nm.createNotificationChannels(listOf(loud, silent))
+        nm.createNotificationChannels(listOf(loud, critical, silent))
     }
 
     /**
@@ -162,7 +202,11 @@ object Notifications {
         val doseText = Quantity.withUnit(Dose(slot.doseAmount).asFloat, med.unit)
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         val silent = ReminderSettings.shouldSilence(behavior, overview.isCriticalReminder, hour)
-        val channel = if (silent) CHANNEL_DOSE_REMINDER_SILENT else CHANNEL_DOSE_REMINDER
+        val channel = when {
+            silent -> CHANNEL_DOSE_REMINDER_SILENT
+            overview.isCriticalReminder -> CHANNEL_DOSE_REMINDER_CRITICAL
+            else -> CHANNEL_DOSE_REMINDER_V2
+        }
 
         val advanceMinutes = overview.advanceMinutes
         val body = buildString {
@@ -186,16 +230,45 @@ object Notifications {
             if (silent) append(context.getString(R.string.notif_body_night_silent))
         }
 
+        val notifId = notificationIdOf(slot.id)
         val contentIntent = PendingIntent.getActivity(
             context,
-            slot.id.toInt(),
+            notifId,
             Intent(context, MainActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val snooze = behavior.snoozeMinutes.coerceIn(1, 240)
 
-        val notification = NotificationCompat.Builder(context, channel)
+        // 锁屏全屏强提醒 (Full-Screen Intent, P1-3)
+        val fullScreenIntent = com.mcxiaoke.carromed.ui.screen.alert.AlarmAlertActivity.createIntent(
+            context = context,
+            slotId = slot.id,
+            medId = med.id,
+            scheduledDate = slot.scheduledDate,
+            scheduledTime = slot.scheduledTime,
+            medName = med.name,
+            doseText = doseText,
+            notice = med.noticeShort,
+            isCritical = overview.isCriticalReminder,
+            snoozeMinutes = snooze
+        )
+        val fullScreenPendingIntent = PendingIntent.getActivity(
+            context,
+            notifId,
+            fullScreenIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val canUseFullScreen = if (Build.VERSION.SDK_INT >= 34) {
+            val systemNm = context.getSystemService(NotificationManager::class.java)
+            systemNm?.canUseFullScreenIntent() ?: true
+        } else {
+            true
+        }
+        val isEligibleForFullScreen = !silent && (overview.isCriticalReminder || kind == AlarmScheduler.Kind.MAIN)
+
+        val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(
                 when {
@@ -210,6 +283,7 @@ object Notifications {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(if (silent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
             .setOnlyAlertOnce(false)
@@ -227,7 +301,11 @@ object Notifications {
                 0, context.getString(R.string.notif_action_skip),
                 actionPendingIntent(context, slot, ACTION_SKIP, RC_SKIP)
             )
-            .build()
+
+        if (isEligibleForFullScreen && canUseFullScreen) {
+            builder.setFullScreenIntent(fullScreenPendingIntent, true)
+        }
+        val notification = builder.build()
 
         // 渠道级关闭（用户在系统设置里单独关掉这个渠道）同样不可达：
         // IMPORTANCE_NONE 的渠道 notify() 也是静默空操作。
@@ -239,14 +317,23 @@ object Notifications {
         }
 
         return runCatching {
-            nm.notify(slot.id.toInt(), notification)
+            nm.notify(notifId, notification)
             true
         }.onFailure { AppLog.e("Notifications", "notify failed for slot=${slot.id}", it) }
             .getOrDefault(false)
     }
 
+    /**
+     * 将 slotId 映射为安全的 32 位正整数通知 ID (P1-6)。
+     * 避开保留 ID (ID_OVERDUE_SUMMARY = 99999)，防止负数溢出。
+     */
+    fun notificationIdOf(slotId: Long): Int {
+        val positive = slotId and 0x7FFFFFFF
+        return ((positive % 89000) + 1000).toInt()
+    }
+
     fun cancelDoseNotification(context: Context, slotId: Long) {
-        NotificationManagerCompat.from(context).cancel(slotId.toInt())
+        NotificationManagerCompat.from(context).cancel(notificationIdOf(slotId))
     }
 
     const val ID_OVERDUE_SUMMARY = 99999
@@ -282,6 +369,7 @@ object Notifications {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
             .build()
@@ -298,7 +386,7 @@ object Notifications {
     }
 
     /**
-     * 通知出口当前是否可达：应用级通知权限已授予，且两个提醒渠道都未被用户关闭。
+     * 通知出口当前是否可达：应用级通知权限已授予，且提醒主渠道未被用户全部关闭。
      *
      * 供补响判据**前置**（orsbf P0-5）：出口不可达时 `notify()` 是静默空操作，
      * "托盘里有没有"恒为 false，补响会以 30 秒为周期空转唤醒直到补响窗口结束。
@@ -309,9 +397,9 @@ object Notifications {
         if (!nm.areNotificationsEnabled()) return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val none = NotificationManager.IMPORTANCE_NONE
-            val channelOff = listOf(CHANNEL_DOSE_REMINDER, CHANNEL_DOSE_REMINDER_SILENT)
-                .any { nm.getNotificationChannel(it)?.importance == none }
-            if (channelOff) return false
+            val v2Off = nm.getNotificationChannel(CHANNEL_DOSE_REMINDER_V2)?.importance == none
+            val criticalOff = nm.getNotificationChannel(CHANNEL_DOSE_REMINDER_CRITICAL)?.importance == none
+            if (v2Off && criticalOff) return false
         }
         return true
     }
@@ -333,6 +421,7 @@ object Notifications {
      */
     fun isDoseNotificationShown(context: Context, slotId: Long): Boolean =
         runCatching {
-            NotificationManagerCompat.from(context).activeNotifications.any { it.id == slotId.toInt() }
+            val targetId = notificationIdOf(slotId)
+            NotificationManagerCompat.from(context).activeNotifications.any { it.id == targetId }
         }.getOrDefault(false)
 }

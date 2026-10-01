@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.mcxiaoke.carromed.core.domain.AppLog
+import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,6 +43,11 @@ class BootReceiver : BroadcastReceiver() {
             action != Intent.ACTION_TIME_CHANGED &&
             action != Intent.ACTION_TIMEZONE_CHANGED
         ) return
+
+        // 系统改时或改时区时，立即刷新全局日历持有者 (P2-3)，避免 UI 停留在旧日期
+        if (action == Intent.ACTION_TIME_CHANGED || action == Intent.ACTION_TIMEZONE_CHANGED) {
+            CurrentDateHolder.refresh()
+        }
 
         val result = goAsync()
         val appContext = context.applicationContext

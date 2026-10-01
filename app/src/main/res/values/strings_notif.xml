@@ -5,6 +5,8 @@
     <string name="notif_channel_desc">服药准点提醒与横幅通知</string>
     <string name="notif_channel_name_silent">服药提醒 (夜间静音)</string>
     <string name="notif_channel_desc_silent">夜间 23:00-07:00 的服药提醒，不响铃不震动</string>
+    <string name="notif_channel_name_critical">服药提醒 (重要用药)</string>
+    <string name="notif_channel_desc_critical">重要药品的强力服药提醒与横幅通知</string>
 
     <!-- 通知正文片段（showDoseNotification 的 buildString） -->
     <string name="notif_body_advance">%1$d 分钟后到 %2$s，该服用 %3$s 了</string>

@@ -2,6 +2,6 @@
 <resources>
     <!-- 闹钟投递精度档位（AlarmScheduler.Precision，系统特权自检页显示） -->
     <string name="alarm_precision_exact">精确闹钟（到点必响）</string>
-    <string name="alarm_precision_alarm_clock">闹钟应用通道（准点）</string>
+    <string name="alarm_precision_alarm_clock">闹钟时钟通道（到点必响，若遭激进系统限制可能退化）</string>
     <string name="alarm_precision_inexact">不精确提醒（可能延迟约 1 小时）</string>
 </resources>

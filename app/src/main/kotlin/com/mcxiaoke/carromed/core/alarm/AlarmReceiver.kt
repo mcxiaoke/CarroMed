@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.PowerManager
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.AppLog
@@ -54,6 +55,13 @@ class AlarmReceiver : BroadcastReceiver() {
         AppLog.i("AlarmReceiver", "dose alarm fired, key=$key kind=$kind")
 
         val appContext = context.applicationContext
+        // 显式持有 10 秒超时 WakeLock (P1-2 / P0-4)：
+        // 避免在灭屏且处于 Deep Doze 时，协程切到 Dispatchers.IO 被系统 cgroup 冻结挂起，
+        // 直到按亮电源键才弹出的"灭屏不响"痛点。
+        val pm = context.getSystemService(PowerManager::class.java)
+        val wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "carromed:alarm_receiver")
+        wakeLock?.acquire(10_000L)
+
         val result = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -109,7 +117,21 @@ class AlarmReceiver : BroadcastReceiver() {
                     // 修复出口（开权限）之前，反复对账只是空转耗电。
                     return@launch
                 }
-                AppLog.i("AlarmReceiver", "notification shown for slot=$slotId")
+                AppLog.i("AlarmReceiver", "notification shown for slot=$slotId kind=$kind")
+
+                // 持久化记录本次提醒成功弹出（P1-1）：消除托盘通知被划掉后的 15 分钟周期性骚扰补响
+                val nowTs = System.currentTimeMillis()
+                when (kind) {
+                    AlarmScheduler.Kind.MAIN -> {
+                        db.doseSlotDao().updateLastMainNotifiedTs(slot.id, nowTs)
+                    }
+                    AlarmScheduler.Kind.SNOOZE -> {
+                        db.doseSlotDao().updateLastSnoozeNotifiedTs(slot.id, nowTs)
+                    }
+                    AlarmScheduler.Kind.ADVANCE -> {
+                        // ADVANCE 是提前预告，不能算作已完成准点主提醒，保持 lastMainNotifiedTs 不变
+                    }
+                }
 
                 // 后续期（P0-2）：本次响铃就是"用户最可能还在用手机"的时刻，此刻续期最划算，
                 // 也让唤醒链在用户完全不打开 App 的情况下自维持。
@@ -126,7 +148,15 @@ class AlarmReceiver : BroadcastReceiver() {
             } catch (t: Throwable) {
                 AppLog.e("AlarmReceiver", "failed to show notification", t)
             } finally {
-                result.finish()
+                try {
+                    if (wakeLock?.isHeld == true) {
+                        wakeLock.release()
+                    }
+                } catch (t: Throwable) {
+                    AppLog.w("AlarmReceiver", "wakeLock release failed", t)
+                } finally {
+                    result.finish()
+                }
             }
         }
     }

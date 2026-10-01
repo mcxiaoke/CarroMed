@@ -71,6 +71,9 @@ class ReconcileWorker(
             // 否则排查闹钟链路时会把 oneshot 的成功误读成周期任务（真实踩过）
             AppLog.i(TAG, "reconcile run done (tags=$tags)")
             Result.success()
+        } catch (c: kotlinx.coroutines.CancellationException) {
+            // 协程被取消时正常重新抛出，避免破坏 WorkManager 内部取消语义
+            throw c
         } catch (t: Throwable) {
             // ⚠️ 关键：抛异常时**必须**返回 retry 而不是直接 failure。
             // 返回 failure 等于"永久放弃这一轮"，而对账恰恰是最该重试的事情
@@ -142,28 +145,22 @@ class ReconcileWorker(
         /**
          * 入队**立即跑一轮**的全量对账。触发点：`AlarmReceiver` 响铃后、`BootReceiver` 开机后。
          *
-         * ## 为什么对账本体不再在 Receiver 里跑（N3）
+         * ## 为什么采用 `KEEP` 而非 `REPLACE` (P0-2)
          *
-         * `BroadcastReceiver` 的 `goAsync` 窗口就是广播超时（前台 10 秒），
-         * 而 [AlarmReconciler.rescheduleAll] 的耗时随 药品数 × 时点数 × 14 天视野
-         * **线性放大**（模拟器实测 4 药 64 槽位约 0.4–1.5s），内联迟早撞线。
-         * Receiver 只保留"查槽位 + 弹通知"这种毫秒级工作，对账交给本 Worker：
-         * 进程存活由系统托管，失败走 `Result.retry()` + 退避，比 `runCatching` 吞掉可靠。
+         * `rescheduleAll` 内部已由 `Mutex` 全程互斥保护。若用 `REPLACE`，WorkManager 会在
+         * 任务执行中强行取消正在跑的实例；若恰好在"删完失效槽位"后与"排新闹钟"前被打断，
+         * 就会留下"槽位在但无闹钟"的到点不响空窗。
          *
-         * ## 为什么用 `REPLACE` 而不是 `KEEP`
-         *
-         * 提前 + 准点、或多个药品的闹钟可能同分钟连发。`REPLACE` 保证**最后一次**
-         * 触发之后总有一轮新鲜的对账在跑（运行中的旧实例被取消 —— 对账幂等，
-         * 中断无副作用，Room 事务原子）；`KEEP` 则可能让后发的触发被已经跑过半的
-         * 旧实例"代表"，最新入库的槽位要等 15 分钟后的周期任务才能排上闹钟。
+         * `KEEP` 保证正在运行的实例完整跑完，对账本身具备 14 天前向幂等覆盖性，
+         * 并发多次触发只需保证当前至少有一轮在完整跑完即可。
          */
         fun enqueueOneShot(context: Context) {
             WorkManager.getInstance(context).enqueueUniqueWork(
                 ONESHOT_NAME,
-                ExistingWorkPolicy.REPLACE,
+                ExistingWorkPolicy.KEEP,
                 buildOneShotRequest()
             )
-            AppLog.i(TAG, "oneshot reconcile enqueued")
+            AppLog.i(TAG, "oneshot reconcile enqueued (policy=KEEP)")
         }
 
         /**

@@ -81,6 +81,12 @@ data class DoseSlotEntity(
     @ColumnInfo(name = "snooze_until_ts")
     val snoozeUntilTs: Long? = null, // 若推迟，推迟唤醒的目标时间戳
 
+    @ColumnInfo(name = "last_main_notified_ts")
+    val lastMainNotifiedTs: Long? = null, // 主提醒成功弹出的时间戳，用于消除划掉通知后的周期补响骚扰 (P1-1)
+
+    @ColumnInfo(name = "last_snooze_notified_ts")
+    val lastSnoozeNotifiedTs: Long? = null, // 推迟提醒成功弹出的时间戳 (P1-1)
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis()
 )

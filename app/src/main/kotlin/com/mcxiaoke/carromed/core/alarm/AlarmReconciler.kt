@@ -8,6 +8,8 @@ import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
@@ -70,7 +72,7 @@ import java.time.ZoneId
  * ## 对账的顺序：先快照、后重排、再按快照清理孤儿
  *
  * `reconcileSchedule` 会删掉不再被投影命中的槽位行，但领域层不知道 `Context`，
- * 删掉的行对应的闹钟就成���孤儿。旧实现完全没处理这件事（P1-5 闹钟泄漏的另一半）。
+ * 删掉的行对应的闹钟就成了孤儿。旧实现完全没处理这件事（P1-5 闹钟泄漏的另一半）。
  * 现在：
  * 1. 先对所有开放槽位拍快照（含 medId / date / time，足以定位闹钟身份）
  * 2. 跑重排
@@ -80,6 +82,13 @@ import java.time.ZoneId
 object AlarmReconciler {
 
     private const val TAG = "AlarmReconciler"
+
+    /**
+     * 对账全局互斥锁 (P0-2)。
+     * 防止并发多入口（周期Worker、一次性Worker、前台Resume、Undo）互相交错，
+     * 特别是避免在"删失效槽位"后与"排新闹钟"前被打断导致闹钟丢失。
+     */
+    private val reconcileMutex = Mutex()
 
     /**
      * 补响窗口：计划 / 推迟时刻过后多久之内，还值得为"闹钟丢了"补响一次。
@@ -170,8 +179,9 @@ object AlarmReconciler {
         db: AppDatabase,
         presnap: Set<AlarmIdentity> = emptySet()
     ) = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
-        AppLog.i(TAG, "rescheduleAll start, now=$now")
+        reconcileMutex.withLock {
+            val now = System.currentTimeMillis()
+            AppLog.i(TAG, "rescheduleAll start, now=$now")
 
         // 0. 拍快照：在重排之前。孤儿闹钟只能靠这份快照找回来。
         //    调用方带了 presnap（删行前拍的）就以它为准 —— 它是**超集**：
@@ -315,6 +325,8 @@ object AlarmReconciler {
         val todayStr = today.format(SlotProjectionEngine.DATE_FORMATTER)
         var overdueBeyondCatchupCount = 0
         var scheduled = 0
+        var scheduleFailures = 0
+        var catchupOffset = 0L
         for (slot in stillOpen.values) {
             if (slot.medicationId !in activeIds) continue
             // 暂停期内不排。正常情况下这些槽位已被投影层删掉了，这里是双保险 ——
@@ -339,24 +351,30 @@ object AlarmReconciler {
                 if (snoozeAt != null) {
                     if (snoozeAt > now) {
                         runCatching { AlarmScheduler.schedule(context, slot, snoozeAt, AlarmScheduler.Kind.SNOOZE) }
-                            .onFailure { AppLog.e(TAG, "snooze schedule failed slot=${slot.id}", it) }
-                        scheduled++
+                            .onSuccess { scheduled++ }
+                            .onFailure {
+                                scheduleFailures++
+                                AppLog.e(TAG, "snooze schedule failed slot=${slot.id}", it)
+                            }
                     } else if (snoozeAt >= catchupFloor &&
+                        slot.lastSnoozeNotifiedTs == null &&
                         Notifications.areNotificationsReachable(context) &&
                         !Notifications.isDoseNotificationShown(context, slot.id)
                     ) {
-                        // 推迟目标时刻已过但仍在补响窗口内 ⇒ 补响一次。
-                        // 判据用 `snoozeAt` 而不是 `mainAt`：SNOOZED 槽位的
-                        // `scheduled_ts` 是**原计划时间**，早就过去了，拿它判会误补响。
-                        // 托盘里还挂着这条槽位的通知就不补 —— 与主闹钟同一条纪律
-                        //（通知在 = 已经提醒过，见类 KDoc「补响为什么只响一次」）。
+                        // 推迟目标时刻已过但仍在补响窗口内，且未成功弹出过推迟提醒 ⇒ 补响一次。
+                        // 错开 5 秒 (P2-2)：避免多个补响同时到达在毫秒级重叠
+                        val catchupAt = now + GRACE_CATCHUP_DELAY_MS + catchupOffset
+                        catchupOffset += 5000L
                         runCatching {
                             AlarmScheduler.schedule(
-                                context, slot, now + GRACE_CATCHUP_DELAY_MS, AlarmScheduler.Kind.SNOOZE
+                                context, slot, catchupAt, AlarmScheduler.Kind.SNOOZE
                             )
                         }
-                            .onFailure { AppLog.e(TAG, "snooze catch-up schedule failed slot=${slot.id}", it) }
-                        scheduled++
+                            .onSuccess { scheduled++ }
+                            .onFailure {
+                                scheduleFailures++
+                                AppLog.e(TAG, "snooze catch-up schedule failed slot=${slot.id}", it)
+                            }
                     }
                 }
                 continue
@@ -369,32 +387,38 @@ object AlarmReconciler {
                 val advanceAt = mainAt - advance * 60_000L
                 if (advanceAt > now) {
                     runCatching { AlarmScheduler.schedule(context, slot, advanceAt, AlarmScheduler.Kind.ADVANCE) }
-                        .onFailure { AppLog.e(TAG, "advance schedule failed slot=${slot.id}", it) }
+                        .onFailure {
+                            scheduleFailures++
+                            AppLog.e(TAG, "advance schedule failed slot=${slot.id}", it)
+                        }
                 }
             }
             if (mainAt > now) {
                 runCatching { AlarmScheduler.schedule(context, slot, mainAt, AlarmScheduler.Kind.MAIN) }
-                    .onFailure { AppLog.e(TAG, "schedule failed slot=${slot.id}", it) }
-                scheduled++
+                    .onSuccess { scheduled++ }
+                    .onFailure {
+                        scheduleFailures++
+                        AppLog.e(TAG, "schedule failed slot=${slot.id}", it)
+                    }
             } else if (mainAt >= catchupFloor &&
+                slot.lastMainNotifiedTs == null &&
                 Notifications.areNotificationsReachable(context) &&
                 !Notifications.isDoseNotificationShown(context, slot.id)
             ) {
-                // 补响一次（决策 C / M1-7），判据见类 KDoc「补响为什么只响一次」。
-                //
-                // 补响窗口 `(now - CATCHUP_WINDOW_MS, now]` 是"闹钟刚丢"的高发区间。
-                // 更早的槽位是静默待办：留在今日清单上（无徽标、可补记），不再打扰。
-                //
-                // ⚠️ 托盘判据是这条链路不变成 30 秒循环的关键：AlarmReceiver 响铃后
-                // 就地重跑本方法（触发后续期），若不查托盘，刚响过的槽位会立刻再次
-                // 满足本条件，每条未确认的服药都会以 30 秒为周期反复响到
-                // 补响窗口结束（PLAN-EXPIRE-WINDOW-20260929 §3.3）。
+                // 补响一次（决策 C / M1-7 / P1-1）：未曾提醒过且在补响窗口内，错开 5 秒 (P2-2)
+                val catchupAt = now + GRACE_CATCHUP_DELAY_MS + catchupOffset
+                catchupOffset += 5000L
                 runCatching {
-                    AlarmScheduler.schedule(context, slot, now + GRACE_CATCHUP_DELAY_MS, AlarmScheduler.Kind.MAIN)
+                    AlarmScheduler.schedule(context, slot, catchupAt, AlarmScheduler.Kind.MAIN)
                 }
-                    .onFailure { AppLog.e(TAG, "grace catch-up schedule failed slot=${slot.id}", it) }
-                AppLog.i(TAG, "grace catch-up: missed slot=${slot.id} at=$mainAt (now=$now)")
-                scheduled++
+                    .onSuccess {
+                        AppLog.i(TAG, "grace catch-up: missed slot=${slot.id} at=$mainAt (now=$now, delay=${catchupAt - now}ms)")
+                        scheduled++
+                    }
+                    .onFailure {
+                        scheduleFailures++
+                        AppLog.e(TAG, "grace catch-up schedule failed slot=${slot.id}", it)
+                    }
             }
         }
 
@@ -409,10 +433,20 @@ object AlarmReconciler {
             Notifications.cancelOverdueSummaryNotification(context)
         }
 
+        if (scheduleFailures > 0) {
+            AppLog.w(
+                TAG,
+                "rescheduleAll encountered $scheduleFailures schedule failures! " +
+                    "(possible exact alarm permission denied or UID alarm limit reached)"
+            )
+        }
+
         AppLog.i(
             TAG,
             "done: horizon=${HORIZON_DAYS}d meds=${activeIds.size}, " +
-                "openSlots=${stillOpen.size}, scheduled=$scheduled, cancelled=$cancelled, overdueBeyondCatchup=$overdueBeyondCatchupCount"
+                "openSlots=${stillOpen.size}, scheduled=$scheduled, failures=$scheduleFailures, " +
+                "cancelled=$cancelled, overdueBeyondCatchup=$overdueBeyondCatchupCount"
         )
+        }
     }
 }

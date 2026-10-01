@@ -9,7 +9,7 @@ name: smoke-seeded
 # 带计数的分区标题用 \(\d+\) 正则（assertVisible 默认全等匹配，首跑踩过）。
 
 - launchApp
-- assertVisible: 今日清单
+- assertVisible: 今日用药
 - takeScreenshot: 01_today
 
 - tapOn:
@@ -18,13 +18,13 @@ name: smoke-seeded
 - takeScreenshot: 02_cabinet
 
 - tapOn:
-    text: "^进展$"
-- assertVisible: 进展追踪
+    text: "^记录$"
+- assertVisible: 服药记录
 - takeScreenshot: 03_progress
 
 - tapOn:
     text: "^统计$"
-- assertVisible: 统计报表
+- assertVisible: 用药统计
 - takeScreenshot: 04_stats
 
 # 进药品详情（种子数据第一张药卡）
@@ -52,8 +52,8 @@ name: smoke-seeded
 - tapOn:
     text: "^已服$"
     index: 0
-- assertVisible: 撤销（回到未确认）
+- assertVisible: 撤销记录
 - takeScreenshot: 07_record_detail
-- tapOn: 撤销（回到未确认）
+- tapOn: 撤销记录
 - assertVisible: '待服药 \(\d+\)'
 - takeScreenshot: 08_undone
