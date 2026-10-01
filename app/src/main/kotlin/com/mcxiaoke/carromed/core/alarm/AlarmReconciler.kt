@@ -329,6 +329,7 @@ object AlarmReconciler {
                             .onFailure { AppLog.e(TAG, "snooze schedule failed slot=${slot.id}", it) }
                         scheduled++
                     } else if (snoozeAt >= catchupFloor &&
+                        Notifications.areNotificationsReachable(context) &&
                         !Notifications.isDoseNotificationShown(context, slot.id)
                     ) {
                         // 推迟目标时刻已过但仍在补响窗口内 ⇒ 补响一次。
@@ -362,7 +363,10 @@ object AlarmReconciler {
                 runCatching { AlarmScheduler.schedule(context, slot, mainAt, AlarmScheduler.Kind.MAIN) }
                     .onFailure { AppLog.e(TAG, "schedule failed slot=${slot.id}", it) }
                 scheduled++
-            } else if (mainAt >= catchupFloor && !Notifications.isDoseNotificationShown(context, slot.id)) {
+            } else if (mainAt >= catchupFloor &&
+                Notifications.areNotificationsReachable(context) &&
+                !Notifications.isDoseNotificationShown(context, slot.id)
+            ) {
                 // 补响一次（决策 C / M1-7），判据见类 KDoc「补响为什么只响一次」。
                 //
                 // 补响窗口 `(now - CATCHUP_WINDOW_MS, now]` 是"闹钟刚丢"的高发区间。

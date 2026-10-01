@@ -158,6 +158,9 @@ class ReminderPauseTest {
         assertThat(s.pausedUntil).isNotNull()             // 前提：字段没被清
         assertThat(s.isPausedOn(after)).isFalse()          // 结论：判定正确
         assertThat(s.pauseStatus(after)).isEqualTo(PauseStatus.NotPaused)     // UI 也不该再显示"已暂停"
+        // 过期未清理的旧值：daysUntilResume 也按"未暂停"返回 null（orsbf P2-5），
+        // 不再返回语义上不存在的"还有 0 天恢复"
+        assertThat(s.daysUntilResume(after)).isNull()
     }
 
     @Test

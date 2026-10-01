@@ -94,7 +94,9 @@ data class ReminderSettingsEntity(
     fun daysUntilResume(today: LocalDate): Int? {
         val until = pausedUntil?.takeIf { it.isNotBlank() } ?: return null
         val end = parseDate(until) ?: return null
-        if (end.isBefore(today)) return 0
+        // 已过期但尚未清理的旧暂停值按"未暂停"返回 null（orsbf P2-5）：
+        // 与 KDoc 和 [isPausedOn] 同口径 —— "还有 0 天恢复"是一个语义上不存在的状态。
+        if (end.isBefore(today)) return null
         val days = (end.toEpochDay() - today.toEpochDay()).toInt()
         return days + 1   // 含当天：今天到期 ⇒ 明天恢复
     }

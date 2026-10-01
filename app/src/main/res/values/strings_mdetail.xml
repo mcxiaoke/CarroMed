@@ -90,6 +90,7 @@
     <string name="mdetail_sum_stock_negative">记录余量为负（%1$s %2$s），请校准库存</string>
     <string name="mdetail_sum_stock_remaining">%1$s %2$s 剩余</string>
     <string name="mdetail_sum_runway">" · 约可用 %1$d 天"</string>
+    <string name="mdetail_sum_runway_overspent">" · 已超支"</string>
 
     <!-- 库存流水类型标签 -->
     <string name="mdetail_tx_taken">服药扣减</string>

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -363,10 +364,9 @@ fun ReminderSettingsScreen(
                             listOf(1, 2, 3, 4).forEach { n ->
                                 OutlinedButton(
                                     onClick = { viewModel.spreadTimes(n) },
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(vertical = 6.dp),
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                     shape = RoundedCornerShape(8.dp)
-                                ) { Text(stringResource(R.string.rem_times_per_day, n), fontSize = 12.sp) }
+                                ) { Text(stringResource(R.string.rem_times_per_day, n), style = MaterialTheme.typography.labelLarge) }
                             }
                         }
                         Spacer(Modifier.height(14.dp))
@@ -744,9 +744,13 @@ private fun Stepper(
             if (onResetToGlobal != null) {
                 TextButton(
                     onClick = onResetToGlobal,
-                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
-                    Text(stringResource(R.string.rem_follow_global), fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        stringResource(R.string.rem_follow_global),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         }

@@ -173,7 +173,7 @@ fun MedicationDetailScreen(
             else -> stringResource(R.string.mdetail_status_active)
         }
         val statusColor = when {
-            med.isArchived -> MaterialTheme.colorScheme.outline
+            med.isArchived -> MaterialTheme.colorScheme.onSurfaceVariant
             isPaused || isPrn -> MaterialTheme.colorScheme.tertiary
             else -> SuccessGreen
         }
@@ -750,8 +750,12 @@ private fun buildInventorySummary(s: MedDetailUiState): String {
     } else {
         stringResource(R.string.mdetail_sum_stock_remaining, Quantity.fmt(balance), med.unit)
     }
-    val runway = if (StatsEngine.isRunwayUnlimited(s.runwayDays)) ""
-    else stringResource(R.string.mdetail_sum_runway, s.runwayDays)
+    val runway = when {
+        StatsEngine.isRunwayUnlimited(s.runwayDays) -> ""
+        // 负天数 = 已超支（orsbf P1-4），不渲染成"约可用 -2 天"
+        s.runwayDays < 0 -> stringResource(R.string.mdetail_sum_runway_overspent)
+        else -> stringResource(R.string.mdetail_sum_runway, s.runwayDays)
+    }
     return stock + runway
 }
 
@@ -898,8 +902,9 @@ private fun RecordStatusChip(status: RecordStatus, isRetrospective: Boolean) {
         // "系统算错了" —— 而实际上是他自己刚点的撤销没生效。
         //
         // `REVERTED` 显示为灰色"已撤销"，与 `SKIPPED` 同族（都不是有效服药）。
-        RecordStatus.REVERTED -> stringResource(R.string.mdetail_status_reverted) to MaterialTheme.colorScheme.outline
-        RecordStatus.SKIPPED -> stringResource(R.string.mdetail_status_skipped) to MaterialTheme.colorScheme.outline
+        // 灰色走 onSurfaceVariant（对白底 7.4:1）而不是 outline（1.23:1，接近隐形）。
+        RecordStatus.REVERTED -> stringResource(R.string.mdetail_status_reverted) to MaterialTheme.colorScheme.onSurfaceVariant
+        RecordStatus.SKIPPED -> stringResource(R.string.mdetail_status_skipped) to MaterialTheme.colorScheme.onSurfaceVariant
         RecordStatus.COMPLETED ->
             if (isRetrospective) stringResource(R.string.mdetail_status_retro) to MaterialTheme.colorScheme.tertiary
             else stringResource(R.string.mdetail_status_taken) to SuccessGreen

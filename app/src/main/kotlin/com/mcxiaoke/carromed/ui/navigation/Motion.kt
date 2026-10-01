@@ -64,18 +64,10 @@ object MotionSpec {
             animationSpec = tween(DURATION_NORMAL, easing = MotionEasing)
         ) + fadeOut(animationSpec = tween(DURATION_FAST, easing = MotionEasing))
 
-    // ---------- 4. 模态表单下钻 (新建用药 / 手动补录) ----------
-    val modalEnter: EnterTransition =
-        slideInVertically(
-            initialOffsetY = { fullHeight -> fullHeight / 4 },
-            animationSpec = tween(DURATION_MODAL, easing = MotionEasing)
-        ) + fadeIn(animationSpec = tween(DURATION_MODAL, easing = MotionEasing))
-
-    val modalExit: ExitTransition =
-        slideOutVertically(
-            targetOffsetY = { fullHeight -> fullHeight / 4 },
-            animationSpec = tween(DURATION_FAST, easing = MotionEasing)
-        ) + fadeOut(animationSpec = tween(DURATION_FAST, easing = MotionEasing))
+    // ---------- 4. 模态表单下钻 ----------
+    // ⚠️ 已删除（orsbf P2-17）：modalEnter / modalExit 从未被任何 route 挂载
+    //（新建用药 / 手动补录走的是 NavHost 默认的 secondary 转场）。
+    // 真要做"底部升起表单"时再从 git 历史取回，并同步挂到对应 route。
 
     // ---------- 5. 底栏平滑进出场 ----------
     val navBarEnter: EnterTransition =

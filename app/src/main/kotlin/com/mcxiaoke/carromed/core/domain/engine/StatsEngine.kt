@@ -125,6 +125,8 @@ object StatsEngine {
         }
 
         val runwayDays = (currentStock / dailyEstimatedConsumption).toInt()
+        // 负库存（D-9 允许）会算出负天数：如实返回，UI 单列"已超支"分支；
+        // 不在这里钳 0，否则"超支"这个最重要的信息会被吞掉。
         val isAlert = (alertEnabled && currentStock <= minStockAlert) ||
             (withShortRunwayAlert && runwayDays <= SHORT_RUNWAY_ALERT_DAYS)
         return Pair(runwayDays, isAlert)
@@ -133,11 +135,13 @@ object StatsEngine {
     /**
      * "没有日消耗、可用天数不适用"的哨兵。
      *
-     * ⚠️ **不是** [Int.MAX_VALUE]。旧实现用 `Int.MAX_VALUE` 表示"无限"，
-     * 而它是个**合法但荒谬**的整数：一旦被算术碰到（`- 1`、格式化、排序）就溢出，
-     * 任何消费者也分不清"无限"与"算错了"。显式哨兵让"不适用"成为一个可判定的状态。
+     * ⚠️ **不是** [Int.MAX_VALUE]（合法但荒谬：被算术碰到就溢出），**也不是 -1**
+     * （orsbf P1-4：账面允许为负（D-9），库存 -1、日消耗 1 时
+     * `(currentStock / daily).toInt()` 恰好算出 -1，与哨兵撞码 ——
+     * "已超支、最紧急"被渲染成"不适用"，且低库存横幅不触发）。
+     * [Int.MIN_VALUE] 是本函数产出**不可能**的值：库存/日消耗的量级远到不了它。
      */
-    const val RUNWAY_UNLIMITED = -1
+    const val RUNWAY_UNLIMITED = Int.MIN_VALUE
 
     /** [withShortRunwayAlert] 启用时，剩余天数不超过该值即告警。 */
     const val SHORT_RUNWAY_ALERT_DAYS = 7
@@ -458,23 +462,54 @@ object StatsEngine {
     }
 
     /**
+     * [scheduledDaysPerWeek] 的**精确浮点版**，专供 [calculateStockRunwayBySchedule]
+     * 做日消耗折算（orsbf P1-5）。
+     *
+     * ## 为什么不能共用取整版
+     *
+     * 取整版的下界 1 是给**展示**用的：`INTERVAL n ≥ 15` 时 `round(7/n) = 0`，
+     * 不夹到 1 会被当成"无限"。但把夹过的 1 喂给日消耗折算，
+     * "每隔 30 天吃一次"就变成"每周吃 1 次"—— **消耗高估 4.3 倍**，
+     * 可用天数只剩真实值的 1/4。折算必须用未取整的 `7.0 / n`。
+     */
+    fun scheduledDaysPerWeekExact(
+        type: PolicyType?,
+        intervalDays: Int?,
+        daysOfWeek: List<Int>?,
+        cycleOnDays: Int?,
+        cycleOffDays: Int?
+    ): Double = when (type) {
+        PolicyType.DAILY -> 7.0
+        PolicyType.INTERVAL -> 7.0 / (intervalDays ?: 2).coerceAtLeast(1)
+        PolicyType.DAYS_OF_WEEK -> (daysOfWeek?.size ?: 0).toDouble()
+        PolicyType.CYCLE -> {
+            val on = (cycleOnDays ?: 21).coerceAtLeast(1)
+            val off = (cycleOffDays ?: 7).coerceAtLeast(0)
+            val total = on + off
+            if (total == 0) 0.0 else 7.0 * on / total
+        }
+        PolicyType.PRN, null -> 0.0
+    }
+
+    /**
      * 库存可用剩余天数 + 是否预警。
      * 计划型药品的日消耗量应按"实际排班日"折算，否则 INTERVAL / DAYS_OF_WEEK
      * 会被高估日消耗、从而低估可用天数。
      *
-     * @param scheduledDosesPerWeek 该药品每周实际排班的时点总数 (0 表示按需/不追踪)
+     * @param scheduledDosesPerWeek 该药品每周实际排班的时点总数
+     *   （**精确值**，来自 [scheduledDaysPerWeekExact]；0 表示按需/不追踪）
      */
     fun calculateStockRunwayBySchedule(
         currentStock: Float,
         dosesPerScheduledDay: Float,
-        scheduledDosesPerWeek: Int,
+        scheduledDosesPerWeek: Double,
         minStockAlert: Float = 0f
     ): Pair<Int, Boolean> {
-        if (dosesPerScheduledDay <= 0f || scheduledDosesPerWeek <= 0) {
+        if (dosesPerScheduledDay <= 0f || scheduledDosesPerWeek <= 0.0) {
             return calculateStockRunway(currentStock, 0f, minStockAlert)
         }
         // 排班日折算：每周排班 N 次 → 日均消耗 = 单次日量 * N / 7
-        val dailyConsumption = dosesPerScheduledDay * (scheduledDosesPerWeek / 7.0f)
+        val dailyConsumption = dosesPerScheduledDay * (scheduledDosesPerWeek / 7.0).toFloat()
         return calculateStockRunway(currentStock, dailyConsumption, minStockAlert)
     }
 }

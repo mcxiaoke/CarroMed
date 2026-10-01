@@ -309,7 +309,10 @@ class ReminderSettingsViewModel(
         s.copy(
             times = (0 until count).map { i ->
                 val t = if (count == 1) 8 * 60 else start + step * i
-                val text = String.format(java.util.Locale.getDefault(), "%02d:%02d", t / 60, t % 60)
+                // Locale.ROOT（orsbf P1-18）：这个串要写进 policy_times.time_of_day，
+                // 投影引擎按 ISO 解析 —— 用默认 locale 在 ar-EG 等 locale 下
+                // 会产出阿拉伯-印度数字，LocalTime.parse 直接失败，提醒静默降级。
+                val text = String.format(java.util.Locale.ROOT, "%02d:%02d", t / 60, t % 60)
                 ReminderTimeDraft(
                     time = text,
                     dose = dose,
@@ -588,7 +591,7 @@ class ReminderSettingsViewModel(
         val p = after.split(":")
         val total = ((p.getOrNull(0)?.toIntOrNull() ?: 8) * 60 +
             (p.getOrNull(1)?.toIntOrNull() ?: 30) + 240) % (24 * 60)
-        return String.format(java.util.Locale.getDefault(), "%02d:%02d", total / 60, total % 60)
+        return String.format(java.util.Locale.ROOT, "%02d:%02d", total / 60, total % 60)
     }
 
     private fun guessLabel(time: String): String {

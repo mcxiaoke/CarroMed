@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -301,9 +302,11 @@ fun PermissionItemCard(
                 OutlinedButton(
                     onClick = action.onClick,
                     shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)
+                    // 这是"修复闹钟降级"的唯一自救入口，触摸目标必须 ≥48dp
+                    //（orsbf P1-15）：此前的 vertical 4.dp + 12sp 实测只有 ~25dp。
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
-                    Text(action.label, fontSize = 12.sp, maxLines = 1)
+                    Text(action.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))

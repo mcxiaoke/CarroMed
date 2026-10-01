@@ -137,6 +137,15 @@ fun TodayScreen(
                         streakDays = uiState.streakDays,
                         onClick = { showHistoryCalendarSheet = true }
                     )
+                    // 设置入口（orsbf P0-7）：此前 onNavigateToSettings 是死参数，
+                    // 全 App 只剩统计页齿轮一个入口 —— 中老年用户四个 Tab 翻遍
+                    // 也找不到"夜间免打扰 / 备份 / 防漏提醒自检"。
+                    IconButton(onClick = onNavigateToSettings) {
+                        Icon(
+                            Icons.Outlined.Settings,
+                            contentDescription = stringResource(R.string.today_cd_settings)
+                        )
+                    }
                 }
             )
         },
@@ -383,7 +392,9 @@ fun TodayScreen(
                         text = stringResource(R.string.today_skipped_section, uiState.skippedItems.size),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.outline,
+                        // onSurfaceVariant 而不是 outline：outline 对白底 1.23:1，
+                        // 文字接近隐形（orsbf P0-3 / P1-14）
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
@@ -550,7 +561,8 @@ private fun PendingDoseCard(
                 IconButton(
                     onClick = onTakeDose,
                     modifier = Modifier
-                        .size(42.dp)
+                        // 全 App 最高频的动作，触摸目标 48dp（orsbf P1-15）
+                        .size(48.dp)
                         .testTag(TestTags.doseConfirm(item.slot.id))
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
@@ -786,7 +798,7 @@ private fun SkippedDoseCard(
             Icon(
                 Icons.Default.Close,
                 contentDescription = stringResource(R.string.today_cd_skipped),
-                tint = MaterialTheme.colorScheme.outline,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(22.dp)
             )
             Spacer(Modifier.width(12.dp))
@@ -803,7 +815,7 @@ private fun SkippedDoseCard(
                 Text(
                     text = stringResource(R.string.today_skipped_detail),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.outline
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

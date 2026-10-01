@@ -520,16 +520,8 @@ fun AddEditMedicationScreen(
     }
 }
 
-/**
- * 当前时刻的"当天分钟数"，**每次组合现算**。
- *
- * 刻意不做成 `remember` 或一个顶层常量（见 M7-4）。判据是**墙上时钟**，
- * 而墙上时钟会走 —— 把它冻结在组合时刻等于让提示在用户眼皮底下过期。
- */
-private fun currentMinuteOfDay(): Int {
-    val c = Calendar.getInstance()
-    return c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
-}
+// ⚠️ 已删除（orsbf P2-17，零调用方）：currentMinuteOfDay 与 StepperRow。
+// 步进器在提醒设置页有自己的一份实现。
 
 @Composable
 private fun LowFrictionTipCard() {
@@ -675,7 +667,10 @@ fun ReadOnlyDateField(
         DatePickerDialog(
             context,
             { _, y, m, d ->
-                onDateChange(String.format(Locale.getDefault(), "%04d-%02d-%02d", y, m + 1, d))
+                // Locale.ROOT（orsbf P1-18）：这个串写进 dose_slots.scheduled_date /
+                // 策略起止日，投影引擎按 ISO 解析 —— 默认 locale 在部分语言下
+                // 会产出非 ASCII 数字，解析失败即提醒静默降级。
+                onDateChange(String.format(Locale.ROOT, "%04d-%02d-%02d", y, m + 1, d))
             },
             cal.get(Calendar.YEAR),
             cal.get(Calendar.MONTH),
@@ -762,52 +757,5 @@ private fun InitialStockCard(
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
         )
-    }
-}
-
-@Composable
-private fun StepperRow(
-    label: String,
-    value: Int,
-    onDecrement: () -> Unit,
-    onIncrement: () -> Unit,
-    canDecrement: Boolean,
-    canIncrement: Boolean,
-    hint: String
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                text = hint,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onDecrement, enabled = canDecrement) {
-                Icon(Icons.Default.Remove, contentDescription = stringResource(R.string.medit_cd_decrease), modifier = Modifier.size(18.dp))
-            }
-            Text(
-                text = "$value",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.width(30.dp),
-                textAlign = TextAlign.Center
-            )
-            IconButton(onClick = onIncrement, enabled = canIncrement) {
-                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.medit_cd_increase), modifier = Modifier.size(18.dp))
-            }
-        }
     }
 }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -394,7 +395,8 @@ fun SettingsScreen(
                             OutlinedButton(
                                 onClick = { viewModel.exportCsv() },
                                 enabled = !uiState.isExporting,
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.heightIn(min = 48.dp) // 触摸目标 ≥48dp（orsbf P1-15）
                             ) {
                                 Text(stringResource(R.string.set_export_csv_button), fontSize = 12.sp)
                             }
@@ -414,7 +416,8 @@ fun SettingsScreen(
                             OutlinedButton(
                                 onClick = { viewModel.exportBackup() },
                                 enabled = !uiState.isExporting,
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.heightIn(min = 48.dp) // 触摸目标 ≥48dp（orsbf P1-15）
                             ) {
                                 Text(stringResource(R.string.set_create_backup_button), fontSize = 12.sp)
                             }
@@ -433,7 +436,8 @@ fun SettingsScreen(
                             }
                             OutlinedButton(
                                 onClick = { backupPickerLauncher.launch(arrayOf("application/json")) },
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.heightIn(min = 48.dp) // 触摸目标 ≥48dp（orsbf P1-15）
                             ) {
                                 Text(stringResource(R.string.set_pick_file_button), fontSize = 12.sp)
                             }
@@ -456,7 +460,8 @@ fun SettingsScreen(
                             }
                             OutlinedButton(
                                 onClick = { viewModel.openLocalBackupPicker() },
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.heightIn(min = 48.dp) // 触摸目标 ≥48dp（orsbf P1-15）
                             ) {
                                 Text(stringResource(R.string.set_local_backup_button), fontSize = 12.sp)
                             }
@@ -495,7 +500,8 @@ fun SettingsScreen(
                                         }
                                     }
                                 },
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.heightIn(min = 48.dp) // 触摸目标 ≥48dp（orsbf P1-15）
                             ) {
                                 Text(stringResource(R.string.set_export_log_button), fontSize = 12.sp)
                             }

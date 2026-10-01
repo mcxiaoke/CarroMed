@@ -17,6 +17,7 @@
     <string name="refill_channel_online">京东/阿里线上大药房</string>
     <string name="refill_channel_family">家庭医保药店</string>
     <string name="refill_channel_label">购买渠道 / 来源</string>
+    <string name="refill_channel_unspecified">未填写</string>
     <string name="refill_batch_number_label">生产批号 (选填)</string>
     <string name="refill_batch_number_placeholder">如 20260408A</string>
     <string name="refill_expiry_label">有效期至 (选填)</string>

@@ -83,13 +83,28 @@ class AlarmReceiver : BroadcastReceiver() {
 
                 // 按药品解析提醒行为 (推迟时长 / 夜间静音 / 重要提醒)，全部读用户真实配置
                 val behavior = ReminderSettings.resolve(appContext, db, med.id)
-                Notifications.showDoseNotification(
+                val shown = Notifications.showDoseNotification(
                     context = appContext,
                     slot = slot,
                     overview = overview,
                     behavior = behavior,
                     kind = kind
                 )
+                // ⚠️ 按真实投递结果记日志（orsbf P0-5）：通知权限被拒 / 渠道被关时
+                // notify() 是静默空操作，旧实现这里恒记 "notification shown" ——
+                // 事后排查日志会得出"通知已发出"的错误结论。
+                if (!shown) {
+                    AppLog.e(
+                        "AlarmReceiver",
+                        "notification NOT delivered for slot=$slotId " +
+                            "(通知权限或渠道被关闭，去系统设置开启后才能收到提醒)"
+                    )
+                    // 通知不可达时**不入队续期对账**：续期的补响判据是
+                    // 「托盘里没有这条通知」，恒为 false，会以 30 秒为周期
+                    // 反复唤醒设备直到补响窗口结束（orsbf P0-5 的风暴根因）。
+                    // 修复出口（开权限）之前，反复对账只是空转耗电。
+                    return@launch
+                }
                 AppLog.i("AlarmReceiver", "notification shown for slot=$slotId")
 
                 // 后续期（P0-2）：本次响铃就是"用户最可能还在用手机"的时刻，此刻续期最划算，

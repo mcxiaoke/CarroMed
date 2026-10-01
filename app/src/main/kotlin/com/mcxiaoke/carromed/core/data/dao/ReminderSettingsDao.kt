@@ -79,8 +79,9 @@ interface ReminderSettingsDao {
     @Query("UPDATE reminder_settings SET paused_until = NULL WHERE medication_id = :medicationId")
     suspend fun resume(medicationId: Long): Int
 
-    @Query("DELETE FROM reminder_settings WHERE medication_id = :medicationId")
-    suspend fun deleteForMedication(medicationId: Long)
+    // ⚠️ 已删除（orsbf P3-1，零调用方）：deleteForMedication。
+    // 删药品时"顺带清设置"由 FK CASCADE（ReminderSettingsEntity 的外键）完成；
+    // 两条删除路并存总有一天会有人走错那条。
 
     @Query("DELETE FROM reminder_settings")
     suspend fun deleteAll()

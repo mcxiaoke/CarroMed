@@ -142,9 +142,20 @@ object Notifications {
          * 分不清是提醒早了还是自己在看手机。
          */
         kind: AlarmScheduler.Kind = AlarmScheduler.Kind.MAIN
-    ) {
+    ): Boolean {
         val med = overview.medication
         ensureChannel(context)
+
+        // 输出端可达性检查（orsbf P0-5）：通知权限被拒 / 渠道被关时 `notify()` 是
+        // **静默空操作** —— Android 13+ 不抛异常、不上屏。旧实现照样走完构建流程，
+        // 调用方把"调用了 notify()"当成"用户收到了"，而补响判据（托盘里有没有）
+        // 恒为 false，于是每条漏掉的服药以 30 秒为周期反复唤醒设备直到补响窗口结束。
+        // 把"没送出去"如实返回给调用方，链路才有正确的失败信号。
+        val nm = NotificationManagerCompat.from(context)
+        if (!nm.areNotificationsEnabled()) {
+            AppLog.e("Notifications", "notify skipped for slot=${slot.id}: notifications disabled")
+            return false
+        }
 
         // doseAmount 是整数毫单位（D-7）。⚠️ 原先的 `doseAmount % 1f == 0f`
         // 判断能编译（Kotlin 允许 Int % Float）却恒为真，会把 1 片显示成「1000 片」。
@@ -218,13 +229,43 @@ object Notifications {
             )
             .build()
 
-        runCatching {
-            NotificationManagerCompat.from(context).notify(slot.id.toInt(), notification)
+        // 渠道级关闭（用户在系统设置里单独关掉这个渠道）同样不可达：
+        // IMPORTANCE_NONE 的渠道 notify() 也是静默空操作。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            nm.getNotificationChannel(channel)?.importance == NotificationManager.IMPORTANCE_NONE
+        ) {
+            AppLog.e("Notifications", "notify skipped for slot=${slot.id}: channel $channel disabled")
+            return false
+        }
+
+        return runCatching {
+            nm.notify(slot.id.toInt(), notification)
+            true
         }.onFailure { AppLog.e("Notifications", "notify failed for slot=${slot.id}", it) }
+            .getOrDefault(false)
     }
 
     fun cancelDoseNotification(context: Context, slotId: Long) {
         NotificationManagerCompat.from(context).cancel(slotId.toInt())
+    }
+
+    /**
+     * 通知出口当前是否可达：应用级通知权限已授予，且两个提醒渠道都未被用户关闭。
+     *
+     * 供补响判据**前置**（orsbf P0-5）：出口不可达时 `notify()` 是静默空操作，
+     * "托盘里有没有"恒为 false，补响会以 30 秒为周期空转唤醒直到补响窗口结束。
+     * 出口不可达时直接跳过补响排程 —— 修复出口（开权限）之前，反复唤醒只是耗电。
+     */
+    fun areNotificationsReachable(context: Context): Boolean {
+        val nm = NotificationManagerCompat.from(context)
+        if (!nm.areNotificationsEnabled()) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val none = NotificationManager.IMPORTANCE_NONE
+            val channelOff = listOf(CHANNEL_DOSE_REMINDER, CHANNEL_DOSE_REMINDER_SILENT)
+                .any { nm.getNotificationChannel(it)?.importance == none }
+            if (channelOff) return false
+        }
+        return true
     }
 
     /**

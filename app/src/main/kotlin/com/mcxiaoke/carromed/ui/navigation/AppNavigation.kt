@@ -394,7 +394,9 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                                 }
                             }
                         },
-                        icon = { Icon(item.icon, contentDescription = stringResource(item.titleRes)) },
+                        // contentDescription = null：NavigationBarItem 已有 label，
+                        // 图标再带同文案会被 TalkBack 念两遍（orsbf P3-9）
+                        icon = { Icon(item.icon, contentDescription = null) },
                         label = { Text(stringResource(item.titleRes), fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,

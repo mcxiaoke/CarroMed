@@ -277,7 +277,12 @@ class MedicationAdminService(private val db: AppDatabase) {
             // 前两层（UI 字符过滤 + 提交前解析）都只保护"本 App 的这两个表单"。
             // 这一层保护的是**所有**调用方：备份导入、未来 Widget / 手表 / 快捷指令入口。
             // 负数同样拒绝 —— 负剂量打卡 = 给库存**加**药，比 0 更危险。
-            val badDose = draft.times.firstOrNull { it.dose <= 0f }
+            //
+            // 必须校验**量化后**的毫单位而不是浮点入参（orsbf P0-4）：
+            // `0.0004f` 能通过 `> 0f`，`Math.round(0.4) = 0` ⇒ 落库 0 剂量；
+            // 极大值（≥ ~2.1e6）量化溢出 Int 变负 ⇒ 打卡反而**加**库存。
+            // 溢出为负被 `<= 0` 一并拦住。
+            val badDose = draft.times.firstOrNull { Dose.of(it.dose).milli <= 0 }
             require(badDose == null) {
                 "服药时点 ${badDose?.time} 的剂量必须大于 0（当前 ${badDose?.dose}）"
             }
@@ -292,6 +297,31 @@ class MedicationAdminService(private val db: AppDatabase) {
                 "daysOfWeek 取值必须在 1..7（周一..周日），当前 ${draft.daysOfWeek}"
             }
 
+            // ⭐ startDate / endDate 必须是合法 ISO 日期（orsbf P2-8，与时点/剂量同级）。
+            //
+            // 投影层对解析失败的 endDate fail-open（`policyEnd = null`）⇒
+            // **疗程边界整个消失，提醒永不停**；解析失败的 startDate 则
+            // 把过去的排班复活（投影从窗口起点开始）。这里在入口拦住，
+            // 保证投影层永远拿到可解析的日期。
+            val effectiveStart =
+                draft.startDate.ifBlank { previous?.startDate ?: LocalDate.now().toString() }
+            require(runCatching { LocalDate.parse(effectiveStart) }.isSuccess) {
+                "开始日期「$effectiveStart」不是有效日期，请按 YYYY-MM-DD 格式填写"
+            }
+            val effectiveEnd = when {
+                draft.clearEndDate -> null
+                draft.endDate.isNullOrBlank() -> previous?.endDate
+                else -> draft.endDate
+            }
+            if (effectiveEnd != null) {
+                require(runCatching { LocalDate.parse(effectiveEnd) }.isSuccess) {
+                    "结束日期「$effectiveEnd」不是有效日期，请按 YYYY-MM-DD 格式填写"
+                }
+                require(!LocalDate.parse(effectiveEnd).isBefore(LocalDate.parse(effectiveStart))) {
+                    "结束日期（$effectiveEnd）不能早于开始日期（$effectiveStart）"
+                }
+            }
+
             val policy = SchedulePolicyEntity(
                 medicationId = medicationId,
                 policyType = draft.policyType,
@@ -299,25 +329,25 @@ class MedicationAdminService(private val db: AppDatabase) {
                 daysOfWeek = draft.daysOfWeek.distinct().sorted(),
                 cycleOnDays = draft.cycleOnDays.coerceAtLeast(1),
                 cycleOffDays = draft.cycleOffDays.coerceAtLeast(0),
-                startDate = draft.startDate.ifBlank { previous?.startDate ?: LocalDate.now().toString() },
+                startDate = effectiveStart,
                 // 三态：显式清空 > 给了新值 > 没改（沿用历史）。
                 // ⚠️ 顺序不能反：先判 `clearEndDate`，否则关掉 Switch 传来的 null
                 // 会被当成"没改"而沿用旧值，提醒在原定结束日静默停止。
-                endDate = when {
-                    draft.clearEndDate -> null
-                    draft.endDate.isNullOrBlank() -> previous?.endDate
-                    else -> draft.endDate
-                },
+                endDate = effectiveEnd,
                 isActive = true,
                 version = (previous?.version ?: 0) + 1
             )
 
+            // 入库前 trim（orsbf P2-7）：入口校验对 `it.time.trim()` 放行，
+            // 投影层解析的却是**未 trim 的原串** —— " 21:00 " 通过校验、落库带空格、
+            // 投影解析失败回退 08:00，用户每天 08:00 收到一个从没设过的提醒。
+            // 校验口径与写入口径必须同源。
             val times = draft.times
-                .sortedBy { it.time }
+                .sortedBy { it.time.trim() }
                 .mapIndexed { index, t ->
                     PolicyTimeEntity(
                         policyId = 0,
-                        timeOfDay = t.time,
+                        timeOfDay = t.time.trim(),
                         doseAmount = Dose.of(t.dose).milli,
                         label = t.label.ifBlank { SlotLabel.GENERIC.name },
                         sortOrder = index

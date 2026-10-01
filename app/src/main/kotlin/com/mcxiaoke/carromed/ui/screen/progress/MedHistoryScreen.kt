@@ -218,9 +218,9 @@ private fun HistoryStatusChip(timeLabel: String, status: RecordStatus) {
         RecordStatus.COMPLETED ->
             stringResource(R.string.mhist_status_taken) to MaterialTheme.colorScheme.primary
         RecordStatus.SKIPPED ->
-            stringResource(R.string.mhist_status_skipped) to MaterialTheme.colorScheme.outline
+            stringResource(R.string.mhist_status_skipped) to MaterialTheme.colorScheme.onSurfaceVariant
         RecordStatus.REVERTED ->
-            stringResource(R.string.mhist_status_reverted) to MaterialTheme.colorScheme.outline
+            stringResource(R.string.mhist_status_reverted) to MaterialTheme.colorScheme.onSurfaceVariant
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(

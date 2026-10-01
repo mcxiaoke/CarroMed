@@ -9,10 +9,10 @@
     <string name="cabinet_tab_active">正在服用 (%1$d)</string>
     <string name="cabinet_tab_archived">已停用归档 (%1$d)</string>
     <string name="cabinet_cd_hint">提示</string>
-    <string name="cabinet_hint_text">轻按药品可查看详情、调整提醒计划或管理余量</string>
+    <string name="cabinet_hint_text">点按药品可查看详情、调整提醒计划或管理余量</string>
     <string name="cabinet_empty_search_active">没有匹配「%1$s」的在服药品</string>
     <string name="cabinet_empty_search_archived">归档中没有匹配的药品</string>
-    <string name="cabinet_empty_active">药箱暂无药品\n轻按右上角「+」添加</string>
+    <string name="cabinet_empty_active">药箱暂无药品\n点按右上角「+」添加</string>
     <string name="cabinet_empty_archived">暂无归档停药记录</string>
     <string name="cabinet_stock_low">⚠️ 剩 %1$s %2$s</string>
     <string name="cabinet_stock_normal">剩 %1$s %2$s</string>

@@ -1,5 +1,6 @@
 package com.mcxiaoke.carromed.core.data
 import com.mcxiaoke.carromed.core.data.model.PolicyType
+import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
 import com.mcxiaoke.carromed.core.alarm.AlarmScheduler
 import com.mcxiaoke.carromed.core.alarm.AppLogging
 
@@ -729,6 +730,19 @@ object DataExporter {
     }
 
     /**
+     * 恢复回填的分批大小（orsbf P0-1）。
+     *
+     * minSdk 26 档 Android 的 SQLite 变量上限是 **999**，而 Room 的 `@Insert(List)`
+     * 生成的是一条多值 INSERT、不分片 —— 每行占用的变量数 = 列数
+     * （dose_slots 11 列 ⇒ 上限 ~90 行，medications 20 列 ⇒ 上限 ~49 行）。
+     * 一年数据就是 3000+ 行，整表一次插入必然 `bind or column index out of range`，
+     * 事务整体回滚 ⇒「恢复失败」。
+     *
+     * 所有调用点都在 [restoreBackup] 的 `withTransaction` 内，分批不破坏原子性。
+     */
+    private const val RESTORE_CHUNK_SIZE = 50
+
+    /**
      * 用备份覆盖整库。**必须在事务内**，且调用前必须已通过 [validateBackup]。
      *
      * @return 恢复的药品数与服药记录数
@@ -746,7 +760,9 @@ object DataExporter {
             db.medicationDao().deleteAllMedications()
 
             // 按外键依赖顺序回填 (父表在前，原样保留自增 ID)
-            db.medicationDao().insertAll(backup.medications.map { m ->
+            // 以下全部 insert 分批（RESTORE_CHUNK_SIZE）：Room 的 @Insert(List) 是
+            // 一条多值 INSERT，超过 SQLite 变量上限 999 会整体失败，见常量 KDoc。
+            backup.medications.map { m ->
                 MedicationEntity(
                     id = m.id,
                     name = m.name,
@@ -766,7 +782,8 @@ object DataExporter {
                     createdAt = m.createdAt,
                     updatedAt = m.updatedAt
                 )
-            })
+            }.chunked(RESTORE_CHUNK_SIZE)
+                .forEach { chunk -> db.medicationDao().insertAll(chunk) }
 
             // 提醒运行态必须**晚于**药品恢复（外键约束）。
             // 备份来自缺少该数组的旧版本时，为每个药品补一行默认值，
@@ -785,7 +802,7 @@ object DataExporter {
                 )
             }
 
-            db.schedulePolicyDao().insertAllPolicies(backup.schedulePolicies.map { p ->
+            backup.schedulePolicies.map { p ->
                 SchedulePolicyEntity(
                     id = p.id,
                     medicationId = p.medicationId,
@@ -818,9 +835,10 @@ object DataExporter {
                     version = p.version,
                     createdAt = p.createdAt
                 )
-            })
+            }.chunked(RESTORE_CHUNK_SIZE)
+                .forEach { chunk -> db.schedulePolicyDao().insertAllPolicies(chunk) }
 
-            db.schedulePolicyDao().insertTimes(backup.policyTimes.map { t ->
+            backup.policyTimes.map { t ->
                 PolicyTimeEntity(
                     id = t.id,
                     policyId = t.policyId,
@@ -829,11 +847,12 @@ object DataExporter {
                     label = t.label,
                     sortOrder = t.sortOrder
                 )
-            })
+            }.chunked(RESTORE_CHUNK_SIZE)
+                .forEach { chunk -> db.schedulePolicyDao().insertTimes(chunk) }
 
             // ⚠️ `insertAll` 是 `OnConflictStrategy.IGNORE`（A3 为保住 slot.id 而改的），
             // 所以**唯一键重复会被静默丢弃**。这正是 [validateBackup] 要提前拦下的原因。
-            db.doseSlotDao().insertAll(backup.doseSlots.map { s ->
+            backup.doseSlots.map { s ->
                 DoseSlotEntity(
                     id = s.id,
                     medicationId = s.medicationId,
@@ -847,9 +866,10 @@ object DataExporter {
                     snoozeUntilTs = s.snoozeUntilTs,
                     createdAt = s.createdAt
                 )
-            })
+            }.chunked(RESTORE_CHUNK_SIZE)
+                .forEach { chunk -> db.doseSlotDao().insertAll(chunk) }
 
-            db.doseRecordDao().insertAll(backup.doseRecords.map { r ->
+            backup.doseRecords.map { r ->
                 DoseRecordEntity(
                     id = r.id,
                     slotId = r.slotId,
@@ -862,9 +882,10 @@ object DataExporter {
                     noteKey = r.noteKey,
                     createdAt = r.createdAt
                 )
-            })
+            }.chunked(RESTORE_CHUNK_SIZE)
+                .forEach { chunk -> db.doseRecordDao().insertAll(chunk) }
 
-            db.inventoryTransactionDao().insertAll(backup.inventoryTransactions.map { t ->
+            backup.inventoryTransactions.map { t ->
                 InventoryTransactionEntity(
                     id = t.id,
                     medicationId = t.medicationId,
@@ -878,11 +899,13 @@ object DataExporter {
                     expiryDate = t.expiryDate,
                     createdAt = t.createdAt
                 )
-            })
+            }.chunked(RESTORE_CHUNK_SIZE)
+                .forEach { chunk -> db.inventoryTransactionDao().insertAll(chunk) }
 
-            db.appSettingDao().insertAll(backup.appSettings.map { s ->
+            backup.appSettings.map { s ->
                 AppSettingEntity(key = s.key, value = s.value, updatedAt = s.updatedAt)
-            })
+            }.chunked(RESTORE_CHUNK_SIZE)
+                .forEach { chunk -> db.appSettingDao().insertAll(chunk) }
 
             backup.medications.size to backup.doseRecords.size
         }
@@ -1154,10 +1177,20 @@ object DataExporter {
             val (medCount, recordCount) = restoreBackup(db, backup)
             // 恢复是数据安全路径的最高危动作（G6）：成败都必须在时间线上留痕
             AppLog.i(TAG, "restore ok meds=$medCount records=$recordCount snapshot=${snapshot != null}")
+            // 恢复后必须**立即**重排全部闹钟（orsbf P1-1）：清库前已撤掉所有闹钟，
+            // 若等用户下次打开 MainActivity / 周期 Worker 才对账，
+            // 中间窗口内这个 App 不响任何提醒 —— 而第一承诺就是"到点一定响"。
+            runCatching { AlarmReconciler.rescheduleAll(context, db) }
+                .onFailure { AppLog.e(TAG, "reschedule alarms after restore failed", it) }
             RestoreResult.Success(medCount, recordCount, snapshot?.absolutePath)
         } catch (e: Exception) {
             // 事务整体回滚，数据库回到恢复前的样子
             AppLog.e(TAG, "restore failed, transaction rolled back", e)
+            // 失败路径同样要重建闹钟（orsbf P1-1）：cancelAllAlarmsBeforeRestore
+            // 已把旧闹钟撤掉且事务回滚只还原数据库 —— 不重排的话，
+            // 用户看到"恢复失败"，接着发现"药也不提醒了"，且无法自行恢复。
+            runCatching { AlarmReconciler.rescheduleAll(context, db) }
+                .onFailure { AppLog.e(TAG, "reschedule alarms after restore failure failed", it) }
             RestoreResult.Failure(
                 context.getString(R.string.csv_error_restore_rolled_back, e.message ?: "")
             )

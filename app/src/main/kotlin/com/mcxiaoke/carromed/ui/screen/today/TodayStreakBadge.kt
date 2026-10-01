@@ -74,7 +74,8 @@ fun TodayStreakBadge(
         )
         Spacer(Modifier.width(4.dp))
         Text(
-            text = if (streakDays > 0) "$streakDays 天" else "0 天",
+            // 资源化（orsbf P3-8）：字符串模板硬编码绕过了 scan_hardcoded_strings 的扫描
+            text = stringResource(R.string.today_streak_badge, streakDays),
             style = MaterialTheme.typography.labelMedium.copy(
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.sp

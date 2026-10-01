@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -90,6 +91,9 @@ fun RefillScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                // imePadding（orsbf P1-5）：键盘弹出时不把列表末尾的
+                // 「确认入库上架」按钮顶出屏幕；其余五个表单页均已处理
+                .imePadding()
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -227,7 +231,9 @@ fun RefillScreen(
                             stringResource(R.string.refill_channel_online),
                             stringResource(R.string.refill_channel_family)
                         )
-                        var channelExpanded by remember { mutableStateOf(false) }
+                        // rememberSaveable（orsbf P1-6）：写在 LazyColumn item 里，
+                        // remember 会随滚动销毁 —— 下拉点开一滚就自己合上
+                        var channelExpanded by rememberSaveable { mutableStateOf(false) }
 
                         ExposedDropdownMenuBox(
                             expanded = channelExpanded,
@@ -239,6 +245,7 @@ fun RefillScreen(
                                 onValueChange = {},
                                 readOnly = true,
                                 label = { Text(stringResource(R.string.refill_channel_label)) },
+                                placeholder = { Text(stringResource(R.string.refill_channel_unspecified)) },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = channelExpanded) },
                                 modifier = Modifier
                                     .fillMaxWidth()

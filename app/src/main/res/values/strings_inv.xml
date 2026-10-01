@@ -8,6 +8,7 @@
     <string name="inv_current_stock">当前余量</string>
     <string name="inv_tracking_disabled_hint">未开启库存追踪：服药不会自动扣减库存</string>
     <string name="inv_stat_runway_label">预计可用天数</string>
+    <string name="inv_runway_overspent">已超支</string>
     <string name="inv_stat_daily_consumption_label">日均消耗</string>
     <string name="inv_stat_alert_threshold_label">预警线</string>
     <string name="inv_low_runway_warning">按当前用量仅够约 %1$d 天，建议尽快补货</string>

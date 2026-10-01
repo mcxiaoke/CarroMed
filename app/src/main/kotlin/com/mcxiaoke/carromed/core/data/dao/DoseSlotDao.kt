@@ -145,9 +145,10 @@ interface DoseSlotDao {
     @Query("SELECT * FROM dose_slots WHERE scheduled_date = :dateStr ORDER BY scheduled_ts ASC")
     suspend fun getSlotsForDate(dateStr: String): List<DoseSlotEntity>
 
-    @Query("SELECT * FROM dose_slots WHERE scheduled_date BETWEEN :startDate AND :endDate ORDER BY scheduled_date ASC, scheduled_ts ASC")
-    fun observeSlotsInRange(startDate: String, endDate: String): Flow<List<DoseSlotEntity>>
-
+    // observeSlotsInRange / getSlotsInRange 仍保留：后者是测试 fixture 的读取入口
+    //（PolicyEndDateTest 等）。已删除的是零调用方（orsbf P3-1）：
+    // observeSlotsInRange、getPendingSlotsAfter、countCompletedSlotsForDate、
+    // countTotalSlotsForDate —— 需要时从 git 历史找回。
     @Query("SELECT * FROM dose_slots WHERE scheduled_date BETWEEN :startDate AND :endDate ORDER BY scheduled_date ASC, scheduled_ts ASC")
     suspend fun getSlotsInRange(startDate: String, endDate: String): List<DoseSlotEntity>
 
@@ -161,9 +162,6 @@ interface DoseSlotDao {
      */
     @Query("SELECT * FROM dose_slots WHERE medication_id = :medicationId AND scheduled_date BETWEEN :startDate AND :endDate ORDER BY scheduled_date ASC, scheduled_ts ASC")
     suspend fun getSlotsInRangeForMedication(medicationId: Long, startDate: String, endDate: String): List<DoseSlotEntity>
-
-    @Query("SELECT * FROM dose_slots WHERE status = 'PENDING' AND scheduled_ts >= :fromTs ORDER BY scheduled_ts ASC")
-    suspend fun getPendingSlotsAfter(fromTs: Long): List<DoseSlotEntity>
 
     @Query("SELECT * FROM dose_slots WHERE medication_id = :medicationId AND status = 'PENDING' AND scheduled_ts >= :fromTs ORDER BY scheduled_ts ASC")
     suspend fun getPendingSlotsForMedicationAfter(medicationId: Long, fromTs: Long): List<DoseSlotEntity>
@@ -314,11 +312,8 @@ interface DoseSlotDao {
     )
     suspend fun deleteSpeculativeFutureSlots(medicationId: Long, afterDate: String): Int
 
-    @Query("SELECT COUNT(*) FROM dose_slots WHERE scheduled_date = :dateStr AND status = 'COMPLETED'")
-    suspend fun countCompletedSlotsForDate(dateStr: String): Int
-
-    @Query("SELECT COUNT(*) FROM dose_slots WHERE scheduled_date = :dateStr")
-    suspend fun countTotalSlotsForDate(dateStr: String): Int
+    // ⚠️ 已删除（orsbf P3-1，零调用方）：countCompletedSlotsForDate / countTotalSlotsForDate。
+    // getAllSlots 保留（备份 / 测试使用）。
 
     @Query("SELECT * FROM dose_slots ORDER BY id ASC")
     suspend fun getAllSlots(): List<DoseSlotEntity>

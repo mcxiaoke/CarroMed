@@ -35,6 +35,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -277,19 +278,21 @@ fun ManualDoseScreen(
                                 readOnly = true,
                                 label = { Text(stringResource(R.string.man_date_label)) },
                                 trailingIcon = {
-                                    Icon(
-                                        Icons.Default.CalendarToday,
-                                        contentDescription = stringResource(R.string.man_cd_pick_date),
-                                        modifier = Modifier
-                                            .size(18.dp)
-                                            .androidxClickable {
-                                                DatePickerDialog(
-                                                    context,
-                                                    { _, y, m, d -> viewModel.onActualDateChange(y, m, d) },
-                                                    dt.year, dt.monthValue - 1, dt.dayOfMonth
-                                                ).apply { datePicker.minDate = minDateMs }.show()
-                                            }
-                                    )
+                                    // IconButton 自带 48dp 最小触摸目标；此前是 18dp 的裸
+                                    // clickable Icon，对手抖用户几乎点不中（orsbf P1-15）
+                                    IconButton(onClick = {
+                                        DatePickerDialog(
+                                            context,
+                                            { _, y, m, d -> viewModel.onActualDateChange(y, m, d) },
+                                            dt.year, dt.monthValue - 1, dt.dayOfMonth
+                                        ).apply { datePicker.minDate = minDateMs }.show()
+                                    }) {
+                                        Icon(
+                                            Icons.Default.CalendarToday,
+                                            contentDescription = stringResource(R.string.man_cd_pick_date),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 },
                                 modifier = Modifier
                                     .weight(1.2f)
@@ -308,19 +311,19 @@ fun ManualDoseScreen(
                                 readOnly = true,
                                 label = { Text(stringResource(R.string.man_time_label)) },
                                 trailingIcon = {
-                                    Icon(
-                                        Icons.Default.Schedule,
-                                        contentDescription = stringResource(R.string.man_cd_pick_time),
-                                        modifier = Modifier
-                                            .size(18.dp)
-                                            .androidxClickable {
-                                                TimePickerDialog(
-                                                    context,
-                                                    { _, h, m -> viewModel.onActualTimeChange(h, m) },
-                                                    dt.hour, dt.minute, true
-                                                ).show()
-                                            }
-                                    )
+                                    IconButton(onClick = {
+                                        TimePickerDialog(
+                                            context,
+                                            { _, h, m -> viewModel.onActualTimeChange(h, m) },
+                                            dt.hour, dt.minute, true
+                                        ).show()
+                                    }) {
+                                        Icon(
+                                            Icons.Default.Schedule,
+                                            contentDescription = stringResource(R.string.man_cd_pick_time),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 },
                                 modifier = Modifier
                                     .weight(1f)

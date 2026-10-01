@@ -95,13 +95,15 @@ class DoseRecordTimelinePagingTest {
 
         // 每页 10 条翻到底
         val collected = mutableListOf<Long>()
-        var cursor = Long.MAX_VALUE
+        var cursorTs = Long.MAX_VALUE
+        var cursorId = Long.MAX_VALUE
         var guard = 0
         while (true) {
-            val page = recordDao.getRecordsBefore(cursor, 10)
+            val page = recordDao.getRecordsBefore(cursorTs, cursorId, 10)
             if (page.isEmpty()) break
             collected += page.map { it.id }
-            cursor = page.last().actualTs
+            cursorTs = page.last().actualTs
+            cursorId = page.last().id
             if (++guard > 20) error("翻页未终止，说明游标没有前进")
         }
 
@@ -116,7 +118,7 @@ class DoseRecordTimelinePagingTest {
     fun `流水首屏不含已撤销记录`() = runTest {
         val base = 1_700_000_000_000L
         seed(count = 3, startTs = base, stepMs = 60_000L)
-        val revertedId = recordDao.getRecordsBefore(Long.MAX_VALUE, 10).first().id
+        val revertedId = recordDao.getRecordsBefore(Long.MAX_VALUE, Long.MAX_VALUE, 10).first().id
         recordDao.markReverted(revertedId)
 
         val firstPage = recordDao.observeLatestRecords(10).first()
@@ -128,7 +130,7 @@ class DoseRecordTimelinePagingTest {
     fun `结果按 actual_ts 倒序`() = runTest {        val base = 1_700_000_000_000L
         seed(count = 5, startTs = base, stepMs = 60_000L)
 
-        val page = recordDao.getRecordsBefore(Long.MAX_VALUE, 10)
+        val page = recordDao.getRecordsBefore(Long.MAX_VALUE, Long.MAX_VALUE, 10)
         assertThat(page.map { it.actualTs })
             .isInOrder(Comparator<Long> { a, b -> b.compareTo(a) })
     }
@@ -148,15 +150,17 @@ class DoseRecordTimelinePagingTest {
         val base = 1_700_000_000_000L
         seed(count = 25, startTs = base, stepMs = 60_000L)
 
-        val firstPage = recordDao.getRecordsBefore(Long.MAX_VALUE, 10)
-        val page2 = recordDao.getRecordsBefore(firstPage.last().actualTs, 10)
+        val firstPage = recordDao.getRecordsBefore(Long.MAX_VALUE, Long.MAX_VALUE, 10)
+        val page2 = recordDao.getRecordsBefore(
+            firstPage.last().actualTs, firstPage.last().id, 10
+        )
 
         // 翻页期间：把第 1 页里最早那条标记为已撤销
         val revertedId = firstPage.first().id
         recordDao.markReverted(revertedId)
 
         // 游标语义：第三页必须接着第二页的末尾继续，既不重复也不少一条
-        val third = recordDao.getRecordsBefore(page2.last().actualTs, 10)
+        val third = recordDao.getRecordsBefore(page2.last().actualTs, page2.last().id, 10)
         val snapshot = (firstPage + page2 + third).map { it.id }
         assertThat(snapshot).containsNoDuplicates()
         assertThat(snapshot.toSet()).hasSize(25)
@@ -175,13 +179,15 @@ class DoseRecordTimelinePagingTest {
     /** 从最新一路翻到底，返回全部 id（新 → 旧）。`guard` 防游标不前进导致死循环。 */
     private suspend fun collectAllIds(pageSize: Int = 10): List<Long> {
         val out = mutableListOf<Long>()
-        var cursor = Long.MAX_VALUE
+        var cursorTs = Long.MAX_VALUE
+        var cursorId = Long.MAX_VALUE
         var guard = 0
         while (true) {
-            val page = recordDao.getRecordsBefore(cursor, pageSize)
+            val page = recordDao.getRecordsBefore(cursorTs, cursorId, pageSize)
             if (page.isEmpty()) break
             out += page.map { it.id }
-            cursor = page.last().actualTs
+            cursorTs = page.last().actualTs
+            cursorId = page.last().id
             if (++guard > 50) error("翻页未终止，说明游标没有前进")
         }
         return out
@@ -206,22 +212,52 @@ class DoseRecordTimelinePagingTest {
             status = RecordStatus.REVERTED
         )
 
-        val page = recordDao.getRecordsBefore(Long.MAX_VALUE, 10)
+        val page = recordDao.getRecordsBefore(Long.MAX_VALUE, Long.MAX_VALUE, 10)
         assertThat(page).hasSize(10)                       // 满页，而不是 3 条
         assertThat(page.all { it.status == RecordStatus.COMPLETED }).isTrue()
 
-        val page2 = recordDao.getRecordsBefore(page.last().actualTs, 10)
+        val page2 = recordDao.getRecordsBefore(page.last().actualTs, page.last().id, 10)
         assertThat(page2).hasSize(10)                      // 第三页才会只剩有效记录
 
-        val page3 = recordDao.getRecordsBefore(page2.last().actualTs, 10)
+        val page3 = recordDao.getRecordsBefore(page2.last().actualTs, page2.last().id, 10)
         assertThat(page3).isEmpty()                        // 10 条已撤销一条都不出现
     }
 
     /**
-     * 同毫秒的多条记录：`<` 而非 `<=` 才能既不重也不漏。
+     * ⭐ 同毫秒的记录簇（orsbf P1-3 的核心场景）：页边界切在簇中间时，
+     * 复合游标 `(actual_ts, id)` 必须把簇里其余记录**全部带到下一页**。
      *
-     * 时间戳精确到毫秒，同一次操作写多行是完全可能的。
-     * 若游标用 `<=`，这些同刻记录会在相邻两页各出现一次。
+     * 旧的单列 `<` 游标在这里会静默吞记录：补录"同一时刻吃了 A/B/C"产生
+     * 三条 `actual_ts` 完全相同的记录，页边界切在簇中间时
+     * `actual_ts < cursor` 把簇里其余未加载的记录永远跳过。
+     */
+    @Test
+    fun `同毫秒记录簇跨页边界时其余记录全部可达`() = runTest {
+        val base = 1_700_000_000_000L
+        // 8 条每分钟一条的正常记录（较新）
+        seed(count = 8, startTs = base, stepMs = 60_000L)
+        // 3 条完全同刻的补录记录（簇），刻意让页边界（10 条/页）切进簇内
+        val clusterTs = base - 30 * 60_000L
+        repeat(3) {
+            recordDao.insert(
+                DoseRecordEntity(
+                    medicationId = medId,
+                    actualTs = clusterTs,
+                    doseTaken = 1000,
+                    status = RecordStatus.COMPLETED
+                )
+            )
+        }
+
+        val all = collectAllIds(pageSize = 10)
+        assertThat(all.toSet()).hasSize(11)                // 一条都不丢
+        assertThat(all).containsNoDuplicates()
+        assertThat(recordDao.getRecordsForMedication(medId).map { it.id }.toSet())
+            .isEqualTo(all.toSet())
+    }
+
+    /**
+     * 同毫秒的多条记录：复合游标下相邻页既不重也不漏。
      */
     @Test
     fun `同一毫秒的多条记录不会在相邻页重复出现`() = runTest {
@@ -246,11 +282,12 @@ class DoseRecordTimelinePagingTest {
             )
         )
 
-        val page1 = recordDao.getRecordsBefore(Long.MAX_VALUE, 3)
+        val page1 = recordDao.getRecordsBefore(Long.MAX_VALUE, Long.MAX_VALUE, 3)
         assertThat(page1).hasSize(3)
         assertThat(page1.map { it.actualTs }.distinct()).hasSize(1)
 
-        val page2 = recordDao.getRecordsBefore(sameTs, 3)
+        // 游标取自第 1 页末条：(ts, id) 复合定位
+        val page2 = recordDao.getRecordsBefore(page1.last().actualTs, page1.last().id, 3)
         assertThat(page2).isNotEmpty()
 
         val ids = (page1 + page2).map { it.id }
@@ -273,7 +310,7 @@ class DoseRecordTimelinePagingTest {
         )
         seed(count = 3, startTs = base - 600_000L, stepMs = 60_000L, slotIdBase = 100L)
 
-        val page = recordDao.getRecordsBefore(Long.MAX_VALUE, 10)
+        val page = recordDao.getRecordsBefore(Long.MAX_VALUE, Long.MAX_VALUE, 10)
         assertThat(page).hasSize(4)
         assertThat(page.count { it.slotId == null }).isEqualTo(1)
         assertThat(page.first().slotId).isNull()
@@ -283,7 +320,7 @@ class DoseRecordTimelinePagingTest {
     @Test
     fun `不足一页时 返回数少于 limit`() = runTest {
         seed(count = 3, startTs = 1_700_000_000_000L, stepMs = 60_000L)
-        val page = recordDao.getRecordsBefore(Long.MAX_VALUE, 60)
+        val page = recordDao.getRecordsBefore(Long.MAX_VALUE, Long.MAX_VALUE, 60)
         assertThat(page).hasSize(3)          // < 60 ⇒ 列表应显示"没有更早的记录了"
     }
 }

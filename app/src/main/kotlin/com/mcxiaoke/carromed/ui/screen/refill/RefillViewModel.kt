@@ -19,7 +19,9 @@ data class RefillUiState(
     /** 台账聚合出的账面余额（可为负，见 FINAL-PRODUCT D-9） */
     val stock: Float = 0f,
     val addAmount: String = "30",
-    val channel: String = "同仁堂实体药房",
+    // 默认**空**（orsbf P2-6）：预填具体商业机构名会被用户不经确认地
+    // 存进库存流水、CSV 与备份 —— 那是用户的采购数据，不能替他编。
+    val channel: String = "",
     val batchNumber: String = "",
     val expiryDate: String = "",
     val note: String = "",

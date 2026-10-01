@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -329,7 +330,12 @@ fun CabinetMedCard(
                         text = med.name,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        // 长药名让位给类别标签（orsbf P1-3）：无 maxLines 时名字吃掉
+                        // 整行宽，「营养保健」这类标签被挤成竖排单字
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Surface(
@@ -342,6 +348,7 @@ fun CabinetMedCard(
                             text = MedVocab.categoryRes(med.category)?.let { stringResource(it) } ?: med.category,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -412,8 +419,9 @@ fun CabinetMedCard(
 
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = stringResource(R.string.cabinet_cd_view_detail),
-                tint = MaterialTheme.colorScheme.outline
+                // 纯装饰箭头：卡片整体可点，箭头不再单独抢 TalkBack 焦点
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

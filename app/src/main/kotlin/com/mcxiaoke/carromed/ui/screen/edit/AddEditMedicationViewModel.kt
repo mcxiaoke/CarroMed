@@ -347,7 +347,8 @@ class AddEditMedicationViewModel(
         val slots = (0 until n).map { i ->
             val total = if (n == 1) 8 * 60 else startMinutes + step * i
             TimeSlotDraft(
-                time = String.format(java.util.Locale.getDefault(), "%02d:%02d", total / 60, total % 60),
+                // Locale.ROOT（orsbf P1-18）：写进 policy_times.time_of_day，必须可被投影引擎 ISO 解析
+                time = String.format(java.util.Locale.ROOT, "%02d:%02d", total / 60, total % 60),
                 dose = dose,
                 label = guessLabel(total)
             )
@@ -589,7 +590,7 @@ class AddEditMedicationViewModel(
         val h = parts.getOrNull(0)?.toIntOrNull() ?: 8
         val m = parts.getOrNull(1)?.toIntOrNull() ?: 30
         val total = (h * 60 + m + 240) % (24 * 60)
-        return String.format(java.util.Locale.getDefault(), "%02d:%02d", total / 60, total % 60)
+        return String.format(java.util.Locale.ROOT, "%02d:%02d", total / 60, total % 60)
     }
 
     /** 按时刻猜一个粗粒度时段标签，用户可再改 */

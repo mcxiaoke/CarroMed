@@ -82,7 +82,11 @@ fun ProgressScreen(
      * 阈值取"距离末尾 5 项"，而不是"到底了才加载"：等真的滚到最后一项再查库，
      * 用户会看到一段明显的空白停顿。先把数据备好，视觉上就是滚不完的连续列表。
      */
-    LaunchedEffect(uiState.selectedTab) {
+    // ⚠️ key 必须带上 hasMoreTimeline（orsbf P2-12）：它是在 loadMoreTimeline()
+    // 里才翻成 true 的普通捕获值，不在 snapshotFlow 的观察范围里；
+    // 若只以 selectedTab 为 key，首次组合时 hasMoreTimeline = false 的闭包
+    // 会被捕获，之后 filter 永远读到旧的 false —— **触底加载一次都不会触发**。
+    LaunchedEffect(uiState.selectedTab, uiState.hasMoreTimeline) {
         snapshotFlow {
             val info = listState.layoutInfo
             val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
@@ -604,8 +608,8 @@ private fun TimelineRow(item: TimelineItem, onOpenDose: (Long?, Long) -> Unit) {
 private fun RecordStatusChip(timeLabel: String, status: RecordStatus) {
     val (text, color) = when (status) {
         RecordStatus.COMPLETED -> stringResource(R.string.prog_status_taken) to SuccessGreen
-        RecordStatus.SKIPPED -> stringResource(R.string.prog_status_skipped) to MaterialTheme.colorScheme.outline
-        RecordStatus.REVERTED -> stringResource(R.string.prog_status_reverted) to MaterialTheme.colorScheme.outline
+        RecordStatus.SKIPPED -> stringResource(R.string.prog_status_skipped) to MaterialTheme.colorScheme.onSurfaceVariant
+        RecordStatus.REVERTED -> stringResource(R.string.prog_status_reverted) to MaterialTheme.colorScheme.onSurfaceVariant
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(

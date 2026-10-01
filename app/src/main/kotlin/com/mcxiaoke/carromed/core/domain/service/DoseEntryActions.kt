@@ -4,6 +4,7 @@ import android.content.Context
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
 import com.mcxiaoke.carromed.core.alarm.AlarmScheduler
 import com.mcxiaoke.carromed.core.alarm.Notifications
+import com.mcxiaoke.carromed.core.alarm.ReconcileWorker
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.domain.AppLog
@@ -152,7 +153,19 @@ class DoseEntryActions(
     suspend fun undo(slotId: Long): Boolean {
         val ok = tracking.undoDose(slotId)
         if (!ok) return false
-        runCatching { AlarmReconciler.rescheduleAll(context, db) }
+        try {
+            AlarmReconciler.rescheduleAll(context, db)
+        } catch (t: Throwable) {
+            // 重排失败不能像旧实现那样**静默吞掉**（orsbf P1-7）：槽位已回到 PENDING
+            // 却没有闹钟，"撤销了却再也不响"，而函数仍返回 true。
+            // 也不向调用方抛 —— VM 的失败文案是"撤销失败"，但撤销本体
+            // （事实标 REVERTED + 台账冲正）已经落库，说"失败"会诱导用户
+            // 去重试一个已完成的动作。改为：落 ERROR 日志 + 入队一次性对账，
+            // 由 Worker 按退避策略重试直到排上为止。
+            AppLog.e(TAG, "reschedule after undo failed slot=$slotId, fallback to worker retry", t)
+            runCatching { ReconcileWorker.enqueueOneShot(context) }
+                .onFailure { AppLog.e(TAG, "enqueue oneshot reconcile after undo failure failed", it) }
+        }
         return true
     }
 

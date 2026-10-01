@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="today_cd_manual_log">添加</string>
-    <string name="today_manual_log">添加</string>
+    <string name="today_cd_manual_log">补记一次已服用的药</string>
+    <string name="today_manual_log">补记服药</string>
     <string name="today_title">今日用药</string>
     <string name="today_cd_settings">系统设置</string>
     <string name="today_cd_stock_alert">库存告警</string>
@@ -11,13 +11,13 @@
     <string name="today_go_inventory">去校准 &gt;</string>
     <string name="today_go_refill">去添药 &gt;</string>
     <string name="today_pending_title">待服药 (%1$d)</string>
-    <string name="today_pending_hint_actionable">轻按可推迟或跳过</string>
+    <string name="today_pending_hint_actionable">点按可推迟或跳过</string>
     <string name="today_pending_hint_future">未来用药预览 · 到达当天方可记录</string>
     <string name="today_empty_all_done">这一天没有待服任务 🎉</string>
     <string name="today_empty_no_schedule">这一天没有提醒</string>
     <string name="today_completed_title">今日已服 (%1$d)</string>
     <string name="today_completed_title_date">%1$d月%2$d日已服 (%3$d)</string>
-    <string name="today_completed_hint">轻按可撤销或更改状态</string>
+    <string name="today_completed_hint">点按可撤销或更改状态</string>
     <string name="today_skipped_section">已跳过 (%1$d)</string>
     <string name="today_default_unit">片</string>
     <string name="today_unknown_medication">未知药品</string>
@@ -63,6 +63,7 @@
     <!-- 连续天数与月度历史打卡 -->
     <string name="today_streak_cd">连续服药 %1$d 天，点击查看月度记录</string>
     <string name="today_streak_title">%1$d 连续天数</string>
+    <string name="today_streak_badge">%1$d 天</string>
     <string name="today_streak_praise_good">你做得很好！保持良好节奏</string>
     <string name="today_streak_praise_zero">今天也是新的起点，按时服药吧！</string>
     <string name="today_calendar_month_format">%1$d年%2$d月</string>

@@ -165,7 +165,7 @@ fun InventoryScreen(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "${fmt(uiState.currentStock)} ${med.unit}",
+                            text = "${Quantity.fmt(uiState.currentStock)} ${med.unit}",
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Bold,
                             color = if (uiState.isLowStock && uiState.isTracked) WarningAmber
@@ -188,8 +188,13 @@ fun InventoryScreen(
                                     // ⚠️ 走 [StatsEngine.isRunwayUnlimited] 而不是 `>= 9999`
                                     // 的魔数比较（M4-1）。领域层已把"不适用"改成显式哨兵，
                                     // UI 再去猜一个下界，两处定义必然会漂移。
-                                    if (StatsEngine.isRunwayUnlimited(uiState.runwayDays)) "—"
-                                    else "${uiState.runwayDays}",
+                                    // 负天数 = 已超支（D-9 允许账面为负），单列分支而不是
+                                    // 渲染成"−2 天"（orsbf P1-4）
+                                    when {
+                                        StatsEngine.isRunwayUnlimited(uiState.runwayDays) -> "—"
+                                        uiState.runwayDays < 0 -> stringResource(R.string.inv_runway_overspent)
+                                        else -> "${uiState.runwayDays}"
+                                    },
                                     stringResource(R.string.inv_stat_runway_label)
                                 )
                                 MiniStat(
@@ -201,7 +206,7 @@ fun InventoryScreen(
                                 )
                                 MiniStat(
                                     Modifier.weight(1f),
-                                    fmt(uiState.minStockAlertInput.toFloatOrNull() ?: uiState.minStockAlert),
+                                    Quantity.fmt(uiState.minStockAlertInput.toFloatOrNull() ?: uiState.minStockAlert),
                                     stringResource(R.string.inv_stat_alert_threshold_label)
                                 )
                             }
@@ -471,13 +476,13 @@ private fun TxRow(
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    text = (if (change > 0) "+${fmt(change)}" else fmt(change)) + " $unit",
+                    text = (if (change > 0) "+${Quantity.fmt(change)}" else Quantity.fmt(change)) + " $unit",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = if (change > 0) SuccessGreen else MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    stringResource(R.string.inv_tx_balance, fmt(balance)),
+                    stringResource(R.string.inv_tx_balance, Quantity.fmt(balance)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -519,5 +524,6 @@ private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> U
     }
 }
 
-private fun fmt(v: Float): String =
-    if (v % 1f == 0f) v.toInt().toString() else String.format(Locale.getDefault(), "%.2f", v)
+// ⚠️ 已删除（orsbf P2-6）：本页私有的 fmt() 是 Quantity.fmt 的逐字副本 ——
+// 一份规则两处实现，改 Quantity 时这里会静默漂移。数值格式化统一走
+// com.mcxiaoke.carromed.ui.component.Quantity。

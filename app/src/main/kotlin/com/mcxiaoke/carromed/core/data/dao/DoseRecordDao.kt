@@ -109,14 +109,8 @@ interface DoseRecordDao {
     @Query("SELECT * FROM dose_records WHERE slot_id = :slotId ORDER BY id ASC")
     suspend fun getAllRecordsBySlotId(slotId: Long): List<DoseRecordEntity>
 
-    /** 一批槽位的已完成事实，供列表页一次性取回（避免 N+1） */
-    @Query(
-        """
-        SELECT * FROM dose_records
-        WHERE slot_id IN (:slotIds) AND status = 'COMPLETED'
-        """
-    )
-    suspend fun getCompletedRecordsForSlots(slotIds: List<Long>): List<DoseRecordEntity>
+    // ⚠️ 已删除（orsbf P3-1，零调用方）：getCompletedRecordsForSlots。
+    // 列表页实际走的是下方区分状态的 [getActiveRecordsForSlots]。
 
     /**
      * 一批槽位的**未撤销**事实（`COMPLETED` + `SKIPPED`），按 id 升序（避免 N+1）。
@@ -179,27 +173,35 @@ interface DoseRecordDao {
     suspend fun getRecordsForMedication(medicationId: Long): List<DoseRecordEntity>
 
     /**
-     * 服药流水翻页：**keyset 游标**取一批比 [beforeTs] 更早的服药事实。
+     * 服药流水翻页：**keyset 游标**取一批比 `(beforeTs, beforeId)` 更早的服药事实。
      *
      * ## 为什么不用 `LIMIT :offset, :limit`
      *
      * 翻页期间用户随时可能撤销/删除记录。OFFSET 分页是按**行号**定位的，
      * 一旦前面少了一行，后面每一页都会**整段错位**——结果是静默漏记录。
-     * 游标分页按**时间戳**定位，对数据的并发变更免疫。
+     * 游标分页按**数据本身**定位，对数据的并发变更免疫。
      *
      * 本项目服药事实是 append-only（撤销只改状态、不删行，见本文件顶部），
      * 这与游标分页的取向天然一致。
      *
-     * ## 严格小于而不是 `<=`
+     * ## 游标必须是 `(actual_ts, id)` 复合键（orsbf P1-3）
      *
-     * 用 `<=` 时，同一时间戳的记录会在相邻两页各出现一次。
-     * 时间戳精确到毫秒，理论上会有同刻记录（同一次操作写多行），
-     * 所以 `<` 不是可有可无的严谨，而是**正确性要求**。
+     * 旧实现只用单一时间戳 `< beforeTs`，在**同一毫秒的记录簇**上会静默吞记录：
+     * 补录"昨天 08:00 吃了 A/B/C"产生三条 `actual_ts` 完全相同的记录，
+     * 页边界切在簇中间时，`actual_ts < cursor` 把簇里其余未加载的记录
+     * **永远跳过**（单列时间戳在同刻记录之间没有全序）。
+     * 复合游标用 `id` 决胜，同刻记录之间也有全序，翻页遍历才是完整的。
+     *
+     * ## 排序必须与首屏同口径
+     *
+     * `ORDER BY actual_ts DESC, id DESC` 与 [observeLatestRecords] 一致，
+     * 否则首屏与后续页在同刻记录上会交错出重复/遗漏。
      *
      * ## 索引
      *
      * `DoseRecordEntity` 已有 `Index(value = ["actual_ts"])`，
-     * `ORDER BY actual_ts DESC LIMIT` 走索引，**无需新增索引**。
+     * `ORDER BY actual_ts DESC, id DESC LIMIT` 走索引后仅需在同刻内排序少量行，
+     * **无需新增索引**。
      *
      * ## 为什么不返回已撤销的事实
      *
@@ -210,12 +212,13 @@ interface DoseRecordDao {
     @Query(
         """
         SELECT * FROM dose_records
-        WHERE actual_ts < :beforeTs AND status != 'REVERTED'
-        ORDER BY actual_ts DESC
+        WHERE status != 'REVERTED'
+          AND (actual_ts < :beforeTs OR (actual_ts = :beforeTs AND id < :beforeId))
+        ORDER BY actual_ts DESC, id DESC
         LIMIT :limit
         """
     )
-    suspend fun getRecordsBefore(beforeTs: Long, limit: Int): List<DoseRecordEntity>
+    suspend fun getRecordsBefore(beforeTs: Long, beforeId: Long, limit: Int): List<DoseRecordEntity>
 
     /**
      * [getRecordsBefore] 的 reactive 版本，供流水页首屏跟随写入刷新。
@@ -238,14 +241,12 @@ interface DoseRecordDao {
      * 而"是否还有更早"的判断（`items.size >= PAGE_SIZE`）也跟着失真 ——
      * 用户会看到一个永远填不满、还提前说"没有更早的记录"的列表。
      */
-    @Query("SELECT * FROM dose_records WHERE status != 'REVERTED' ORDER BY actual_ts DESC LIMIT :limit")
+    // 排序必须与 [getRecordsBefore] 同口径（actual_ts DESC, id DESC）：
+    // 同刻记录之间也按 id 全序，首屏与翻页才不会交错出重复/遗漏（orsbf P1-3）
+    @Query("SELECT * FROM dose_records WHERE status != 'REVERTED' ORDER BY actual_ts DESC, id DESC LIMIT :limit")
     fun observeLatestRecords(limit: Int): Flow<List<DoseRecordEntity>>
 
-    @Query("SELECT * FROM dose_records WHERE actual_ts BETWEEN :startTs AND :endTs ORDER BY actual_ts DESC")
-    fun observeRecordsInRange(startTs: Long, endTs: Long): Flow<List<DoseRecordEntity>>
-
-    @Query("SELECT * FROM dose_records WHERE actual_ts BETWEEN :startTs AND :endTs ORDER BY actual_ts DESC")
-    suspend fun getRecordsInRange(startTs: Long, endTs: Long): List<DoseRecordEntity>
+    // ⚠️ 已删除（orsbf P3-1，零调用方）：observeRecordsInRange / getRecordsInRange。
 
     /**
      * 区间内已服剂量的合计，**整数毫单位**（1 片 = 1000）。
@@ -266,8 +267,7 @@ interface DoseRecordDao {
     @Query("SELECT SUM(dose_taken) FROM dose_records WHERE medication_id = :medicationId AND status = 'COMPLETED' AND actual_ts BETWEEN :startTs AND :endTs")
     suspend fun getSumDoseTakenForMedication(medicationId: Long, startTs: Long, endTs: Long): Int?
 
-    @Query("SELECT COUNT(*) FROM dose_records WHERE medication_id = :medicationId AND status = 'COMPLETED' AND actual_ts BETWEEN :startTs AND :endTs")
-    suspend fun countDoseRecordsForMedication(medicationId: Long, startTs: Long, endTs: Long): Int
+    // ⚠️ 已删除（orsbf P3-1，零调用方）：countDoseRecordsForMedication。
 
     /**
      * **全部**服药事实，含已撤销的那些。

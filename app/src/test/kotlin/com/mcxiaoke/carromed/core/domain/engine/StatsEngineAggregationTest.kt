@@ -2,6 +2,7 @@ package com.mcxiaoke.carromed.core.domain.engine
 
 import com.google.common.truth.Truth.assertThat
 import com.mcxiaoke.carromed.core.domain.model.Dose
+import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatusCountRow
 import org.junit.Test
@@ -161,13 +162,48 @@ class StatsEngineAggregationTest {
 
     // ---------- calculateStockRunwayBySchedule ----------
 
+    /**
+     * 长周期 INTERVAL（orsbf P1-5）：「每隔 30 天吃 1 片」的真实日消耗是 1/30 片。
+     * 取整版 `round(7/30) → 1` 会按"每周 1 次"折算，消耗高估 4.3 倍。
+     * 精确浮点折算理论值：30 / (1 * (7/30) / 7) = 900 天。
+     */
+    @Test
+    fun runwayBySchedule_longIntervalUsesExactFrequency() {
+        val perWeek = StatsEngine.scheduledDaysPerWeekExact(
+            type = PolicyType.INTERVAL, intervalDays = 30, daysOfWeek = null,
+            cycleOnDays = null, cycleOffDays = null
+        )
+        val (days, alert) = StatsEngine.calculateStockRunwayBySchedule(
+            currentStock = 30f,
+            dosesPerScheduledDay = 1f,
+            scheduledDosesPerWeek = perWeek
+        )
+        // 末次除法走 Float（展示层历史约定），7.0/30 的双精度尾差经 toFloat
+        // 放大后 30 / 0.03333334 ⇒ 899。本测试钉的是量级：不是取整版折算出的
+        // 214（高估 4.3 倍），一天级的浮点尾差不影响"预计可用"的用途。
+        assertThat(days).isEqualTo(899)
+        assertThat(alert).isFalse()
+    }
+
+    /**
+     * 负库存（D-9 允许账面为负）不得与 [StatsEngine.RUNWAY_UNLIMITED] 撞码
+     * （orsbf P1-4）：库存 -1、日消耗 1 时旧哨兵 -1 恰好撞上，
+     * "已超支、最紧急"被渲染成"不适用"。哨兵现在是 Int.MIN_VALUE。
+     */
+    @Test
+    fun runway_negativeStockNeverCollidesWithUnlimitedSentinel() {
+        val (days, _) = StatsEngine.calculateStockRunway(currentStock = -1f, dailyEstimatedConsumption = 1f)
+        assertThat(StatsEngine.isRunwayUnlimited(days)).isFalse()
+        assertThat(days).isEqualTo(-1)
+    }
+
     @Test
     fun runwayBySchedule_intervalPolicyDoesNotOverEstimateConsumption() {
         // 隔天服 1 片：单次服药日消耗 1 片，但按日历日只有 ~3.5 次/周
         val (days, alert) = StatsEngine.calculateStockRunwayBySchedule(
             currentStock = 14f,
             dosesPerScheduledDay = 1f,
-            scheduledDosesPerWeek = 4
+            scheduledDosesPerWeek = 4.0
         )
         // 14 / (1 * 4/7) = 24.5 → 24 天；若错按"每天 1 片"算只会剩 14 天
         assertThat(days).isEqualTo(24)
@@ -180,7 +216,7 @@ class StatsEngineAggregationTest {
         val (days, _) = StatsEngine.calculateStockRunwayBySchedule(
             currentStock = 30f,
             dosesPerScheduledDay = 1f,
-            scheduledDosesPerWeek = 3
+            scheduledDosesPerWeek = 3.0
         )
         assertThat(days).isEqualTo(70)
     }
@@ -201,7 +237,7 @@ class StatsEngineAggregationTest {
         val (days, alert) = StatsEngine.calculateStockRunwayBySchedule(
             currentStock = 10f,
             dosesPerScheduledDay = 1f,
-            scheduledDosesPerWeek = 0,
+            scheduledDosesPerWeek = 0.0,
             minStockAlert = 20f
         )
         assertThat(StatsEngine.isRunwayUnlimited(days)).isTrue()
@@ -221,7 +257,7 @@ class StatsEngineAggregationTest {
         val (days, alertOff) = StatsEngine.calculateStockRunwayBySchedule(
             currentStock = 5f,
             dosesPerScheduledDay = 1f,
-            scheduledDosesPerWeek = 7
+            scheduledDosesPerWeek = 7.0
         )
         assertThat(days).isEqualTo(5)
         assertThat(alertOff).isFalse()

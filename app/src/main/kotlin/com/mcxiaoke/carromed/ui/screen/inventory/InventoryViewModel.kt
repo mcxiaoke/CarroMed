@@ -159,7 +159,7 @@ class InventoryViewModel(
                 minStockAlert = Dose(med.minStockAlert).asFloat,
                 runwayDays = runway,
                 isLowStock = alert,
-                dailyConsumption = if (perWeek > 0) dosesPerScheduledDay * (perWeek / 7.0f) else dosesPerScheduledDay,
+                dailyConsumption = if (perWeek > 0.0) dosesPerScheduledDay * (perWeek / 7.0).toFloat() else dosesPerScheduledDay,
                 expiryDate = med.expiryDate,
                 daysToExpiry = expiryDays,
                 minStockAlertInput = fmt(Dose(med.minStockAlert).asFloat),
@@ -353,8 +353,11 @@ class InventoryViewModel(
      * 每周实际排班天数（不是"时点数"）。用于把单次日量折算成日历日均消耗，
      * 否则隔日/每周用药会被高估消耗、低估可用天数。
      *
-     * 实现已上移到 [StatsEngine.scheduledDaysPerWeek]（M4-1）：详情页原先有一份
+     * 实现已上移到 [StatsEngine]（M4-1）：详情页原先有一份
      * **不同的**（且是坏的）实现，两页因此给出不同的可用天数。
+     *
+     * 用**精确浮点版** [StatsEngine.scheduledDaysPerWeekExact]（orsbf P1-5）：
+     * 取整版在 INTERVAL n≥15 时折成"每周 1 天"，消耗高估 4.3 倍。
      */
     private fun scheduledDosesPerWeek(
         type: PolicyType?,
@@ -362,7 +365,7 @@ class InventoryViewModel(
         daysOfWeek: List<Int>?,
         cycleOnDays: Int?,
         cycleOffDays: Int?
-    ): Int = StatsEngine.scheduledDaysPerWeek(type, intervalDays, daysOfWeek, cycleOnDays, cycleOffDays)
+    ): Double = StatsEngine.scheduledDaysPerWeekExact(type, intervalDays, daysOfWeek, cycleOnDays, cycleOffDays)
 
     /**
      * 频次描述文案。

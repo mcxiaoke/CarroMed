@@ -164,8 +164,8 @@ interface MedicationDao {
     @Query("SELECT * FROM medications WHERE id = :id")
     fun observeMedicationById(id: Long): Flow<MedicationEntity?>
 
-    @Query("SELECT * FROM medications WHERE is_archived = 0 ORDER BY id DESC")
-    suspend fun getActiveMedications(): List<MedicationEntity>
+    // ⚠️ 已删除（orsbf P3-1，零调用方）：getActiveMedications。
+    // 列表消费方全部走 OVERVIEW_SELECT 的概览读模型。
 
     @Query("SELECT * FROM medications ORDER BY id DESC")
     suspend fun getAllMedications(): List<MedicationEntity>

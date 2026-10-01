@@ -40,7 +40,9 @@ data class MedDetailUiState(
     val transactions: List<InventoryTransactionEntity> = emptyList(),
     /** 台账聚合出的账面余额（可为负，见 FINAL-PRODUCT D-9） */
     val stock: Float = 0f,
-    val runwayDays: Int = Int.MAX_VALUE,
+    // 加载完成前的初值用哨兵而不是 Int.MAX_VALUE（orsbf P3-15）：
+    // 后者会渲染成"可用 2147483647 天"；哨兵渲染成"—"。
+    val runwayDays: Int = StatsEngine.RUNWAY_UNLIMITED,
     val isStockAlert: Boolean = false,
     val isLoading: Boolean = true,
     val adherenceRate: Float = 0f,
@@ -182,13 +184,16 @@ class MedicationDetailViewModel(
      * 而正确答案是 `7·21/28 = 5.25`。改动看似小，但"吃 2 停 6"（正确值 1.75）
      * 会被算成 5，**高估近 3 倍**，两页给出完全不同的可用天数。
      *
-     * 修法不是"把这里改对"，而是**消除重复**：抽成
-     * [StatsEngine.scheduledDaysPerWeek]，两个 ViewModel 共用同一份实现。
+     * 修法不是"把这里改对"，而是**消除重复**：抽到
+     * [StatsEngine]，两个 ViewModel 共用同一份实现。
      * 重复的公式就是下一次漂移的起点，而"两个页面数字不一致"用户只会认为是 Bug。
+     *
+     * 用**精确浮点版** [StatsEngine.scheduledDaysPerWeekExact]（orsbf P1-5），
+     * 与库存页同口径：取整版在 INTERVAL n≥15 时折成"每周 1 天"，消耗高估 4.3 倍。
      */
-    private fun scheduledDosesPerWeek(policy: SchedulePolicyEntity?, timesCount: Int): Int =
-        if (timesCount == 0) 0
-        else StatsEngine.scheduledDaysPerWeek(
+    private fun scheduledDosesPerWeek(policy: SchedulePolicyEntity?, timesCount: Int): Double =
+        if (timesCount == 0) 0.0
+        else StatsEngine.scheduledDaysPerWeekExact(
             type = policy?.policyType,
             intervalDays = policy?.intervalDays,
             daysOfWeek = policy?.daysOfWeek,

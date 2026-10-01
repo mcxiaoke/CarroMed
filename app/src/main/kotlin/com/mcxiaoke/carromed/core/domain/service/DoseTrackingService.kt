@@ -185,7 +185,16 @@ class DoseTrackingService(
             return@withTransaction false
         }
 
-        val finalDose: Dose = takenAmount?.let { Dose.of(it) } ?: Dose(slot.doseAmount)
+        // 浮点检查挡不住量化后的静默归零 / 溢出（orsbf P0-4）：
+        // `0.0004f` 通过 `> 0f` 但 `Dose.of` 四舍五入成 0（打卡照记、库存永不扣），
+        // 极大值溢出 Int 变负（打卡反而加库存）。`slot.doseAmount` 那一路仍由
+        // `saveReminderPolicy` 的量化后校验在写入时保证，这里不再重复拒绝，
+        // 以免把恢复自旧备份的存量数据变成"无法打卡"。
+        val finalDose: Dose = takenAmount?.let {
+            val d = Dose.of(it)
+            require(d.milli > 0) { "服药剂量必须大于 0，当前 $it" }
+            d
+        } ?: Dose(slot.doseAmount)
 
         // 幂等锚点下沉到 SQL：只有仍在等待、且**不是未来**的槽位才被置为 COMPLETED。
         // 受影响行数为 0 ⇒ 已被处理过或尚未到计划日，直接放弃记账
@@ -732,6 +741,10 @@ class DoseTrackingService(
         require(doseAmount > 0f && doseAmount.isFinite()) {
             "服药剂量必须大于 0，当前 $doseAmount"
         }
+        // 量化后守正（orsbf P0-4）：浮点检查挡不住 `Dose.of` 的静默归零
+        // （0.0004f → 0，打卡照记、库存永不扣）与溢出为负（打卡反而加库存）。
+        val doseMilli = Dose.of(doseAmount).milli
+        require(doseMilli > 0) { "服药剂量量化后必须大于 0，当前 $doseAmount" }
         // 时间窗守卫（[MANUAL_DOSE_BACKFILL_DAYS]）：上界拒绝未来时刻（60 秒容差
         // 对齐 UI 的 `isAfter(now + 1min)`），下界按自然日 —— 与记录详情页的
         // 撤销窗口 `age in 0..N` 同一套日历口径，避免"校验与窗口各说各话"
@@ -752,7 +765,7 @@ class DoseTrackingService(
             slotId = null,
             medicationId = medicationId,
             actualTs = actualTs,
-            doseTaken = Dose.of(doseAmount).milli,
+            doseTaken = doseMilli,
             status = RecordStatus.COMPLETED,
             isRetrospective = isRetrospective,
             note = note,
@@ -764,7 +777,7 @@ class DoseTrackingService(
             appendLedger(
                 medicationId = medicationId,
                 recordId = recordId,
-                changeAmount = -Dose.of(doseAmount),
+                changeAmount = -Dose(doseMilli),
                 txType = TransactionType.TAKEN_DEDUCT,
                 note = note,
                 noteKey = if (isRetrospective) {
@@ -777,7 +790,7 @@ class DoseTrackingService(
 
         AppLog.i(
             TAG,
-            "logManualDose ok med=$medicationId record=$recordId doseMilli=${Dose.of(doseAmount).milli}" +
+            "logManualDose ok med=$medicationId record=$recordId doseMilli=$doseMilli" +
                 " retrospective=$isRetrospective deductStock=${deductStock && medication.isStockTracked}"
         )
         return@withTransaction recordId
@@ -1019,7 +1032,9 @@ class DoseTrackingService(
             it.status == SlotStatus.PENDING || it.status == SlotStatus.SNOOZED
         }.filter { slotKey(it.scheduledDate, it.scheduledTime) !in projectedKeys }
         if (obsolete.isNotEmpty()) {
-            slotDao.deleteByIds(obsolete.map { it.id })
+            // DELETE ... IN 的变量上限同样是 999（orsbf P0-1）：按 500 一批。
+            // 本方法可重入（幂等 diff），分批中断由下一轮对账补齐。
+            obsolete.map { it.id }.chunked(500).forEach { slotDao.deleteByIds(it) }
         }
 
         // ---- 删（投机区）：窗口之外的未来整段丢弃 ----
@@ -1068,7 +1083,10 @@ class DoseTrackingService(
         if (toInsert.isNotEmpty()) {
             // IGNORE + DB 唯一约束：即使与并发对账撞了重复键，也只是这一行被忽略，
             // 而不是整批插入失败。
-            slotDao.insertAll(toInsert)
+            // 分批（orsbf P0-1）：Room 的 @Insert(List) 是一条多值 INSERT，
+            // 超过 SQLite 变量上限 999（dose_slots 11 列 ⇒ ~90 行）会整体失败；
+            // 本方法幂等可重入，分批中断由下一轮对账补齐。
+            toInsert.chunked(50).forEach { slotDao.insertAll(it) }
         }
 
         // diff 汇总（G1）：P1-5 幂等 diff 出问题时，这一行是归因起点。

@@ -271,19 +271,29 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
         if (_isLoadingMore.value || !_hasMoreTimeline.value) return
         val current = _timelineRecords.value
         if (current.isEmpty()) return
-        val cursor = current.minOf { it.record.actualTs }
+        // 复合游标 (actualTs, id)（orsbf P1-3）：同毫秒记录簇之间也要有全序，
+        // 只用时间戳做游标时，页边界切在簇中间会静默吞掉簇里其余记录。
+        val cursorTs = current.minOf { it.record.actualTs }
+        val cursorId = current
+            .filter { it.record.actualTs == cursorTs }
+            .minOf { it.record.id }
         _isLoadingMore.value = true
         viewModelScope.launch {
             try {
-                val older = recordDao.getRecordsBefore(cursor, FIRST_PAGE_SIZE)
+                val older = recordDao.getRecordsBefore(cursorTs, cursorId, FIRST_PAGE_SIZE)
                 if (older.isNotEmpty()) {
                     val medMap = loadMedMap(older)
                     val existingIds = current.mapTo(HashSet()) { it.record.id }
                     val fresh = older
                         .filter { it.id !in existingIds }
                         .map { it.toTimelineItem(medMap) }
-                    // 追加后仍需按时间倒序：游标保证更早，但同刻记录要稳定排序
-                    _timelineRecords.value = (current + fresh).sortedByDescending { it.record.actualTs }
+                    // 追加后仍需按时间倒序：游标保证更早，同刻记录按 id 稳定排序
+                    // （与 DAO 的 ORDER BY actual_ts DESC, id DESC 同口径）
+                    _timelineRecords.value =
+                        (current + fresh).sortedWith(
+                            compareByDescending<TimelineItem> { it.record.actualTs }
+                                .thenByDescending { it.record.id }
+                        )
                 }
                 _hasMoreTimeline.value = older.size >= FIRST_PAGE_SIZE
             } catch (t: Throwable) {
