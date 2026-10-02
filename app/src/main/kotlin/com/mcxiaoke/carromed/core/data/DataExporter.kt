@@ -406,7 +406,9 @@ object DataExporter {
      * 多数 CSV 解析器**不**把它当行分隔，于是字段值里会带着一个裸回车：
      * 在 Excel 里显示成方块、在部分工具里造成列错位。
      */
-    private fun escapeCsv(value: String): String {
+    // internal：纯函数零依赖，直接单测（DataExporterCsvEscapeTest）比经由导出链路注入
+    // 用户文本更精确；可见性不进公共 API（模块外仍是 private 语义）。
+    internal fun escapeCsv(value: String): String {
         val needsQuoting = value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
         // 公式注入防护：仅对**首个非空白字符**判定。
         // 前面有空格时 Excel 仍可能求值（`' =1+1` 会被 trim 后当公式），
