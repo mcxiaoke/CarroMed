@@ -30,6 +30,8 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ReminderSettingsDao {
 
+    // ⚠️ REPLACE 是**有意**的（L-2）：仅供备份恢复回填按 medication_id 覆盖；
+    // 正常新建走 [insertIfAbsent]，重复插入由上层校验拒绝
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(settings: ReminderSettingsEntity)
 

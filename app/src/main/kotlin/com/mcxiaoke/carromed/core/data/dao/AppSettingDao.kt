@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface AppSettingDao {
 
+    // ⚠️ REPLACE 是**有意**的（L-2）：app_settings 以 `key` 为主键，
+    // setSetting 的语义就是"按 key 覆盖"，无 id 漂移问题
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setSetting(setting: AppSettingEntity)
 
@@ -34,6 +36,7 @@ interface AppSettingDao {
     @Query("SELECT * FROM app_settings")
     fun observeAllSettings(): Flow<List<AppSettingEntity>>
 
+    // ⚠️ REPLACE 是**有意**的（L-2）：仅供备份恢复回填按 key 覆盖整表
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(settings: List<AppSettingEntity>)
 

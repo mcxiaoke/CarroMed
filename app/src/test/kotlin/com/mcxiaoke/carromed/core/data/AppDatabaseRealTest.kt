@@ -356,12 +356,15 @@ class AppDatabaseRealTest {
             )
         )
         db.reminderSettingsDao().ensureDefaults(medId)
-        db.reminderSettingsDao().setPausedUntil(medId, "2026-12-31")
+        // 相对远期日期（§二-30）：硬编码 2026-12-31 会在真实时间越过它后静默假红
+        val pausedUntil = LocalDate.now().plusMonths(3).toString()
+        db.reminderSettingsDao().setPausedUntil(medId, pausedUntil)
         db.reminderSettingsDao().updateBehavior(medId, isCriticalReminder = true, snoozeMinutes = 15, advanceMinutes = 10)
         medDao.updateArchiveStatus(medId, true)
         val before = medDao.getMedicationById(medId)!!
 
         // 只改名字与档案字段
+        val newExpiry = LocalDate.now().plusMonths(3).toString()
         medDao.updateProfile(
             id = medId,
             name = "环孢素 缓释",
@@ -374,7 +377,7 @@ class AppDatabaseRealTest {
             description = "说明",
             precautions = listOf("整粒吞服禁嚼碎", "禁葡萄柚"),
             noticeShort = "温水吞服",
-            expiryDate = "2027-12-31",
+            expiryDate = newExpiry,
             updatedAt = System.currentTimeMillis()
         )
 
@@ -382,7 +385,7 @@ class AppDatabaseRealTest {
         assertThat(after.name).isEqualTo("环孢素 缓释")
         assertThat(after.unit).isEqualTo("粒")
         assertThat(after.precautions).containsExactly("整粒吞服禁嚼碎", "禁葡萄柚")
-        assertThat(after.expiryDate).isEqualTo("2027-12-31")
+        assertThat(after.expiryDate).isEqualTo(newExpiry)
         // min_stock_alert 不在 updateProfile 的 SET 列表（ocsbf P1-2 / DB C-14）：
         // 预警线唯一写入口是 updateMinStockAlert，档案编辑不得触碰
         assertDoseValue(after.minStockAlert, 10f)
@@ -397,7 +400,7 @@ class AppDatabaseRealTest {
         assertThat(rs.isCriticalReminder).isTrue()
         assertThat(rs.snoozeMinutes).isEqualTo(15)
         assertThat(rs.advanceMinutes).isEqualTo(10)
-        assertThat(rs.pausedUntil).isEqualTo("2026-12-31")
+        assertThat(rs.pausedUntil).isEqualTo(pausedUntil)
     }
 
     @Test
@@ -464,7 +467,7 @@ class AppDatabaseRealTest {
     fun `删除药品时提醒设置随外键级联清除`() = runTest {
         val medId = medDao.insert(MedicationEntity(name = "待删药"))
         db.reminderSettingsDao().ensureDefaults(medId)
-        db.reminderSettingsDao().setPausedUntil(medId, "2026-12-31")
+        db.reminderSettingsDao().setPausedUntil(medId, LocalDate.now().plusMonths(3).toString())
         assertThat(db.reminderSettingsDao().getByMedicationId(medId)).isNotNull()
 
         medDao.deleteById(medId)

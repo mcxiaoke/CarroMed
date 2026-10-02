@@ -267,7 +267,8 @@ fun InventoryScreen(
                                     Text(
                                         stringResource(R.string.inv_low_runway_warning, uiState.runwayDays),
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = WarningAmber,
+                                        // bodySmall 语义色小字不达 AA（§二-20），用深琥珀前景
+                                        color = OnWarningAmberContainer,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 }

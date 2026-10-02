@@ -93,7 +93,8 @@ interface SchedulePolicyDao {
     @Query("SELECT * FROM policy_times WHERE policy_id = :policyId ORDER BY sort_order ASC, time_of_day ASC")
     suspend fun getTimesForPolicy(policyId: Long): List<PolicyTimeEntity>
 
-    /** 多条计划的时点一次取回；空 id 集合必须由调用方短路（`IN ()` 不是合法 SQL） */
+    /** 多条计划的时点一次取回；空 id 集合由 Room 的 IN 展开处理、返回空结果，无需调用方短路
+     *  （L-10：旧注释称"必须短路"与事实相反 —— 唯一调用方 `CabinetViewModel` 未短路，空库实测正常） */
     @Query("SELECT * FROM policy_times WHERE policy_id IN (:policyIds) ORDER BY sort_order ASC, time_of_day ASC")
     suspend fun getTimesForPolicies(policyIds: List<Long>): List<PolicyTimeEntity>
 

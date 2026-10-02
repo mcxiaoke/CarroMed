@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    深色模式平台主题（sbf P3-6 / xdsf P2-6 / §二-31）。
+    Compose 内部已用 isSystemInDarkTheme()，但冷启动窗口背景走的是这里：
+    缺失时深色模式下启动窗口白闪。与 values/themes.xml 的 Light 父主题
+    同名配对，资源限定符由系统按夜间模式自动选择。
+-->
+<resources>
+    <style name="Theme.CarroMed" parent="android:Theme.Material.NoActionBar" />
+</resources>

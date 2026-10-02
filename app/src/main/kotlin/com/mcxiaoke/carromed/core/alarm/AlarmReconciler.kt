@@ -109,6 +109,33 @@ object AlarmReconciler {
     private const val GRACE_CATCHUP_DELAY_MS = 30_000L
 
     /**
+     * 前台 RESUMED 全量对账的最小间隔（xdsf P2-1 / §二-22）。
+     *
+     * 每次 RESUMED 都跑全量对账实测 0.4–1.5s，频繁前后台切换时线性叠加。
+     * 此间隔内重复进入前台直接跳过 —— 数据没变的概率极高，且还有
+     * `ReconcileWorker` 周期兜底。**显式路径不受限**：保存/恢复/打卡这些
+     * 刚改变过数据的调用方仍走 [rescheduleAll] 原方法。
+     */
+    private const val RESUME_RECONCILE_MIN_INTERVAL_MS = 5 * 60 * 1000L
+
+    /** 上次全量对账的开始时刻；任何成功进入 [rescheduleAll] 的路径都会刷新它 */
+    @Volatile
+    private var lastFullReconcileAt: Long = 0L
+
+    /**
+     * 节流版全量对账：仅供 MainActivity 的 RESUMED 入口使用。
+     * 距上次全量对账不足 [RESUME_RECONCILE_MIN_INTERVAL_MS] 时直接跳过。
+     */
+    suspend fun rescheduleAllOnResume(context: Context, db: AppDatabase) {
+        val now = System.currentTimeMillis()
+        if (now - lastFullReconcileAt < RESUME_RECONCILE_MIN_INTERVAL_MS) {
+            AppLog.i(TAG, "resume reconcile skipped (last run ${now - lastFullReconcileAt}ms ago)")
+            return
+        }
+        rescheduleAll(context, db)
+    }
+
+    /**
      * 闹钟视野天数。
      *
      * 7 → 14 天的意义不只是"多排一周"：它把"用户多久没打开 App"与"会漏几天提醒"解耦。
@@ -182,6 +209,8 @@ object AlarmReconciler {
         reconcileMutex.withLock {
             val now = System.currentTimeMillis()
             AppLog.i(TAG, "rescheduleAll start, now=$now")
+            // 刷新节流锚点：显式路径的对账同样让 RESUMED 入口在间隔内免跑
+            lastFullReconcileAt = now
 
         // 0. 拍快照：在重排之前。孤儿闹钟只能靠这份快照找回来。
         //    调用方带了 presnap（删行前拍的）就以它为准 —— 它是**超集**：
@@ -205,7 +234,8 @@ object AlarmReconciler {
         //    而当前已 10:36，那是一条排在今天的过去槽位，按「当日结束」规则
         //    **不结算**，留在清单上等用户补记；跨天前的未来槽位永不误判。
         val startOfToday = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val staleSlots = db.doseSlotDao().getStaleOpenSlots(startOfToday, startOfToday)
+        // 两条单分支查询拼接（ocsbf P1-9 / §一-13）：OR 双分支吃不到索引
+        val staleSlots = db.doseSlotDao().getStaleOpenSlotsBothKinds(startOfToday)
         val expiredCount = staleSlots.count { stale ->
             // 幂等锚点：受影响行数为 0 说明已被别的路径结算过，不重复撤闹钟
             if (db.doseSlotDao().markExpired(stale.id) == 0) return@count false

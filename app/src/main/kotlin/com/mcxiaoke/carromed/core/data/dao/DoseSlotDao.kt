@@ -16,6 +16,11 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface DoseSlotDao {
 
+    /**
+     * ⚠️ 单条插入用 REPLACE 且**仅限测试种子数据**（L-1）：生产代码零调用，
+     * 生产路径一律走 [insertAll]（IGNORE）。REPLACE 换 id 的危害见下一条 KDoc ——
+     * 槽位 id 漂移 = 闹钟身份漂移。仅供测试的事实在此显式声明。
+     */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(slot: DoseSlotEntity): Long
 
@@ -485,9 +490,9 @@ interface DoseSlotDao {
      * 与结算窗口两个参数），也就多一条会静默失效的依赖链路。
      * 结算线是自然日，15 分钟的对账粒度更无影响。
      *
-     * ## 两个 cutoff 传什么（PLAN-EXPIRE-WINDOW-20260929）
+     * ## cutoff 传什么（PLAN-EXPIRE-WINDOW-20260929）
      *
-     * 两个 cutoff 传的是**同一个「当地当日 0 点」**：结算窗口是「当日结束」，
+     * cutoff 传的是**「当地当日 0 点」**：结算窗口是「当日结束」，
      * 严格小于 ⇒ 今天全天豁免 —— 上午没吃的药下午吃完全正常，
      * 不该 11:00 就判漏服。它与补响窗口（`AlarmReconciler.CATCHUP_WINDOW_MS`）
      * 是两条独立的线 —— 曾共用一个 2 小时常量，拆开的原因见该方案 §2。
@@ -496,12 +501,34 @@ interface DoseSlotDao {
     @Query(
         """
         SELECT * FROM dose_slots
-        WHERE (status = 'PENDING' AND scheduled_ts < :pendingCutoffTs)
-           OR (status = 'SNOOZED' AND snooze_until_ts IS NOT NULL
-               AND snooze_until_ts < :snoozeCutoffTs)
+        WHERE status = 'PENDING' AND scheduled_ts < :cutoffTs
         """
     )
-    suspend fun getStaleOpenSlots(pendingCutoffTs: Long, snoozeCutoffTs: Long): List<DoseSlotEntity>
+    suspend fun getStalePendingSlots(cutoffTs: Long): List<DoseSlotEntity>
+
+    @Query(
+        """
+        SELECT * FROM dose_slots
+        WHERE status = 'SNOOZED' AND snooze_until_ts IS NOT NULL AND snooze_until_ts < :cutoffTs
+        """
+    )
+    suspend fun getStaleSnoozedSlots(cutoffTs: Long): List<DoseSlotEntity>
+
+    /**
+     * 结算候选：过期的待服槽位（PENDING 按 `scheduled_ts`）+ 过期的推迟槽位
+     * （SNOOZED 按 `snooze_until_ts`）。两分支按 status 天然不相交，直接拼接。
+     *
+     * ## 为什么是两条单分支查询（ocsbf P1-9 / §一-13）
+     *
+     * 旧实现一条 `OR` 双分支查询：OR 让 SQLite 无法对任一分支走精确的
+     * 索引计划 —— PENDING 分支吃不到 `scheduled_ts` 索引的范围扫描，
+     * SNOOZED 分支的 `snooze_until_ts` 本就不在任何索引里。
+     * 本查询在对账/闹钟触发的每轮都会跑，表量随使用年限增长（受 14 天窗口约束）。
+     * 拆开后 PENDING 分支可用 `scheduled_ts` 索引做范围扫描；
+     * SNOOZED 分支如仍需要索引，须升 `AppDatabase.version` + 补 PRAGMA 断言（未做）。
+     */
+    suspend fun getStaleOpenSlotsBothKinds(cutoffTs: Long): List<DoseSlotEntity> =
+        getStalePendingSlots(cutoffTs) + getStaleSnoozedSlots(cutoffTs)
 
     /**
      * 把过期槽位置为 `EXPIRED`，并清空 `actual_taken_ts` 与 `snooze_until_ts`。

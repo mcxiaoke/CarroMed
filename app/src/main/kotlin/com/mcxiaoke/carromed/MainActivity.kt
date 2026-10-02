@@ -36,12 +36,14 @@ class MainActivity : ComponentActivity() {
         Notifications.ensureChannel(this)
         requestNotificationPermissionIfNeeded()
 
-        // 每次回到前台都做一次闹钟全量对账 (含冷启动)
+        // 每次回到前台都做一次闹钟全量对账 (含冷启动)。
+        // 节流入口（§二-22）：5 分钟内反复前后台切换不再重复全量跑；
+        // 显式路径（保存/恢复/打卡）不受此限制。
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 launch(Dispatchers.IO) {
                     runCatching {
-                        AlarmReconciler.rescheduleAll(applicationContext, AppDatabase.getInstance(applicationContext))
+                        AlarmReconciler.rescheduleAllOnResume(applicationContext, AppDatabase.getInstance(applicationContext))
                     }
                 }
             }

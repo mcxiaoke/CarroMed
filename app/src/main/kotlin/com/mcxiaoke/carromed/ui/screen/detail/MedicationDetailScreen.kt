@@ -323,7 +323,7 @@ fun MedicationDetailScreen(
                     enabled = !uiState.isSaving,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(46.dp),
+                        .height(48.dp),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Icon(
@@ -564,7 +564,7 @@ fun MedicationDetailScreen(
                             enabled = !uiState.isSaving,
                             modifier = Modifier
                                 .weight(1f)
-                                .height(46.dp),
+                                .height(48.dp),
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Icon(Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -576,7 +576,7 @@ fun MedicationDetailScreen(
                             enabled = !uiState.isSaving,
                             modifier = Modifier
                                 .weight(1f)
-                                .height(46.dp),
+                                .height(48.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                             shape = RoundedCornerShape(10.dp)
                         ) {
@@ -596,7 +596,7 @@ fun MedicationDetailScreen(
                         enabled = !uiState.isSaving,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(46.dp),
+                            .height(48.dp),
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Icon(Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(16.dp))

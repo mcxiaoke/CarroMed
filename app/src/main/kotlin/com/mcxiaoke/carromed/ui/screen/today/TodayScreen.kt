@@ -73,6 +73,7 @@ import com.mcxiaoke.carromed.ui.component.CarroMedTopAppBar
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
+import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
@@ -260,7 +261,9 @@ fun TodayScreen(
                                         stringResource(R.string.today_go_refill)
                                     },
                                     fontWeight = FontWeight.Bold,
-                                    color = WarningAmber
+                                    // 小字在 WarningAmberContainer 上对比度不足 AA（§二-20），
+                                    // 用容器自配的前景色
+                                    color = OnWarningAmberContainer
                                 )
                             }
                         }
@@ -584,7 +587,8 @@ private fun PendingDoseCard(
                                 Quantity.fmt(Dose(item.slot.doseAmount).asFloat),
                                 unit
                             ),
-                            color = WarningAmber
+                            // labelSmall 语义色小字不达 AA（§二-20），用深琥珀前景
+                            color = OnWarningAmberContainer
                         )
                     }
 
@@ -786,7 +790,8 @@ private fun CompletedDoseCard(
                             stringResource(R.string.today_badge_taken),
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                             style = MaterialTheme.typography.labelSmall,
-                            color = SuccessGreen.copy(alpha = 0.8f),
+                            // labelSmall 语义色小字不达 AA（§二-20），用容器自配的深绿前景
+                            color = OnSuccessGreenContainer,
                             fontWeight = FontWeight.Bold
                         )
                     }

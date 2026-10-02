@@ -63,6 +63,7 @@ class MedicationAdminServiceTest {
 
     @Test
     fun saveProfile_createsNewMedicationWithAllFields() = runTest {
+        val expiryDate = LocalDate.now().plusMonths(3).toString()
         val id = service.saveProfile(
             MedicationAdminService.ProfileDraft(
                 name = "阿司匹林肠溶片",
@@ -70,7 +71,7 @@ class MedicationAdminServiceTest {
                 unit = "片",
                 precautions = listOf("饭后半小时服用", "避免与布洛芬同服"),
                 noticeShort = "饭后温水送服",
-                expiryDate = "2027-12-31"
+                expiryDate = expiryDate
             )
         )
         val saved = medDao.getMedicationById(id)!!
@@ -78,7 +79,7 @@ class MedicationAdminServiceTest {
         assertThat(saved.alias).isEqualTo("拜阿司匹灵")
         assertThat(saved.precautions).containsExactly("饭后半小时服用", "避免与布洛芬同服")
         assertThat(saved.noticeShort).isEqualTo("饭后温水送服")
-        assertThat(saved.expiryDate).isEqualTo("2027-12-31")
+        assertThat(saved.expiryDate).isEqualTo(expiryDate)
         // 新建即关闭告警：预警线唯一写入口在库存页（ocsbf P1-2 / DB C-14）
         assertDoseValue(saved.minStockAlert, 0f)
     }
@@ -146,6 +147,8 @@ class MedicationAdminServiceTest {
     fun saveReminderPolicy_blankStartDateKeepsOriginalPhase() = runTest {
         val medId = medDao.insert(MedicationEntity(name = "隔日药"))
         val originalStart = "2026-09-01"
+        // 相对远期日期（§二-30）：硬编码会在真实时间越过它后静默假红
+        val endDate = LocalDate.now().plusMonths(3).toString()
 
         service.saveReminderPolicy(
             medId,
@@ -153,7 +156,7 @@ class MedicationAdminServiceTest {
                 policyType = PolicyType.INTERVAL,
                 intervalDays = 2,
                 startDate = originalStart,
-                endDate = "2026-12-31",
+                endDate = endDate,
                 times = listOf(MedicationAdminService.TimeDraft("08:00", 1f, "随早餐"))
             )
         )
@@ -172,7 +175,7 @@ class MedicationAdminServiceTest {
         val policy = policyDao.getActivePolicyForMedication(medId)!!
         // 起始日与疗程结束日都不该被静默改掉
         assertThat(policy.startDate).isEqualTo(originalStart)
-        assertThat(policy.endDate).isEqualTo("2026-12-31")
+        assertThat(policy.endDate).isEqualTo(endDate)
         // 用户确实改的部分要生效
         assertThat(policy.intervalDays).isEqualTo(3)
         // 版本号递增，便于审计

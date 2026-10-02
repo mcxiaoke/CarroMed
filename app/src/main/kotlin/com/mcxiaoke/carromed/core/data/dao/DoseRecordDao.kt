@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface DoseRecordDao {
 
+    // ⚠️ REPLACE 是**有意**的（L-2）：仅备份恢复回填与按主键重写需要覆盖语义；
+    // 打卡事实的新增一律走 appendLedger/IGNORE 路径，绝不靠这里的主键冲突兜底
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: DoseRecordEntity): Long
 
@@ -313,6 +315,7 @@ interface DoseRecordDao {
         endTs: Long
     ): List<MedDoseSumRow>
 
+    // ⚠️ REPLACE 是**有意**的（L-2）：仅供备份恢复回填按主键覆盖
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(records: List<DoseRecordEntity>): List<Long>
 
