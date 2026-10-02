@@ -350,16 +350,25 @@ fun CabinetMedCard(
 
             // 药品名称与频次时段
             Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = med.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    // 药名独占整行、最多两行（T-6 大字号走查发现）：原先「名字 +
+                    // 类别标签」同行，orsbf P1-3 的让位约束（weight fill=false）在
+                    // 200% 缩放下把药名挤成「钙...」—— 药名是卡片最关键的信息，
+                    // 宁可换行也不能截断。名字独占整行后 P1-3 的约束自然满足
+                    //（标签不再与名字争宽）；标准字号下短名仍是单行，视觉不变。
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = med.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        // 长药名让位给类别标签（orsbf P1-3）：无 maxLines 时名字吃掉
-                        // 整行宽，「营养保健」这类标签被挤成竖排单字
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        text = item.frequencyDescription,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f, fill = false)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -378,12 +387,6 @@ fun CabinetMedCard(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = item.frequencyDescription,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 // 暂停说明由 ReminderSettingsEntity 统一生成（含"N 天后恢复"），
                 // 不要在 UI 里重写一遍日期比较 —— 两处实现必然漂移。
                 //
