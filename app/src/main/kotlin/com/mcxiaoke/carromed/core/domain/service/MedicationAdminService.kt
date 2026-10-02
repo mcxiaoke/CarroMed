@@ -286,10 +286,11 @@ class MedicationAdminService(private val db: AppDatabase) {
             // 必须校验**量化后**的毫单位而不是浮点入参（orsbf P0-4）：
             // `0.0004f` 能通过 `> 0f`，`Math.round(0.4) = 0` ⇒ 落库 0 剂量；
             // 极大值（≥ ~2.1e6）量化溢出 Int 变负 ⇒ 打卡反而**加**库存。
-            // 溢出为负被 `<= 0` 一并拦住。
-            val badDose = draft.times.firstOrNull { Dose.of(it.dose).milli <= 0 }
+            // `Dose.of` 现在把溢出钳到上界，因此这里改判**原始输入是否在量程内**
+            // （`Dose.isWithinRange`）—— 只判 `milli <= 0` 会被钳制掩盖成"合法"。
+            val badDose = draft.times.firstOrNull { !Dose.isWithinRange(it.dose) }
             require(badDose == null) {
-                "服药时点 ${badDose?.time} 的剂量必须大于 0（当前 ${badDose?.dose}）"
+                "服药时点 ${badDose?.time} 的剂量必须大于 0 且不超过 ${Dose.MAX_MILLI / 1000}（当前 ${badDose?.dose}）"
             }
 
             val previous = policyDao.getActivePolicyForMedication(medicationId)

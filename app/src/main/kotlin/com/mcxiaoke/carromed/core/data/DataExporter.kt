@@ -172,6 +172,17 @@ enum class BackupProblemKind(val blocksRestore: Boolean) {
      * 拦住反而会让来自 A2 之前版本的备份**永远恢复不了**。
      */
     MISSING_REMINDER_SETTINGS(false),
+
+    /**
+     * 剂量不在合法量程内（§二-18）：`dose_slots.dose_amount` 必须 > 0，
+     * `dose_records.dose_taken` 必须 ≥ 0（跳过事实的剂量就是 0）且都不超过
+     * `Dose.MAX_MILLI`。
+     *
+     * 拦住恢复：恢复是**直写实体**、绕过服务层的 `Dose.isWithinRange` 守卫，
+     * 非法值会被原样入库 —— 0 剂量槽位（闹钟照响、库存永不扣）与溢出为负的剂量
+     * （扣减变加药）都是全程静默的数据损坏，必须在写库前挡下。
+     */
+    INVALID_DOSE(true),
 }
 
 /**
@@ -631,6 +642,29 @@ object DataExporter {
             // recordId 可空（补药入库/盘点），非空时指向服药记录
             if (it.recordId != null && it.recordId !in recordIds) {
                 report(BackupProblemKind.DANGLING_RECORD_REF, R.string.backup_err_dangling_ledger_record, it.id, it.recordId)
+            }
+        }
+
+        // 剂量量程（§二-18）：恢复是**直写实体**、绕过服务层的 `Dose.isWithinRange`，
+        // 非法剂量会被原样入库（0 剂量槽位 = 闹钟照响库存永不扣；溢出为负 = 扣减变加药），
+        // 全程静默。这里补上服务层同源的量程判据。
+        // ⚠️ `dose_records.dose_taken == 0` 是**合法**的：跳过本次服药的事实剂量就是 0。
+        backup.doseSlots.forEach {
+            if (it.doseAmount <= 0 || it.doseAmount > Dose.MAX_MILLI) {
+                report(
+                    BackupProblemKind.INVALID_DOSE,
+                    R.string.backup_err_invalid_slot_dose,
+                    it.id, it.doseAmount, Dose.MAX_MILLI
+                )
+            }
+        }
+        backup.doseRecords.forEach {
+            if (it.doseTaken < 0 || it.doseTaken > Dose.MAX_MILLI) {
+                report(
+                    BackupProblemKind.INVALID_DOSE,
+                    R.string.backup_err_invalid_record_dose,
+                    it.id, it.doseTaken, Dose.MAX_MILLI
+                )
             }
         }
 

@@ -18,6 +18,8 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * 「改判」（已服 ↔ 已跳过）的台账守恒与幂等。
@@ -40,8 +42,20 @@ class DoseRestateTest {
     private lateinit var tracking: DoseTrackingService
     private var medId: Long = 0
 
-    /** 固定的服药时刻，避免断言随"此刻"变化 */
-    private val slotTs = 1_700_000_000_000L
+    /**
+     * 槽位的计划日与服药时刻，一律相对"今天"推导。
+     *
+     * ⚠️ 不能写绝对日期 / 绝对时间戳：`takeDose` 有补记时间窗（§二-19，
+     * 上界"不晚于此刻"、下界"不早于 7 天前"），一条固定在 2026-09-29 08:00
+     * 的服药时刻会随着时间推移掉出窗口，让本来与时间无关的台账守恒断言变成假红。
+     *
+     * 取**昨天 08:00**：永远早于"此刻"（上界满足）、永远在 7 天窗口内（下界满足）、
+     * 又落在 `scheduled_date <= 今天` 的守卫允许范围内 —— 时间无关且语义自洽。
+     */
+    private val slotDay: LocalDate = LocalDate.now().minusDays(1)
+    private val slotDayStr: String = slotDay.toString()
+    private val slotTs: Long = slotDay.atTime(8, 0)
+        .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
     @Before
     fun setup() = runTest {
@@ -64,7 +78,7 @@ class DoseRestateTest {
             DoseSlotEntity(
                 medicationId = medId,
                 policyId = 0,
-                scheduledDate = "2026-09-29",
+                scheduledDate = slotDayStr,
                 scheduledTime = "08:00",
                 scheduledTs = slotTs,
                 doseAmount = doseMilli,
@@ -257,7 +271,7 @@ class DoseRestateTest {
             DoseSlotEntity(
                 medicationId = plainMedId,
                 policyId = 0,
-                scheduledDate = "2026-09-29",
+                scheduledDate = slotDayStr,
                 scheduledTime = "08:00",
                 scheduledTs = slotTs,
                 doseAmount = 1000,

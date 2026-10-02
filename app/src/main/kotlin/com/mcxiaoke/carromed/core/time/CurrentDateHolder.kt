@@ -1,4 +1,4 @@
-package com.mcxiaoke.carromed.core.domain
+package com.mcxiaoke.carromed.core.time
 
 import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -17,6 +17,13 @@ import java.time.LocalDate
 
 /**
  * "今天是几号"的可刷新事实（M3-2）。
+ *
+ * ## 为什么住在 `core/time` 而不是 `core/domain`
+ *
+ * 它挂在 `ProcessLifecycleOwner` 上、还持有 `Application`，天然带 `android.*` 依赖；
+ * 而领域层（AGENTS §1 铁律）必须零 android 依赖，才能在 JVM 单测里真跑起来
+ * （Room 的 `withTransaction` 是唯一豁免）。它既不是领域计算也不是 UI，
+ * 而是**进程级的时间基础设施**，因此单列 `core/time`。（此前误居 `core/domain`，见 §二-29。）
  *
  * ## 为什么它必须是 Flow 而不是 `val today = LocalDate.now()`
  *

@@ -2,6 +2,7 @@ package com.mcxiaoke.carromed.ui.screen.settings
 
 import android.content.Context
 import android.content.Intent
+import android.app.NotificationManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -156,6 +158,29 @@ fun PermissionCheckScreen(onNavigateBack: () -> Unit) {
             }
             item {
                 PermissionItemCard(
+                    title = stringResource(R.string.perm_fullscreen_title),
+                    status = PermissionStatus(
+                        text = when {
+                            !facts.fullScreenSupported -> stringResource(R.string.perm_status_not_required)
+                            facts.fullScreenAllowed -> stringResource(R.string.perm_status_granted)
+                            else -> stringResource(R.string.perm_status_denied)
+                        },
+                        ok = facts.fullScreenAllowed
+                    ),
+                    desc = stringResource(R.string.perm_fullscreen_desc),
+                    icon = Icons.Default.NotificationsActive,
+                    action = if (facts.fullScreenSupported && !facts.fullScreenAllowed) {
+                        PermissionAction(
+                            stringResource(R.string.perm_action_grant),
+                            { openFullScreenIntentSettings(context) }
+                        )
+                    } else {
+                        null
+                    }
+                )
+            }
+            item {
+                PermissionItemCard(
                     title = stringResource(R.string.perm_battery_title),
                     status = PermissionStatus(
                         text = if (facts.ignoringBatteryOptimizations) stringResource(R.string.perm_status_whitelisted)
@@ -196,12 +221,17 @@ private data class PermissionFacts(
     val precision: AlarmScheduler.Precision,
     val notificationsEnabled: Boolean,
     val ignoringBatteryOptimizations: Boolean,
-    val needsExactAlarmRequest: Boolean
+    val needsExactAlarmRequest: Boolean,
+    /** Android 14+ 才有 `canUseFullScreenIntent` 这个可撤销授权；低于 34 恒为 true */
+    val fullScreenSupported: Boolean,
+    /** 锁屏全屏提醒（Full-Screen Intent）当前是否可用 */
+    val fullScreenAllowed: Boolean
 ) {
     companion object {
         fun query(context: Context): PermissionFacts {
             val pkg = context.packageName
             val pm = context.getSystemService(PowerManager::class.java)
+            val fullScreenSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
             return PermissionFacts(
                 precision = AlarmScheduler.currentPrecision(context),
                 notificationsEnabled = NotificationManagerCompat.from(context)
@@ -209,7 +239,16 @@ private data class PermissionFacts(
                 ignoringBatteryOptimizations = pm?.isIgnoringBatteryOptimizations(pkg) == true,
                 needsExactAlarmRequest = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                     context.packageManager
-                        .resolveActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$pkg")), 0) != null
+                        .resolveActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$pkg")), 0) != null,
+                fullScreenSupported = fullScreenSupported,
+                // 与 `Notifications.showDoseNotification` 的鉴权同源：都问系统的
+                // `canUseFullScreenIntent()`。低于 34 系统没有这个授权模型，恒可用。
+                fullScreenAllowed = if (fullScreenSupported) {
+                    context.getSystemService(NotificationManager::class.java)
+                        ?.canUseFullScreenIntent() ?: false
+                } else {
+                    true
+                }
             )
         }
     }
@@ -234,6 +273,18 @@ private fun openNotificationSettings(context: Context) {
 
 private fun openBatteryOptimizationSettings(context: Context) {
     val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    runCatching { context.startActivity(intent) }.onFailure { openAppDetails(context) }
+}
+
+/**
+ * 跳到「允许全屏通知」设置页（Android 14+）。
+ *
+ * `ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` 是 API 34 才有的系统页，部分 ROM 可能没有 ——
+ * 与其余入口同口径，失败就退到应用详情页，绝不出现"点了没反应"。
+ */
+private fun openFullScreenIntentSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${context.packageName}"))
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     runCatching { context.startActivity(intent) }.onFailure { openAppDetails(context) }
 }

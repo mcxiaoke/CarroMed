@@ -84,6 +84,17 @@ android {
 }
 
 /**
+ * Room schema 落盘位置（A-16 / §二-16）。
+ *
+ * `exportSchema = true` 只有在配置了 `room.schemaLocation` 时才真正写文件 ——
+ * 否则 KSP 只会在编译期抛"Schema export directory is not provided"警告并对
+ * 每个 schema 变更再喊一次。落盘到 `app/schemas/`，作为将来重建迁移的真相起点。
+ */
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+/**
  * 单元测试跑在 JUnit 5 Platform 上。
  *
  * 为什么要切：属性化测试（jqwik）只支持 JUnit 5，而现存 65 项 JUnit 4 + Robolectric

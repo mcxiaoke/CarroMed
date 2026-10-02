@@ -170,13 +170,28 @@ class DoseTrackingService(
         noteKey: String? = null,
         isRetrospective: Boolean = false
     ): Boolean = db.withTransaction {
-        // 显式传入的剂量同样必须为正（M2-2）。
-        // 负剂量打卡 = 扣减变成**加**库存，是这条路径上最恶劣的失败模式。
-        // `slot.doseAmount` 那一路不需要校验：它由 `saveReminderPolicy` 的
-        // `require(dose > 0)` 在写入时保证了（那是所有时点剂量的唯一来源）。
-        require(takenAmount == null || (takenAmount > 0f && takenAmount.isFinite())) {
-            "服药剂量必须大于 0，当前 $takenAmount"
+        // 显式传入的剂量必须在合法量程内（M2-2 / §二-18）。
+        // 负剂量打卡 = 扣减变成**加**库存，是这条路径上最恶劣的失败模式；
+        // 上界（`Dose.isWithinRange`）挡住量化溢出 —— `Dose.of` 现在会把溢出钳到
+        // 上界，只判 `> 0` 会把"极大值"误判成合法。
+        // `slot.doseAmount` 那一路不需要校验：它由 `saveReminderPolicy` 的同一条判据
+        // 在写入时保证了（那是所有时点剂量的唯一来源）。
+        require(takenAmount == null || Dose.isWithinRange(takenAmount)) {
+            "服药剂量必须大于 0 且不超过 ${Dose.MAX_MILLI / 1000}，当前 $takenAmount"
         }
+
+        // 时间窗守卫（§二-19）：与 [logManualDose] **同源**，服务层是所有入口的公共下游
+        // （UI 打卡 / 通知栏 Action / 未来的 Widget、手表、快捷指令）。
+        // 上界：服药是**已发生**的事实，不许记到未来（60 秒容差对齐 UI）。
+        // 下界：与补录窗口同源（[MANUAL_DOSE_BACKFILL_DAYS]）—— 否则"先打卡再改时间"
+        // 能绕过补录的时间窗（`editDose` 已按同一常量设防，两边必须一致）。
+        val nowTs = System.currentTimeMillis()
+        require(actualTs <= nowTs + 60_000L) { "服药时间不能晚于当前时刻" }
+        require(
+            !Instant.ofEpochMilli(actualTs).atZone(ZoneId.systemDefault())
+                .toLocalDate().isBefore(todayProvider().minusDays(MANUAL_DOSE_BACKFILL_DAYS))
+        ) { "服药时间不能早于 $MANUAL_DOSE_BACKFILL_DAYS 天前" }
+
         val slot = slotDao.getSlotById(slotId) ?: run {
             AppLog.w(TAG, "takeDose rejected slot=$slotId reason=slot-missing")
             return@withTransaction false
@@ -186,16 +201,10 @@ class DoseTrackingService(
             return@withTransaction false
         }
 
-        // 浮点检查挡不住量化后的静默归零 / 溢出（orsbf P0-4）：
-        // `0.0004f` 通过 `> 0f` 但 `Dose.of` 四舍五入成 0（打卡照记、库存永不扣），
-        // 极大值溢出 Int 变负（打卡反而加库存）。`slot.doseAmount` 那一路仍由
-        // `saveReminderPolicy` 的量化后校验在写入时保证，这里不再重复拒绝，
-        // 以免把恢复自旧备份的存量数据变成"无法打卡"。
-        val finalDose: Dose = takenAmount?.let {
-            val d = Dose.of(it)
-            require(d.milli > 0) { "服药剂量必须大于 0，当前 $it" }
-            d
-        } ?: Dose(slot.doseAmount)
+        // 剂量已在入口按 `Dose.isWithinRange` 校验（量化后归零 / 溢出都被挡下），
+        // 这里只取值；`slot.doseAmount` 那一路由 `saveReminderPolicy` 的同一条判据
+        // 在写入时保证，不重复拒绝 —— 免得把恢复自旧备份的存量数据变成"无法打卡"。
+        val finalDose: Dose = takenAmount?.let { Dose.of(it) } ?: Dose(slot.doseAmount)
 
         // 幂等锚点下沉到 SQL：只有仍在等待、且**不是未来**的槽位才被置为 COMPLETED。
         // 受影响行数为 0 ⇒ 已被处理过或尚未到计划日，直接放弃记账
@@ -613,8 +622,8 @@ class DoseTrackingService(
         newNote: String? = null,
         newActualTs: Long? = null
     ): Boolean = db.withTransaction {
-        require(newDoseAmount == null || (newDoseAmount > 0f && newDoseAmount.isFinite())) {
-            "服药剂量必须大于 0，当前 $newDoseAmount"
+        require(newDoseAmount == null || Dose.isWithinRange(newDoseAmount)) {
+            "服药剂量必须大于 0 且不超过 ${Dose.MAX_MILLI / 1000}，当前 $newDoseAmount"
         }
         val record = recordDao.getRecordById(recordId) ?: run {
             AppLog.w(TAG, "editDose rejected record=$recordId reason=record-missing")
@@ -744,13 +753,12 @@ class DoseTrackingService(
         //
         // 负剂量的后果特别恶劣：`-Dose.of(doseAmount)` 是**加**库存，
         // 于是"补录一次负剂量服药"会凭空给账面加药，且事实记录显示"已服用 -2 片"。
-        require(doseAmount > 0f && doseAmount.isFinite()) {
-            "服药剂量必须大于 0，当前 $doseAmount"
+        require(Dose.isWithinRange(doseAmount)) {
+            "服药剂量必须大于 0 且不超过 ${Dose.MAX_MILLI / 1000}，当前 $doseAmount"
         }
-        // 量化后守正（orsbf P0-4）：浮点检查挡不住 `Dose.of` 的静默归零
-        // （0.0004f → 0，打卡照记、库存永不扣）与溢出为负（打卡反而加库存）。
+        // 量化后守正 + 上界（orsbf P0-4 / §二-18）：`Dose.isWithinRange` 已同时
+        // 保证"量化后 > 0"与"未触上界（溢出被钳制前就已判假）"，这里只取值。
         val doseMilli = Dose.of(doseAmount).milli
-        require(doseMilli > 0) { "服药剂量量化后必须大于 0，当前 $doseAmount" }
         // 时间窗守卫（[MANUAL_DOSE_BACKFILL_DAYS]）：上界拒绝未来时刻（60 秒容差
         // 对齐 UI 的 `isAfter(now + 1min)`），下界按自然日 —— 与记录详情页的
         // 撤销窗口 `age in 0..N` 同一套日历口径，避免"校验与窗口各说各话"

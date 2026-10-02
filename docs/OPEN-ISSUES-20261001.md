@@ -5,6 +5,14 @@
 > 同日晚些的 UI 走查批次收掉了 §一-7、§二-24、§二-26 与 L-22 menuAnchor 迁移，
 > 修复详情见 `CHANGES-20261002.md`。
 >
+> **2026-10-02 下午批次（发布前基础项）**：再收掉 §一-13（补 `Index(status, snooze_until_ts)`）、
+> §二-16（`exportSchema` 落盘 `app/schemas/`）、§二-18（`Dose` 量程 + 恢复剂量校验）、
+> §二-19（`takeDose` 补记时间窗）、§二-29（`DoseEntryActions` → `core/alarm`、
+> `CurrentDateHolder` → `core/time`，`core/domain` 重回零 android 依赖）；
+> **§二-15 经用户决议 ⏸ 不开 R8**（只有体积收益、无实质性能收益）。
+> 同批次 DB 版本**归零为 v1 并移除一切升级/回退**（未发布），本清单中原按 v10 论述的
+> 迁移/索引条目均已随之失效。详情见 `CHANGES-20261002.md` 顶部。
+>
 > **生成时间**：2026-10-01 19:09 (GMT+8)，基于工作区 HEAD `97612a7`（含 9/30–10/1 全部修复批次）。
 >
 > **本文档取代此前所有 review 与问题清单，是唯一有效的开放问题清单。**
@@ -141,7 +149,7 @@
   `onNewIntent` 复用，不再销毁重建（状态不丢）。通知点击维持「打开首页今日页」
   的行为不变；深链落点（导航到记录详情）经用户决策暂缓，需要时再从本条恢复。
 
-### 13. `getStaleOpenSlots` OR 双分支无适配索引
+### 13. `getStaleOpenSlots` OR 双分支无适配索引 ✅ 已修复（2026-10-02 下午批次，补 `(status, snooze_until_ts)` 索引）
 - 来源：ocsbf P1-9、zcg 上轮遗留 #3
 - 现状：`DoseSlotDao.kt:480-488` `WHERE status='PENDING' AND scheduled_ts < ? OR status='SNOOZED' AND snooze_until_ts < ?`；
   `DoseSlotEntity.kt:42-51` 现有 `(scheduled_date,status)`、`scheduled_ts` 等索引，
@@ -160,7 +168,7 @@
 
 ## 二、中优先级（一致性 / 性能 / 发布准备）
 
-### 15. release 未开 R8，且 `proguard-rules.pro` 文件不存在
+### 15. release 未开 R8，且 `proguard-rules.pro` 文件不存在 ⏸ 决议不开（2026-10-02：只有体积收益，无实质性能收益）
 - 来源：orsbf P0-6、sbf P3-1/P3-2
 - 现状：`app/build.gradle.kts:49` `isMinifyEnabled = false`；build 文件引用的
   `proguard-rules.pro` 实际不存在（Test-Path = False）。当前不报错只是因为没开混淆；
@@ -169,7 +177,7 @@
 - 修法：创建 proguard-rules.pro（枚举 keep 规则先写好），发布前开 minify 并跑全量回归。
   **发布阻断项。**
 
-### 16. `exportSchema = false`，schema 无落盘
+### 16. `exportSchema = false`，schema 无落盘 ✅ 已修复（2026-10-02 下午批次，落盘 `app/schemas/`）
 - 来源：ocsbf P2-8 残余、sbf P2-6
 - 现状：`AppDatabase.kt:74`。当前处于「删库重装」阶段风险被政策对冲，但发布前重建迁移
   需要历史 schema 作为真相起点。版本史注释（:30-42）已补到 v9。
@@ -181,14 +189,14 @@
   无检测，切换日可能顺延/跳过一小时。中国无 DST，短期实害为零，属正确性债。
 - 修法：检测 `ZoneRules` 的 gap/overlap 并显式选边 + 注释。
 
-### 18. 恢复路径直写 `doseAmount` 无量化校验；`Dose.of` 无上界
+### 18. 恢复路径直写 `doseAmount` 无量化校验；`Dose.of` 无上界 ✅ 已修复（2026-10-02 下午批次）
 - 来源：orsbf P0-4 残留
 - 现状：三个业务入口（savePolicy/takeDose/logManualDose）已有量化后 `milli > 0` 守卫，
   但 `DataExporter.kt:860-867` 恢复回填直写 `doseAmount`，`validateBackup` 无剂量正性/上界校验；
   `Dose.kt:52` 本体仍无上界钳制（新代码直接调 `Dose.of` 仍可能溢出）。
 - 修法：恢复校验加剂量 `> 0`（blocksRestore 或告警按既有分级）；`Dose.of` 加业务上界。
 
-### 19. `takeDose` 服务层无补记时间窗
+### 19. `takeDose` 服务层无补记时间窗 ✅ 已修复（2026-10-02 下午批次）
 - 来源：orsbf P1-6 残留、bda 一.4 残留
 - 现状：UI 层已加 14 天历史下界并钳制，`logManualDose` 服务层有上下界，但
   `takeDose` 服务层对过去时刻一律放行（`SlotActionPolicy.kt:54`）——防御纵深缺最后一层。
@@ -263,7 +271,7 @@
     有计划未投影时自相矛盾（U-4 残留，汇总区已改 `policy == null` 判据，此处没改）。
 - 修法：统一词汇表；两处文案按现行为改写。
 
-### 29. `core/domain` 层 android 依赖残留（铁律）
+### 29. `core/domain` 层 android 依赖残留（铁律）✅ 已修复（2026-10-02 下午批次，迁出 `DoseEntryActions` / `CurrentDateHolder`）
 - 来源：orsbf P2-4 残留
 - 现状：铁律只豁免 Room `withTransaction`，但 `DoseEntryActions.kt:3` 仍 import
   `android.content.Context`，`CurrentDateHolder.kt:3-6` 仍 import

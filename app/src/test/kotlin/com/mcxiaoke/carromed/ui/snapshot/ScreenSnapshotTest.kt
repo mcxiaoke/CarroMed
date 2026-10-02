@@ -131,7 +131,7 @@ class ScreenSnapshotTest {
 
     /** UI 的"今天"由 CurrentDateHolder 统一供给（M3-2），测试钩子直接覆盖 */
     private fun pinToday() {
-        com.mcxiaoke.carromed.core.domain.CurrentDateHolder.setTodayForTest(FIXED_DATE)
+        com.mcxiaoke.carromed.core.time.CurrentDateHolder.setTodayForTest(FIXED_DATE)
     }
 
     companion object {

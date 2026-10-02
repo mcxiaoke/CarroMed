@@ -10,13 +10,13 @@ import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.MedicationOverview
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
-import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
+import com.mcxiaoke.carromed.core.time.CurrentDateHolder
 import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
-import com.mcxiaoke.carromed.core.domain.service.DoseActionResult
-import com.mcxiaoke.carromed.core.domain.service.DoseEntryActions
+import com.mcxiaoke.carromed.core.alarm.DoseActionResult
+import com.mcxiaoke.carromed.core.alarm.DoseEntryActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel

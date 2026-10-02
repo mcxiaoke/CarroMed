@@ -11,8 +11,6 @@ import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.RecordNoteKey
-import com.mcxiaoke.carromed.core.domain.service.DoseActionResult
-import com.mcxiaoke.carromed.core.domain.service.DoseEntryActions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

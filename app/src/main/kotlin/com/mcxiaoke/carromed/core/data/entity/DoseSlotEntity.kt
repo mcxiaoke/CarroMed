@@ -43,6 +43,11 @@ import com.mcxiaoke.carromed.core.data.model.SlotStatus
         Index(value = ["medication_id"]),
         Index(value = ["scheduled_date", "status"]),
         Index(value = ["scheduled_ts"]),
+        // ⭐ 结算查询 `WHERE status = 'SNOOZED' AND snooze_until_ts < ?` 此前**没有任何
+        // 可用索引**（`snooze_until_ts` 不在任何索引里），每轮对账 / 每次闹钟触发
+        // 都退化成全表扫。§一-13 已把 OR 双分支拆开，这里补上 SNOOZED 分支的索引：
+        // 前导列 status 让"只扫 SNOOZED 行"成为可能，次列 snooze_until_ts 走范围扫描。
+        Index(value = ["status", "snooze_until_ts"]),
         // ⭐ 槽位唯一性：同一药品的同一计划日 + 同一时刻只能有一条槽位
         Index(
             value = ["medication_id", "scheduled_date", "scheduled_time"],

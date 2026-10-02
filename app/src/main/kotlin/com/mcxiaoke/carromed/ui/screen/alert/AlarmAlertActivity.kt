@@ -233,7 +233,9 @@ fun AlarmAlertContent(
             }
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = if (isCritical) "重要用药提醒" else "准点服药提醒",
+                text = stringResource(
+                    if (isCritical) R.string.alert_title_critical else R.string.alert_title_normal
+                ),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = if (isCritical) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
@@ -268,7 +270,7 @@ fun AlarmAlertContent(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "单次剂量：$doseText",
+                    text = stringResource(R.string.alert_dose_label, doseText),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
@@ -301,7 +303,7 @@ fun AlarmAlertContent(
             ) {
                 Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(22.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("确认已服", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.alert_action_take), fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
 
             OutlinedButton(
@@ -313,7 +315,7 @@ fun AlarmAlertContent(
             ) {
                 Icon(Icons.Default.Snooze, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("推迟 $snoozeMinutes 分钟", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.alert_action_snooze, snoozeMinutes), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             }
 
             TextButton(
@@ -321,7 +323,7 @@ fun AlarmAlertContent(
                 modifier = Modifier.height(44.dp)
             ) {
                 Text(
-                    "跳过本次",
+                    stringResource(R.string.alert_action_skip),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.outline
                 )

@@ -12,7 +12,7 @@ import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
-import com.mcxiaoke.carromed.core.domain.service.DoseEntryActions
+import com.mcxiaoke.carromed.core.alarm.DoseEntryActions
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.core.domain.service.MANUAL_DOSE_BACKFILL_DAYS
 import com.mcxiaoke.carromed.ui.component.DecimalInput

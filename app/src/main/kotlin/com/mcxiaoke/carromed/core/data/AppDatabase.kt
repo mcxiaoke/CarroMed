@@ -5,7 +5,6 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
-import com.mcxiaoke.carromed.BuildConfig
 import com.mcxiaoke.carromed.core.data.converter.AppConverters
 import com.mcxiaoke.carromed.core.data.dao.AppSettingDao
 import com.mcxiaoke.carromed.core.data.dao.DoseRecordDao
@@ -27,36 +26,19 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
  * CarroMed Room 数据库单例定义
  * 包含 8 张实体表及 7 个对应 DAO
  *
- * ## `version` 的版本史（改 schema 就必须 +1，不是可选项）
+ * ## 版本策略：钉死在 `version = 1`，不写任何迁移/升级代码
  *
- * | 版本 | 步骤 | 变更 |
- * | :---: | --- | --- |
- * | 1 | 初版 | 7 张表 |
- * | 2 | — | （历史迁移已随"不需要迁移代码"的决策删除） |
- * | 3 | A1 | 删 `medications.current_stock`；6 列 `REAL` → 整数毫单位；`RecordStatus.RETROSPECTIVE` 改布尔列 |
- * | 4 | A2 | 新增 `reminder_settings` 表；`medications` 删 4 列 |
- * | 5 | A3 | `dose_slots` 的 `(medication_id, scheduled_date, scheduled_time)` 改 **UNIQUE 索引** |
- * | 6 | M8-5 | 删 `medications.icon_name`（有列、有备份字段，但全链路**无写入、无消费**） |
- * | 7 | osbf P3-4 | `inventory_transactions` 加 `Index(record_id)`（改剂量/撤销按事实 id 聚合流水的高频过滤） |
- * | 8 | B5 | `inventory_transactions` 加 `note_key` 列（PLAN-I18N-20260930 D-C） |
- * | 9 | CODE-REVIEW | `dose_records` & `inventory_transactions` 外键改为 `RESTRICT` 阻止级联删历史 |
- * | 10 | REPEAT | `dose_slots` 新增 `reminder_count` 列（追踪提醒次数支持重复提醒） |
+ * 项目**尚未公开发布**（AGENTS §2）：不存在"用户的旧库"这回事，因此不存在升级路径。
+ * 与其维护一条永远只在开发机上跑一次、此后无人覆盖的迁移链，不如把版本固定为 1：
  *
- * ⚠️ **A1 当时漏升了版本（3 → 3）**，靠 A2 的 3 → 4 顺带补救。
- * 这属于**运气**不是设计。核实依据（反编译 `room-runtime-2.6.1.aar` 的
- * `androidx/room/RoomOpenHelper.class`）：
+ * - **改 schema 直接删库重装** —— 走查脚本每次 `--clear`；真机卸载重装。
+ * - **不开任何 `fallbackToDestructiveMigration()`** —— 它只在版本**变大**时才生效，
+ *   与"版本恒为 1"的前提矛盾；留着只会让下一个人误以为 schema 变更会被自动兜住。
+ * - 版本不变而 schema 变了 ⇒ `checkIdentity` 不匹配 ⇒ 冷启动抛
+ *   `IllegalStateException: Room cannot verify the data integrity`（**故意**，比静默删库诚实）。
  *
- * - `onOpen` 只有两条指令：`super.onOpen(db); checkIdentity(db);`，
- *   **没有 Exception table** ⇒ 异常直接向上抛。
- * - `checkIdentity` 在 identity hash 不匹配时 `athrow IllegalStateException`，
- *   同样**没有 Exception table**。
- * - 破坏性回退只挂在 `onUpgrade`（版本**变大**时）这条路径上。
- *   版本不变 ⇒ `onUpgrade` 根本不会被调用 ⇒ `fallbackToDestructiveMigration()`
- *   **完全不覆盖**这个身份校验。
- *
- * 后果：版本不变而 schema 变了 ⇒ 冷启动直接崩
- * `IllegalStateException: Room cannot verify the data integrity`。
- * 走查脚本永远发现不了，因为每次都 `--clear` 清库。
+ * `exportSchema = true`：schema 落盘到 `app/schemas/`，作为将来重建迁移的真相起点
+ * （发布前才需要，现在先攒着）。改 schema 后重新构建会更新这份 JSON。
  */
 @Database(
     entities = [
@@ -69,9 +51,10 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
         MedicationEntity::class,
         AppSettingEntity::class
     ],
-    // v10：dose_slots 增加 reminder_count 列，未发布不写迁移，直接自毁重建。
-    version = 10,
-    exportSchema = false
+    // 未发布：版本钉在 1，不写迁移/升级代码。改 schema 直接删库重装（见类 KDoc）。
+    version = 1,
+    // schema 落盘 app/schemas/，为将来的迁移重建留真相起点
+    exportSchema = true
 )
 @TypeConverters(AppConverters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -91,53 +74,12 @@ abstract class AppDatabase : RoomDatabase() {
         private var INSTANCE: AppDatabase? = null
 
         /**
-         * ⚠️ schema v1 → v2 迁移**已删除**（M5-9）。发布前不需要它，且它本身是坏的。
+         * 没有任何迁移代码，也不开破坏式回退（AGENTS §2：未发布，改 schema 直接删库重装）。
          *
-         * ## 为什么删除而不是保留
-         *
-         * 两份独立审查（sba / DB）各自发现、修复计划交叉确认。
-         *
-         * 1. **它建的索引与实体声明冲突**：迁移里
-         *    `CREATE INDEX IF NOT EXISTS index_dose_slots_medication_id_scheduled_date_scheduled_time`
-         *    建的是一个**非 UNIQUE** 索引，而 [DoseSlotEntity] 上同名索引声明
-         *    `unique = true`。Room 的 schema 校验会看到这个矛盾并抛异常 ——
-         *    也就是说这段"迁移"一旦执行，就把用户的库变成打不开的状态。
-         * 2. **迁移链本身不完整**：`version = 5` 而链上只有 1→2。
-         *    Room 的 `findMigrationPath(1, 5)` 要求**完整链路**，缺 2→3/3→4/4→5
-         *    时返回 null，于是走 `fallbackToDestructiveMigration()` 整库重建。
-         *
-         * 关于第 2 条，审查之间有分歧（一份认为"部分链路会执行"、
-         * 一份认为"因缺边而从不执行"），`exportSchema = false` 也没有 v1 schema JSON
-         * 可供在真库上重放，**当前无法实证**。但两说的**修复动作完全相同**，
-         * 分歧只影响"风险是否可达"的表述 —— 所以直接删掉，不留一个
-         * "可能可达、可能不可达、但一旦可达就炸库"的代码。
-         *
-         * `AGENTS.md` 已明确：项目未公开发布，**不需要任何迁移或兼容旧版本的代码**。
-         * 发布前按 §2 的纪律重建迁移并逐条验证。
-         */
-
-        /**
-         * ⚠️ **破坏式重建仅限 debug 构建**
-         *
-         * ## 为什么开发期打开破坏式重建
-         *
-         * v2 → v3 删了 `medications.current_stock` 一列，并把 5 个金额列从 `REAL`
-         * 改成了整数毫单位。这类改写在 SQLite 里必须靠"建新表 + 拷数据 + 改名"实现，
-         * 是一整套迁移代码 —— 而 `AGENTS.md` 已明确：项目尚未公开发布，
-         * **不需要任何迁移或兼容旧版本的代码**。
-         *
-         * 与其写一段 60 行、只在开发期被执行一次、此后永远不被覆盖的迁移 SQL，
-         * 不如让 Room 直接重建库：开发期数据可从 `dev.SEED` 广播一键重建，损失为零。
-         * （对比方案"静默崩溃"更糟：开发机上换台机器 clone 就起不来。）
-         *
-         * ## 为什么不能让 release 也走这条路
-         *
-         * 过去这里是裸调用 + "TODO(发布前删除)" —— 忘了删，release 版本不匹配时
-         * 就会**静默清空用户全部服药历史**。现在改成 debug 门控：
-         * release 构建不再回退，schema 不匹配会显式抛异常
-         * （`IllegalStateException: Room cannot verify the data integrity`），
-         * 比静默删库诚实。真正发布前，按 AGENTS §2 的纪律重建 `MIGRATION_*`
-         * 并逐条验证。
+         * 历史迁移链（v1→v2 等）已全部删除：它们与实体声明冲突、链路本身也不完整，
+         * 属于"可能不可达、但一旦可达就炸库"的代码，留着只有负价值。
+         * 版本已归零为 1，不存在"旧库 → 新库"的路径，因此也不需要
+         * `fallbackToDestructiveMigration()`（它只在版本变大时生效）。
          */
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -146,11 +88,6 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .apply {
-                        if (BuildConfig.DEBUG) {
-                            fallbackToDestructiveMigration()
-                        }
-                    }
                     .build()
                     .also { INSTANCE = it }
             }

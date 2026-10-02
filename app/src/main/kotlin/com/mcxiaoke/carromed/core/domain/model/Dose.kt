@@ -49,8 +49,47 @@ value class Dose(val milli: Int) {
     companion object {
         val ZERO = Dose(0)
 
-        fun of(value: Float): Dose = Dose(Math.round(value * 1000f))
-        fun of(value: Int): Dose = Dose(value * 1000)
+        /**
+         * 单次剂量的**业务上界**（毫单位）：1000 个药品单位。
+         *
+         * 存在的理由不是"规定用户能吃多少"，而是把**溢出**关掉：
+         * 毫单位是 `Int`，`of(value: Int)` 的 `value * 1000` 在 `value > 2_147_483`
+         * 时会**回绕成负数** —— 负剂量打卡 = 扣减变加药（M2-2 点名的"最恶劣失败模式"）。
+         * 1000 个单位对任何单次剂量都荒谬地宽松（1000 片 / 1000 ml），
+         * 越界只可能是输入错误或坏数据，不可能误伤真实用药。
+         *
+         * 服务层仍应对**原始输入**显式 `require(≤ MAX_MILLI)`：钳制是防御纵深，
+         * 不是校验的替代品（静默钳制会掩盖用户输入错误）。
+         */
+        const val MAX_MILLI: Int = 1_000_000
+
+        /**
+         * 量化并**钳制到合法量程**。
+         *
+         * 钳制到 `.milli` 的物理量程而不是 `Int` 量程：越界值一律落到 [MAX_MILLI]，
+         * 于是"忘记校验"最坏也只是记录一条上界值，不会变成负数扣减。
+         */
+        fun of(value: Float): Dose =
+            Dose(Math.round(value * 1000f).coerceIn(-MAX_MILLI, MAX_MILLI))
+
+        /** 用 `Long` 做乘法再钳制，杜绝 `value * 1000` 的 Int 回绕。 */
+        fun of(value: Int): Dose = Dose(
+            (value.toLong() * 1000L)
+                .coerceIn(-MAX_MILLI.toLong(), MAX_MILLI.toLong())
+                .toInt()
+        )
+
+        /**
+         * 原始输入（单位）是否是一个**合法的单次剂量**。
+         *
+         * 判据只有这一份：服务层的四个写入口（时点剂量 / 打卡 / 补录 / 改剂量）
+         * 全部调它，避免"某一条漏了上界"这类静默分叉。
+         *
+         * 上界取 `until`（开区间）：量化后被钳到 [MAX_MILLI] 说明**原始输入越界**
+         * （正常值不可能恰好等于上界），因此与"≤ 0 / 非有限"一样视为非法。
+         */
+        fun isWithinRange(value: Float): Boolean =
+            value.isFinite() && of(value).milli in 1 until MAX_MILLI
     }
 }
 

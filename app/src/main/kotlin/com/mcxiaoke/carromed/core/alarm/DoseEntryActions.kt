@@ -1,15 +1,12 @@
-package com.mcxiaoke.carromed.core.domain.service
+package com.mcxiaoke.carromed.core.alarm
 
 import android.content.Context
-import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
-import com.mcxiaoke.carromed.core.alarm.AlarmScheduler
-import com.mcxiaoke.carromed.core.alarm.Notifications
-import com.mcxiaoke.carromed.core.alarm.ReconcileWorker
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
+import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import java.time.LocalDate
 
 /**
@@ -20,7 +17,7 @@ import java.time.LocalDate
  * `false` 把两件**副作用处理恰好相反**的事压成同一个值：
  *
  * | 失败原因 | 槽位状态 | 该不该撤闹钟 | 该说什么 |
- * | :--- | :--- | :--- | :--- |
+ * | :--- | :--- | :---: | :--- |
  * | `ALREADY_HANDLED` | 已 COMPLETED / SKIPPED（或槽位已不存在） | **要撤** —— 它不该再提醒 | "该服药记录已处理过" |
  * | `FUTURE_SLOT` | 仍是 PENDING 的明天/更远的槽位 | **绝不能撤** —— 那是明天的提醒 | "未来的服药时间不能提前确认" |
  *
@@ -38,6 +35,13 @@ enum class DoseActionResult {
 
 /**
  * 用药条目的动作编排层：把「改数据 → 改闹钟 → 撤通知」三件事绑成一次调用。
+ *
+ * ## 为什么住在 `core/alarm` 而不是 `core/domain`
+ *
+ * 它**持有 `Context`**、直接调 [AlarmScheduler] / [Notifications] / [AlarmReconciler]，
+ * 是"数据 + 系统副作用"的编排器，不是领域计算。领域层（AGENTS §1 铁律）
+ * 必须零 `android.*` 依赖才能在 JVM 单测里跑 —— 它和 [AlarmReconciler] 是同一类东西，
+ * 放在同一个包里名正言顺。（此前它误居 `core/domain/service`，见 §二-29。）
  *
  * ## 为什么需要它
  *
@@ -183,8 +187,10 @@ class DoseEntryActions(
     /**
      * 推迟提醒：置 `SNOOZED` → 撤原定准点/提前闹钟 → 排一个 `SNOOZE` 种类 → 撤通知。
      *
-     * 只撤 `MAIN` / `ADVANCE` 而不撤 `SNOOZE`：用户可能连续推迟两次，
+     * 只撤 `MAIN` / `ADVANCE` / `REPEAT` 而不撤 `SNOOZE`：用户可能连续推迟两次，
      * 撤掉 `SNOOZE` 会把上一次推迟刚排的唤醒一起清掉。
+     * （`REPEAT` 必须撤：重复提醒是"没确认才继续响"的机制，用户主动推迟等于表态，
+     * 原来的重复链不该再叠在推迟链上。）
      */
     suspend fun snooze(slotId: Long, minutes: Int): Boolean {
         val ok = tracking.snoozeDose(slotId, minutes)

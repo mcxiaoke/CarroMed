@@ -68,6 +68,12 @@
     <string name="backup_row_policy_time">服药时点</string>
     <string name="backup_err_dup_row">%1$s #%2$d 在备份中出现了 %3$d 次</string>
 
+    <!-- 剂量量程校验（§二-18）：槽位剂量必须 > 0，服药事实剂量必须 ≥ 0（跳过即 0）；
+         ⚠️ 这里**刻意**用两条独立文案而不是"行标签 + 通用模板"：`BackupProblem.message`
+         会把 args 原样交给 `getString`，传资源 ID 只会打印成数字（现有 dup_row 的隐患）。 -->
+    <string name="backup_err_invalid_slot_dose">槽位 #%1$d 的剂量 %2$d 毫单位不在合法量程内（应在 1~%3$d）</string>
+    <string name="backup_err_invalid_record_dose">服药记录 #%1$d 的剂量 %2$d 毫单位不在合法量程内（不应为负，且不超过 %3$d）</string>
+
     <!-- 查询不到显示名时的占位文件名 -->
     <string name="csv_fallback_selected_file">所选文件</string>
 </resources>

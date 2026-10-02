@@ -6,7 +6,7 @@ import com.mcxiaoke.carromed.core.alarm.AppLogging
 import com.mcxiaoke.carromed.core.alarm.Notifications
 import com.mcxiaoke.carromed.core.alarm.ReconcileWorker
 import com.mcxiaoke.carromed.core.domain.AppLog
-import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
+import com.mcxiaoke.carromed.core.time.CurrentDateHolder
 
 /**
  * 应用入口。

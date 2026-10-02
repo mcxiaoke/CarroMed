@@ -4,7 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.mcxiaoke.carromed.core.domain.AppLog
-import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
+import com.mcxiaoke.carromed.core.time.CurrentDateHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

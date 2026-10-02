@@ -193,7 +193,12 @@ class BackupResilienceTest {
                 (if (tim != null) good.copy(
                     policyTimes = listOf(tim, tim.copy(id = tim.id + 5000))
                 ) else good.copy(reminderSettings = emptyList())),
-            BackupProblemKind.MISSING_REMINDER_SETTINGS to good.copy(reminderSettings = emptyList())
+            BackupProblemKind.MISSING_REMINDER_SETTINGS to good.copy(reminderSettings = emptyList()),
+            // §二-18：剂量量程。槽位剂量 0 会造出"闹钟照响、库存永不扣"的静默损坏，
+            // 恢复是直写实体、绕过服务层守卫，只能在校验层拦。
+            BackupProblemKind.INVALID_DOSE to good.copy(
+                doseSlots = listOf(good.doseSlots.first().copy(doseAmount = 0))
+            )
         )
         assertThat(dirty.keys).containsExactlyElementsIn(BackupProblemKind.entries.toSet())
 

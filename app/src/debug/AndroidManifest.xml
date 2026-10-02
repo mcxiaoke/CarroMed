@@ -15,6 +15,20 @@
                 <action android:name="com.mcxiaoke.carromed.dev.CRASH" />
             </intent-filter>
         </receiver>
+
+        <!--
+          锁屏全屏提醒页的**走查专用入口**（仅 debug）。
+
+          该页由系统在闹钟触发 / 锁屏时拉起，`exported="false"` 且无法用界面导航到达 ——
+          走查脚本没法点进它，于是它此前永远是"没有被自动验证过"的页面（AGENTS §4.1）。
+          这里给一个 exported 的 activity-alias 指向真正的 AlarmAlertActivity：
+          `adb shell am start -n <pkg>/com.mcxiaoke.carromed.DevAlertEntry` 即可拉起，
+          release 包里完全不存在这个别名。
+        -->
+        <activity-alias
+            android:name=".DevAlertEntry"
+            android:targetActivity=".ui.screen.alert.AlarmAlertActivity"
+            android:exported="true" />
     </application>
 
 </manifest>

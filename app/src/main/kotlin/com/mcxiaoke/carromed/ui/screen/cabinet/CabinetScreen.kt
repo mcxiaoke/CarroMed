@@ -1,5 +1,5 @@
 package com.mcxiaoke.carromed.ui.screen.cabinet
-import com.mcxiaoke.carromed.core.domain.CurrentDateHolder
+import com.mcxiaoke.carromed.core.time.CurrentDateHolder
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.model.PauseStatus
 

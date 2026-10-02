@@ -8,6 +8,8 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
 import com.mcxiaoke.carromed.core.alarm.AlarmScheduler
+import com.mcxiaoke.carromed.core.alarm.DoseActionResult
+import com.mcxiaoke.carromed.core.alarm.DoseEntryActions
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity

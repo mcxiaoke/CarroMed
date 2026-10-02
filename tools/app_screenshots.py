@@ -77,15 +77,18 @@ from pathlib import Path
 
 PKG = "com.mcxiaoke.carromed.dev"
 ACTIVITY = f"{PKG}/com.mcxiaoke.carromed.MainActivity"
+# 锁屏全屏提醒页的走查入口：debug 源集的 activity-alias（详见 src/debug/AndroidManifest.xml）
+ALERT_ACTIVITY = f"{PKG}/com.mcxiaoke.carromed.DevAlertEntry"
 DEV_SEED_ACTION = "com.mcxiaoke.carromed.dev.SEED"
 DEV_CLEAR_ACTION = "com.mcxiaoke.carromed.dev.CLEAR"
 DEV_RECEIVER = f"{PKG}/com.mcxiaoke.carromed.DevDataReceiver"
 
 
 def set_package(pkg: str) -> None:
-    global PKG, ACTIVITY, DEV_SEED_ACTION, DEV_CLEAR_ACTION, DEV_RECEIVER
+    global PKG, ACTIVITY, ALERT_ACTIVITY, DEV_SEED_ACTION, DEV_CLEAR_ACTION, DEV_RECEIVER
     PKG = pkg
     ACTIVITY = f"{PKG}/com.mcxiaoke.carromed.MainActivity"
+    ALERT_ACTIVITY = f"{PKG}/com.mcxiaoke.carromed.DevAlertEntry"
     DEV_SEED_ACTION = "com.mcxiaoke.carromed.dev.SEED"
     DEV_CLEAR_ACTION = "com.mcxiaoke.carromed.dev.CLEAR"
     DEV_RECEIVER = f"{PKG}/com.mcxiaoke.carromed.DevDataReceiver"
@@ -102,7 +105,7 @@ TABS = ("今日", "药箱", "记录", "统计")
 # --------------------------------------------------------------------------- #
 @dataclass
 class Step:
-    action: str                     # home/tab/text/desc/back/scroll/shot/wait/present_desc/absent_desc
+    action: str                     # home/tab/text/desc/back/scroll/shot/wait/present_desc/absent_desc/alert
     arg: str = ""                   # 定位用的 text 或 content-desc
     index: int = 0                  # 同名节点取第几个
     expect: str = ""                # 跳转后必须出现的文本（断言）
@@ -118,7 +121,7 @@ class Step:
 EMPTY_DB_MARKER = "药箱还是空的"
 
 
-# 13 个全屏页面的走查路径。顺序经过优化，尽量少来回跳。
+# 14 个全屏页面的走查路径。顺序经过优化，尽量少来回跳。
 PROGRAM: list[Step] = [
     Step("home", note="冷启动，回到今日用药"),
 
@@ -238,6 +241,16 @@ PROGRAM: list[Step] = [
     # ---- 12. 统计报表 ------------------------------------------------------ #
     Step("tab", "统计", expect="用药统计"),
     Step("shot", key="stats", shots=2, note="周期切换 / 依从率构成 / 各药消耗"),
+
+    # ---- 13. 锁屏全屏提醒页（AlarmAlertActivity）-------------------------- #
+    # 该页只在闹钟触发 / 锁屏时由系统拉起，界面里点不到 —— 走查只能"模拟系统拉起"：
+    # 经 debug 专属的 activity-alias（DevAlertEntry）用 am start 直接打开。
+    # 若不登记，这一页就是"编译过 + 单测绿"却从未被看过的那类页面（AGENTS §4.1）。
+    Step("alert", note="拉起锁屏全屏提醒页（debug 专属入口）", expect="确认已服"),
+    Step("shot", key="alarm_alert",
+         note="全屏提醒：药名 / 剂量 / 注意事项 + 确认已服 / 推迟 / 跳过"),
+    # 该页在独立 task（taskAffinity=""），按 back 会退回桌面，所以用冷启动复位。
+    Step("home", note="冷启动复位（全屏页独立 task，不能按 back）", expect="今日用药"),
 ]
 
 
@@ -679,6 +692,27 @@ def run(driver: Driver, out: Path, only: set[str], dump_ui: bool,
                 fail(step, f"本该出现的 {step.arg!r} 没有出现")
             if not want_present and found is not None:
                 fail(step, f"本不该出现的 {step.arg!r} 出现了")
+
+        elif step.action == "alert":
+            # 锁屏全屏提醒页由系统在闹钟触发时拉起，界面里**点不到**它 ——
+            # 用 debug 专属的 activity-alias（DevAlertEntry）模拟系统拉起，
+            # 并带上与真实通知同源的 extras（药名 / 剂量 / 注意事项 / 推迟分钟）。
+            # ⚠️ 别名只在 debug 包存在（走查脚本本来就只跑 `<pkg>.dev`）；若有人把它
+            # 指向 release 包，这一步会失败 —— 那是预期行为，release 不该有走查入口。
+            # 带空格的取值必须**显式加单引号**：`adb shell` 只把参数拼成一条命令串，
+            # 不加引号会在设备侧被 shell 按空格切开（剂量会变成 "1"、注意事项整段丢掉）。
+            driver.shell(
+                "am", "start", "-n", ALERT_ACTIVITY,
+                "--es", "extra_med_name", "环孢素",
+                "--es", "extra_dose_text", "'1 片'",
+                "--es", "extra_scheduled_time", "10:30",
+                "--es", "extra_notice", "'随餐服用，避免空腹'",
+                "--ez", "extra_is_critical", "false",
+                "--ei", "extra_snooze_minutes", "30",
+            )
+            if step.expect and not expect_text(driver, step.expect):
+                fail(step, f"全屏提醒页未出现 {step.expect!r}（debug 专属入口是否可用？）")
+            continue
 
         elif step.action == "home":
             driver.launch(cold=True)

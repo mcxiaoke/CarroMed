@@ -16,15 +16,20 @@
     <string name="perm_notification_desc">Android 13+ 必须显式允许通知，否则闹钟会照常唤醒但屏幕上什么都不会出现。</string>
     <string name="perm_action_enable">去开启</string>
 
-    <!-- 3. 忽略电池优化 -->
-    <string name="perm_battery_title">3. 忽略电池优化 (Doze 白名单)</string>
+    <!-- 3. 锁屏全屏提醒 -->
+    <string name="perm_fullscreen_title">3. 锁屏全屏提醒 (Full-Screen)</string>
+    <string name="perm_fullscreen_desc">Android 14+ 需单独授权；未授权时锁屏只会收到普通通知横幅，不会全屏亮屏弹出「确认已服」界面。</string>
+    <string name="perm_status_not_required">系统无需授权</string>
+
+    <!-- 4. 忽略电池优化 -->
+    <string name="perm_battery_title">4. 忽略电池优化 (Doze 白名单)</string>
     <string name="perm_status_whitelisted">已加入白名单</string>
     <string name="perm_status_not_whitelisted">未加入</string>
     <string name="perm_battery_desc">建议开启。防止手机在灭屏休眠时拦截提醒，确保后台准时响铃。</string>
     <string name="perm_action_settings">去设置</string>
 
-    <!-- 4. 锁屏显示与后台自启动 -->
-    <string name="perm_vendor_title">4. 锁屏显示与后台自启动</string>
+    <!-- 5. 锁屏显示与后台自启动 -->
+    <string name="perm_vendor_title">5. 锁屏显示与后台自启动</string>
     <string name="perm_status_manual">需手动确认</string>
     <string name="perm_vendor_desc">主流手机厂商（小米、华为、OPPO、vivo 等）建议在系统设置中允许【后台自启动】与【锁屏通知】，防止熄屏时漏提醒。</string>
     <string name="perm_action_vendor_settings">前往设置</string>
