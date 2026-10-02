@@ -518,19 +518,19 @@ fun SettingsScreen(
                             }
                             val soundOptions = listOf(
                                 "ding" to stringResource(R.string.set_sound_ding),
+                                "drop" to stringResource(R.string.set_sound_drop),
+                                "click" to stringResource(R.string.set_sound_click),
+                                "chime" to stringResource(R.string.set_sound_chime),
                                 "none" to stringResource(R.string.set_sound_none)
                             )
                             var soundExpanded by rememberSaveable { mutableStateOf(false) }
-                            val currentSoundLabel = if (uiState.completionSound == "ding") {
-                                stringResource(R.string.set_sound_ding)
-                            } else {
-                                stringResource(R.string.set_sound_none)
-                            }
+                            val currentSoundLabel = soundOptions.firstOrNull { it.first == uiState.completionSound }?.second
+                                ?: stringResource(R.string.set_sound_ding)
 
                             ExposedDropdownMenuBox(
                                 expanded = soundExpanded,
                                 onExpandedChange = { soundExpanded = it },
-                                modifier = Modifier.width(140.dp)
+                                modifier = Modifier.width(160.dp)
                             ) {
                                 OutlinedTextField(
                                     value = currentSoundLabel,
@@ -550,8 +550,13 @@ fun SettingsScreen(
                                             onClick = {
                                                 viewModel.onCompletionSoundChange(key)
                                                 soundExpanded = false
-                                                if (key == "ding") {
-                                                    CompletionSoundPlayer.play(logExportContext, soundEnabled = true, hapticEnabled = false)
+                                                if (key != "none") {
+                                                    CompletionSoundPlayer.play(
+                                                        context = logExportContext,
+                                                        soundKey = key,
+                                                        soundEnabled = true,
+                                                        hapticEnabled = false
+                                                    )
                                                 }
                                             }
                                         )

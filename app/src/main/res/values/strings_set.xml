@@ -30,7 +30,10 @@
     <!-- 完成提示音与触感 -->
     <string name="set_completion_sound_title">完成提示音</string>
     <string name="set_completion_sound_desc">打卡确认服药时播放声音反馈（系统未静音时生效）</string>
-    <string name="set_sound_ding">叮</string>
+    <string name="set_sound_ding">清脆 (叮)</string>
+    <string name="set_sound_drop">温和 (水滴)</string>
+    <string name="set_sound_click">按键 (咔哒)</string>
+    <string name="set_sound_chime">和弦 (叮咚)</string>
     <string name="set_sound_none">无</string>
     <string name="set_completion_haptic_title">应用触感</string>
     <string name="set_completion_haptic_desc">完成服药打卡时，会有轻微震感</string>

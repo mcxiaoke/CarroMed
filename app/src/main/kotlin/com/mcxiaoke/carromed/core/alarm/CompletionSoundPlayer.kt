@@ -24,9 +24,25 @@ object CompletionSoundPlayer {
 
     private const val TAG = "CompletionSoundPlayer"
 
+    enum class SoundItem(
+        val key: String,
+        @androidx.annotation.RawRes val resId: Int,
+        val volumeScale: Float
+    ) {
+        DING("ding", R.raw.sound_ding, 0.50f),
+        DROP("drop", R.raw.sound_drop, 0.75f),
+        CLICK("click", R.raw.sound_click, 0.65f),
+        CHIME("chime", R.raw.sound_chime, 0.45f);
+
+        companion object {
+            fun fromKey(key: String): SoundItem =
+                entries.firstOrNull { it.key == key } ?: DING
+        }
+    }
+
     private var soundPool: SoundPool? = null
-    private var dingSoundId: Int = 0
-    private var isLoaded: Boolean = false
+    private val soundIdMap = mutableMapOf<String, Int>()
+    private val loadedSoundIds = mutableSetOf<Int>()
     private val lock = Any()
 
     /** 预加载音效资源 (在 Application 初始化或首次使用时调用) */
@@ -39,15 +55,21 @@ object CompletionSoundPlayer {
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build()
                 val pool = SoundPool.Builder()
-                    .setMaxStreams(2)
+                    .setMaxStreams(4)
                     .setAudioAttributes(attributes)
                     .build()
                 pool.setOnLoadCompleteListener { _, sampleId, status ->
-                    if (status == 0 && sampleId == dingSoundId) {
-                        isLoaded = true
+                    if (status == 0) {
+                        synchronized(lock) {
+                            loadedSoundIds.add(sampleId)
+                        }
                     }
                 }
-                dingSoundId = pool.load(context.applicationContext, R.raw.sound_ding, 1)
+                val appContext = context.applicationContext
+                for (item in SoundItem.entries) {
+                    val sId = pool.load(appContext, item.resId, 1)
+                    soundIdMap[item.key] = sId
+                }
                 soundPool = pool
             } catch (t: Throwable) {
                 AppLog.w(TAG, "failed to initialize SoundPool", t)
@@ -58,11 +80,13 @@ object CompletionSoundPlayer {
     /**
      * 播放完成提示音并触发触感振动。
      *
+     * @param soundKey 提示音类型 ("ding", "drop", "click", "chime", "none")
      * @param soundEnabled 是否启用了提示音 (对应设置项 completion_sound != "none")
      * @param hapticEnabled 是否启用了轻微振感 (对应设置项 completion_haptic)
      */
     fun play(
         context: Context,
+        soundKey: String = "ding",
         soundEnabled: Boolean = true,
         hapticEnabled: Boolean = true
     ) {
@@ -73,8 +97,8 @@ object CompletionSoundPlayer {
             triggerHapticFeedback(appContext)
         }
 
-        // 2. 声音提示 (严格检查：未静音 + 设置开启)
-        if (!soundEnabled) return
+        // 2. 声音提示 (严格检查：未静音 + 设置开启且不是 "none")
+        if (!soundEnabled || soundKey == "none") return
 
         val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
         if (audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL) {
@@ -82,21 +106,25 @@ object CompletionSoundPlayer {
             return
         }
 
+        val soundItem = SoundItem.fromKey(soundKey)
+        val vol = soundItem.volumeScale
+
         synchronized(lock) {
             if (soundPool == null) {
                 prepare(appContext)
             }
             val pool = soundPool
-            if (pool != null && isLoaded && dingSoundId != 0) {
-                val streamId = pool.play(dingSoundId, 1.0f, 1.0f, 1, 0, 1.0f)
+            val sId = soundIdMap[soundItem.key] ?: 0
+            if (pool != null && sId != 0 && loadedSoundIds.contains(sId)) {
+                val streamId = pool.play(sId, vol, vol, 1, 0, 1.0f)
                 if (streamId != 0) return
             }
         }
 
         // 兜底：若 SoundPool 尚未加载完成或失败，使用 ToneGenerator 播放一次温和短音
         try {
-            ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
-                .startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+            ToneGenerator(AudioManager.STREAM_NOTIFICATION, 60)
+                .startTone(ToneGenerator.TONE_PROP_BEEP, 100)
         } catch (t: Throwable) {
             AppLog.w(TAG, "ToneGenerator fallback failed", t)
         }

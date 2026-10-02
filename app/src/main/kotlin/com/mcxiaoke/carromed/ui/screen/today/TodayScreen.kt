@@ -347,6 +347,7 @@ fun TodayScreen(
                         onTakeDose = {
                             CompletionSoundPlayer.play(
                                 context = context,
+                                soundKey = uiState.completionSound,
                                 soundEnabled = uiState.completionSound != "none",
                                 hapticEnabled = uiState.completionHaptic
                             )

@@ -48,7 +48,7 @@ object ReminderSettings {
         val nightDnd: Boolean = true,
         val nightDndStart: String = DEFAULT_NIGHT_DND_START,
         val nightDndEnd: String = DEFAULT_NIGHT_DND_END,
-        val repeatReminderEnabled: Boolean = true,
+        val repeatReminderEnabled: Boolean = false,
         val repeatReminderIntervalMinutes: Int = DEFAULT_REPEAT_INTERVAL_MINUTES,
         val repeatReminderMaxCount: Int = DEFAULT_REPEAT_MAX_COUNT
     )
@@ -60,7 +60,7 @@ object ReminderSettings {
         val nightDnd = dao.getValue(KEY_NIGHT_DND)?.toBoolean() ?: true
         val nightDndStart = dao.getValue(KEY_NIGHT_DND_START) ?: DEFAULT_NIGHT_DND_START
         val nightDndEnd = dao.getValue(KEY_NIGHT_DND_END) ?: DEFAULT_NIGHT_DND_END
-        val repeatEnabled = dao.getValue(KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: true
+        val repeatEnabled = dao.getValue(KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: false
         val repeatInterval = dao.getValue(KEY_REPEAT_REMINDER_INTERVAL)?.toIntOrNull() ?: DEFAULT_REPEAT_INTERVAL_MINUTES
         val repeatMaxCount = dao.getValue(KEY_REPEAT_REMINDER_MAX_COUNT)?.toIntOrNull() ?: DEFAULT_REPEAT_MAX_COUNT
 

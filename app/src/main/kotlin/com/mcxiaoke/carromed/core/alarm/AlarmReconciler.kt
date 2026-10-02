@@ -323,7 +323,7 @@ object AlarmReconciler {
         // 4. 注册：库中仍开放、属于在服药品、且当日不在暂停期内的槽位
         val advanceByMed = schedulableMeds.associate { it.id to it.advanceMinutes }
         val todayStr = today.format(SlotProjectionEngine.DATE_FORMATTER)
-        val repeatEnabled = db.appSettingDao().getValue(ReminderSettings.KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: true
+        val repeatEnabled = db.appSettingDao().getValue(ReminderSettings.KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: false
         val repeatInterval = db.appSettingDao().getValue(ReminderSettings.KEY_REPEAT_REMINDER_INTERVAL)?.toIntOrNull() ?: ReminderSettings.DEFAULT_REPEAT_INTERVAL_MINUTES
         val repeatMaxCount = db.appSettingDao().getValue(ReminderSettings.KEY_REPEAT_REMINDER_MAX_COUNT)?.toIntOrNull() ?: ReminderSettings.DEFAULT_REPEAT_MAX_COUNT
 

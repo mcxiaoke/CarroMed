@@ -117,6 +117,7 @@ class ReminderSettingsTest {
         val d = ReminderSettings.Behavior()
         assertThat(d.snoozeMinutes).isEqualTo(30)
         assertThat(d.nightDnd).isTrue()
+        assertThat(d.repeatReminderEnabled).isFalse()
         assertThat(ReminderSettings.DEFAULT_SNOOZE_MINUTES).isEqualTo(30)
     }
 }
