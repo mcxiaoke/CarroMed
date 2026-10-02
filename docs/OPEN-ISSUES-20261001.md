@@ -1,5 +1,9 @@
 # OPEN-ISSUES-20261001 —— 全部历史 Review 核对后的唯一开放问题清单
 
+> **2026-10-02 更新**：批次①②③与卫生批次已实施（commit `62b2e42`、`a1d7fee`），
+> 修复条目在标题行以 ✅ 标记，部分修复标 ◐，决议不修标 ⏸；未标记的条目仍然开放。
+> 修复详情见 `CHANGES-20261002.md`。
+>
 > **生成时间**：2026-10-01 19:09 (GMT+8)，基于工作区 HEAD `97612a7`（含 9/30–10/1 全部修复批次）。
 >
 > **本文档取代此前所有 review 与问题清单，是唯一有效的开放问题清单。**
@@ -29,7 +33,7 @@
 
 ## 一、高优先级（建议近期修复，均为真实存在的代码缺陷）
 
-### 1. 补药页「开启库存追踪失败」提示被导航丢弃
+### 1. 补药页「开启库存追踪失败」提示被导航丢弃 ✅ 已修复（2026-10-02，62b2e42）
 - 来源：ocsbf P0-3
 - 现状：`RefillViewModel.kt:144-152` 中 `setStockTracking` 失败虽然写了 `error` 并留日志，
   但随后无条件 `isSaving=false; onSuccess()`；`RefillScreen.kt:308` 的成功回调直接
@@ -37,7 +41,7 @@
 - 修法：失败时不回调 `onSuccess()`，留在原地显示错误并允许重试（入库已成功，重试只补 `setStockTracking`）。
 - 验收：注入追踪失败，断言页面不返回且错误可见。
 
-### 2. Streak 首日「★ 0 天」徽章 + 月历零状态文案失实
+### 2. Streak 首日「★ 0 天」徽章 + 月历零状态文案失实 ⏸ 决议不修（2026-10-02：设计如此——隐藏后用户无法查看历史状态，徽章恒显示）
 - 来源：ocsbf P0-1B（bda/wdsp 修复 streak 熔断时的遗留半边）
 - 现状：`StatsEngine.kt:373-375` 今天尚有未服时 streak 从 0 起算（首日用户恒为 0）；
   `TodayScreen.kt:136-139` 无条件渲染徽章，0 天也显示「★ 0 天」灰态；
@@ -46,7 +50,7 @@
 - 修法：徽章加「无历史」判别不渲染（或显示引导态）；日历零状态文案改为
   「完成今天的服药，点亮第一颗星」一类与状态相符的表述。
 
-### 3. 编辑药品保存仍把进页快照写回 `min_stock_alert`
+### 3. 编辑药品保存仍把进页快照写回 `min_stock_alert` ✅ 已修复（2026-10-02，62b2e42）
 - 来源：ocsbf P1-2、DB C-14（预警线编辑已移到库存页，但写回路径没拆干净）
 - 现状：AddEdit 页已无预警线输入框，但 `AddEditMedicationViewModel.kt:524,541` 仍把进页快照
   传进 `ProfileDraft`，`MedicationDao.kt:211` `updateProfile` 的 SET 列表含 `min_stock_alert`。
@@ -54,7 +58,7 @@
 - 修法：从 `updateProfile` 的 SET 列表与 `ProfileDraft` 中移除 `min_stock_alert`
   （预警线唯一写入口 = 库存页 `updateMinStockAlert`），同步更新字段保全测试。
 
-### 4. 库存页有效期/预警线草稿会被后台刷新覆盖
+### 4. 库存页有效期/预警线草稿会被后台刷新覆盖 ✅ 已修复（2026-10-02，62b2e42）
 - 来源：ocsbf P1-1 残余
 - 现状：`InventoryViewModel.kt:163,165` 在探针触发的 `load()` 中无条件用库值覆盖
   `expiryDate` 与 `minStockAlertInput` 草稿（盘点框 `calibrateInput` 已保护，这两个没保护）。
@@ -62,14 +66,14 @@
   保存时把被覆盖后的旧值写回」。
 - 修法：三个草稿统一 dirty 标记，`load()` 只更新非 dirty 字段。
 
-### 5. 保存药品后闹钟重排失败静默
+### 5. 保存药品后闹钟重排失败静默 ✅ 已修复（2026-10-02，62b2e42）
 - 来源：round2 N11-g 残留（10/1 UI 反馈批次修了「保存/删除提醒计划、备份恢复」路径，本路径漏网）
 - 现状：`AddEditMedicationViewModel.kt:582` `runCatching { rescheduleAll(...) }` 无 `onFailure`——
   药品和计划已保存，但精确闹钟没排上，用户不知情，提醒可能不响。
 - 修法：与 6553081 批次同口径——失败时 Toast/错误条明确告知「已保存，但提醒可能不响」，
   并落 ERROR 日志 + `ReconcileWorker.enqueueOneShot` 兜底重试。
 
-### 6. 统计页/进展页导出 CSV 仍在主线程做文件 IO
+### 6. 统计页/进展页导出 CSV 仍在主线程做文件 IO ✅ 已修复（2026-10-02，62b2e42）
 - 来源：sbf P1-18 残余（设置页导出已改 `Dispatchers.IO`，这两处漏网）
 - 现状：`StatsViewModel.kt:264`、`ProgressViewModel.kt`（exportReport）用裸
   `viewModelScope.launch`（Main）直接调 `DataExporter.exportDoseRecordsCsv`；
@@ -85,27 +89,27 @@
   与库存页/药箱页的正确口径（n≤1 每天 / n==2 隔天 / 其余每 n 天）相反。
 - 修法：抽领域层单一 `intervalLabel(n)`，三页共用；详情页切换到该实现。
 
-### 8. 进展页首屏流与触底加载写-写竞态
+### 8. 进展页首屏流与触底加载写-写竞态 ✅ 已修复（2026-10-02，62b2e42）
 - 来源：ocsbf P1-8 残余（防连点/失败重试已修，竞态本体未修）
 - 现状：`ProgressViewModel.kt:257-262` `firstPageFlow.onEach` 无条件整表替换
   `_timelineRecords`；`loadMoreTimeline` 在 `:283` 取快照、挂起后在 `:303-307` 用旧快照覆盖写回。
   用户翻到第 3 页时若首屏流重发射（新打卡/撤销），loadMore 恢复后会丢掉新记录。
 - 修法：revision 单调计数比对、过期追加直接丢弃；或合并为单一分页数据源。
 
-### 9. 今日页/药箱页无错误态
+### 9. 今日页/药箱页无错误态 ✅ 已修复（2026-10-02，62b2e42）
 - 来源：orsbf P1-17
 - 现状：`TodayViewModel` 与 `CabinetViewModel` 全文无 `error` 字段（rg 零命中）。
   数据库打不开等 Room 异常时列表表现为「空状态」，诱导用户去「添加药品」。
 - 修法：主查询流补 `.catch` 降级 + error 态 UI（今日屏 streak/月历流已有同款 `.catch` 可参照）。
 
-### 10. Streak 365 天聚合在主线程高频执行
+### 10. Streak 365 天聚合在主线程高频执行 ✅ 已修复（2026-10-02，62b2e42）
 - 来源：ocsbf P1-10
 - 现状：`TodayViewModel.kt:155-166` `streakDaysFlow` 对 `today.minusDays(365)` 的全量槽位
   状态做查询 + 内存聚合，无 `.flowOn(Dispatchers.Default)`（全文件无 flowOn），
   在 `viewModelScope`（Main）上收集；每次打卡/撤销/跨午夜都重算。
 - 修法：整条流 `.flowOn(Dispatchers.Default)`（一行）；顺带评估把 365 天窗口收敛。
 
-### 11. 通知身份仍用 `slot.id` + 恢复前 cancelAll 失败不阻断
+### 11. 通知身份仍用 `slot.id` + 恢复前 cancelAll 失败不阻断 ✅ 已修复/决议收口（2026-10-02，62b2e42，见文末决议）
 - 来源：xdsf P1-1、ocsbf P2-9
 - 现状：闹钟与通知 Action 已改内容寻址，但通知本体仍是裸 `slot.id.toInt()`
   （`Notifications.kt:191,242,248-250,334-337`）。槽位 id 在恢复/重排后指向别的药时，
@@ -121,7 +125,7 @@
   两次都失败时 `RestoreResult.Success.trayCleanupFailed = true`，
   恢复成功提示明确告知用户手动清通知。通知 id 维持 `slot.id` 派生不变。
 
-### 12. 点通知销毁重建 Activity、无深链落点
+### 12. 点通知销毁重建 Activity、无深链落点 ◐ 部分修复/决议收口（2026-10-02，62b2e42：singleTask 已加；深链经用户决策暂缓，见文末决议）
 - 来源：orsbf P1-12、bda 三.4、ocsbf P1-7
 - 现状：`Notifications.kt:189-192,268-271` contentIntent 用
   `FLAG_ACTIVITY_NEW_TASK or FLAG_ACTIVITY_CLEAR_TOP` 打开裸 MainActivity；
@@ -142,7 +146,7 @@
 - 修法：先零风险拆成两条单分支查询；若仍需要，加 `(status, scheduled_ts)` / `(status, snooze_until_ts)`
   索引——**改 @Entity 必须升 `AppDatabase.version` + 补 `AppDatabaseRealTest` PRAGMA 断言**。
 
-### 14. 恢复备份后设置页不重读
+### 14. 恢复备份后设置页不重读 ✅ 已修复（2026-10-02，62b2e42）
 - 来源：round2 N11-j
 - 现状：`SettingsViewModel.kt:62-71` init 一次性读 `app_settings`；`confirmRestore`（:237）成功后不重读。
   恢复了一个设置项不同的备份后，推迟时长/夜间免打扰的回显停留在恢复前。
@@ -186,7 +190,7 @@
   `takeDose` 服务层对过去时刻一律放行（`SlotActionPolicy.kt:54`）——防御纵深缺最后一层。
 - 修法：服务层加与补录同源的时间窗 require。
 
-### 20. 语义强调色小字 4 处不达 AA 对比度
+### 20. 语义强调色小字 4 处不达 AA 对比度 ✅ 已修复（2026-10-02，a1d7fee；可选的对比度断言测试未做）
 - 来源：ocsbf P0-2/P2-3 残余
 - 现状：`TodayScreen.kt:261`（「去添药」WarningAmber on WarningAmberContainer ≈2.86:1）、
   `:547`（EXPIRED 徽章）、`:741`（「已服」徽章 ≈3.3:1）、`InventoryScreen.kt:270`。
@@ -194,13 +198,13 @@
 - 修法：小字改 `OnWarningAmberContainer` / `OnSuccessGreenContainer`；
   可选：补 JVM 对比度断言测试。
 
-### 21. 通知 smallIcon 仍是系统资源
+### 21. 通知 smallIcon 仍是系统资源 ✅ 已修复（2026-10-02，62b2e42）
 - 来源：xdsf P1-4 残余、UIUX V-01
 - 现状：`Notifications.kt:199,279` 仍 `setSmallIcon(android.R.drawable.ic_dialog_info)`——
   部分 ROM 可能静默不显示通知图标，属功能性风险；应用启动图标已落地。
 - 修法：补纯白单色 VectorDrawable 作 smallIcon。
 
-### 22. `rescheduleAll` 每次 onResume 无节流
+### 22. `rescheduleAll` 每次 onResume 无节流 ✅ 已修复（2026-10-02，a1d7fee）
 - 来源：xdsf P2-1
 - 现状：`MainActivity.kt:40-48` 每次 RESUMED 都跑全量对账（0.4–1.5s/次，内部已切 IO），
   频繁前后台切换时线性叠加。
@@ -219,7 +223,7 @@
   药品级 0（跟随全局）时详情页不显示任何推迟信息，而通知实际按全局值生效。
 - 修法：复用 `ReminderSettings.resolve` 渲染「跟随全局（N 分钟）」。
 
-### 25. 详情页 4 处 46dp 固定高度按钮
+### 25. 详情页 4 处 46dp 固定高度按钮 ✅ 已修复（2026-10-02，a1d7fee）
 - 来源：xdsf 4.4、UIUX A-01 残留
 - 现状：`MedicationDetailScreen.kt:326,567,579,599`（暂停/恢复/永久删除等**写操作**按钮）
   仍 `.height(46.dp)`，低于 48dp 触摸目标；目标用户正是放大字号人群。
@@ -232,7 +236,7 @@
   无「回到今天」快捷入口、无翻周控件。
 - 修法：标题三态；选中日≠今天时显示「今天」按钮。
 
-### 27. 导出失败 Toast 抛原始异常文本（5 处）
+### 27. 导出失败 Toast 抛原始异常文本（5 处） ✅ 已修复（2026-10-02，62b2e42，实为 7 处）
 - 来源：orsbf P1-16 残留
 - 现状：`StatsViewModel.kt:280`、`SettingsViewModel.kt:109/136/226`、`ProgressViewModel.kt:410`、
   `SettingsScreen.kt:531`、`InventoryViewModel.kt:228` 均把 `e.message` 拼进用户文案
@@ -255,14 +259,14 @@
   `android.app.Application` + `androidx.lifecycle.*`——两个类居 `core/domain` 且带 android 依赖。
 - 修法：要么移出 domain（如 `core/alarm` / `ui`），要么在 AGENTS/ARCHITECTURE 里显式扩写豁免清单并说明理由。
 
-### 30. 测试硬编码远期日期 `2026-12-31`
+### 30. 测试硬编码远期日期 `2026-12-31` ✅ 已修复（2026-10-02，a1d7fee）
 - 来源：xdsf P3-7（OPEN-ISSUES-20260930 L3 中 `ReminderSettingsIsolationTest` 已改相对日期，这批漏网）
 - 现状：`AppDatabaseRealTest.kt:359,399,466` `setPausedUntil(medId, "2026-12-31")`；
   `MedicationAdminServiceTest.kt:154,173` `endDate = "2026-12-31"`；另有两处 `"2027-12-31"`。
   当前只做往返断言不假红，但 2027 年起若加 `isPausedOn(now)` 类断言会静默假红。
 - 修法：统一改 `LocalDate.now().plusMonths(3).toString()`。
 
-### 31. 无 `values-night`，平台主题钉死浅色
+### 31. 无 `values-night`，平台主题钉死浅色 ✅ 已修复（2026-10-02，a1d7fee）
 - 来源：sbf P3-6、xdsf P2-6
 - 现状：`res/values/themes.xml` 仍 `android:Theme.Material.Light.NoActionBar`，res 下无
   `values-night/`。Compose 内部已用 `isSystemInDarkTheme()`，但深色模式下冷启动窗口白闪。
@@ -274,12 +278,12 @@
   无 expiry 消费；唯一展示是库存页 NoticeBar。低库存主动通知同样缺失（xdsf P2-2）。
 - 修法：见 §五-7 产品拍板（补实现或改注释并把能力记入未实现清单）。
 
-### 33. 诊断日志写药品名
+### 33. 诊断日志写药品名 ✅ 已修复（2026-10-02，62b2e42）
 - 来源：orsbf P2-18
 - 现状：`MedicationAdminService.kt:156,180` 日志含 `name=$name`，日志文件随分享功能外发时泄漏用药隐私。
 - 修法：日志只记 medId。
 
-### 34. 导出文件名秒级精度，同秒覆盖
+### 34. 导出文件名秒级精度，同秒覆盖 ✅ 已修复（2026-10-02，62b2e42）
 - 来源：round2 N11-n
 - 现状：`DataExporter.kt:261-262` `timestamp()` 为 `yyyyMMdd_HHmmss`，同秒两次导出同名互相覆盖。
 - 修法：加毫秒或序号后缀。
@@ -291,9 +295,10 @@
 ### 死代码（全部生产零调用，逐条 rg 验证过）
 - **L-1**（zcg #15 / DB C-06）：`DoseSlotDao.kt:19-20` 单条 `insert(REPLACE)` 仍是公开 API，
   与 `insertAll(IGNORE)` 结论相悖（REPLACE 换 id 会致闹钟身份漂移）——建议删或收 private。
+  ✅ 已按注释方式收口（2026-10-02，a1d7fee）：23 处测试调用依赖它，删除成本大于收益，
+  已加「仅限测试种子数据、生产零调用」警示注释。
 - **L-2**（DB C-22）：`DoseRecordDao.insert/insertAll(REPLACE)`（:29/:316）、
-  `ReminderSettingsDao.insert(REPLACE)`、`AppSettingDao.insertAll(REPLACE)` 仍公开
-  （当前调用图安全，恢复路径有意用 REPLACE）——补注释说明即可。
+  ✅ 已修复（2026-10-02，a1d7fee）：四处均已补「REPLACE 有意」理由注释。
 - **L-3**（L1 残余 / DB C-08）：「死但测试在用」DAO 方法待专门批次删除：
   `InventoryTransactionDao.getLatestTransaction`、`DoseSlotDao.getPendingSlotsForMedicationAfter`、
   `ReminderSettingsDao.getMedicationWithReminder`/`getActiveWithReminder`、
@@ -318,15 +323,18 @@
   `DoseHistoryCalendarSheet.kt:133` 硬编码 `listOf("周一",…)` 应改 `DayOfWeek.getDisplayName`。
 - **L-10**（ocsbf P2-6）：`SchedulePolicyDao.kt:96` 注释称空 id 集合「必须由调用方短路」，
   实际 `IN ()` 由 Room 处理且唯一调用方未短路也正常——注释与事实相反。
+  ✅ 已修复（2026-10-02，a1d7fee）：注释已更正。
 - **L-11**（ocsbf P2-7）：三处缩进错乱误导事务边界：`ReminderSettingsViewModel.kt:416-457`
   （withTransaction 内两步缩进错乱）、`InventoryViewModel.kt:119-182`、
   `MedicationDetailViewModel.kt:176`（`}    /**` 挤同一行）。
 - **L-12**（ocsbf P3-3）：`DoseRecordDetailViewModel.kt:50-68,139-144` `isWithinEditWindow`/
   `isSameLocalDay` 在 getter 里实时读挂钟，跨午夜 UI 不重组（同文件 :109-116 KDoc 声明的纪律相反）。
 - **L-13**（xdsf 4.5）：`AlarmReceiver.kt:67` 日志中英混排（`"skip: no open slot for $key (已打卡/…)"`）。
+  ✅ 已修复（2026-10-02，62b2e42）：改纯英文。
 - **L-14**（orsbf P3）：文档注释失真三处：`BackupFormat.kt:31` 引用不存在的 `schemaVersion` 字段；
   `DataExporter.kt:634` 注释仍写「insertAll 的 REPLACE」；`app/build.gradle.kts` buildConfig 注释
   仍指向已删除的 SampleDataSeeder（sbf P3-9）。
+  ✅ 已修复（2026-10-02，62b2e42）：三处注释均已更正。
 
 ### Schema / 索引（均需升 version + PRAGMA 断言，或明确记录不加的理由）
 - **L-15**（sbf P2-7）：`DoseSlotEntity.kt:42-51` `Index(medication_id)` 与 UNIQUE 复合索引最左前缀重叠。
@@ -342,6 +350,8 @@
   （:336-348 已有强断言并存，冗余容忍缺陷行为）。
 - **L-21**（TEST-AUDIT #4）：`DoseTest.kt:71` 演示型 `isAtMost` 断言（审计自评可不改）。
 - **L-22**（sbf P3-3）：弃用警告 7 处：`Icons.Default.Sort`（CabinetScreen.kt:140）+ 5 处裸 `.menuAnchor()`。
+  ◐ 部分修复（2026-10-02，a1d7fee）：Sort 图标已改 AutoMirrored；menuAnchor 新 API 迁移
+  影响下拉输入行为，留待有模拟器走查条件的批次。
 
 ### 杂项（P4）
 - **L-23**（round2 N11-l）：SAF `OpenDocument()` 未 `takePersistableUriPermission`（一次性读取场景，影响有限）。
