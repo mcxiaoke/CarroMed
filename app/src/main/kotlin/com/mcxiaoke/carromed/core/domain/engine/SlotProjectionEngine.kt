@@ -113,7 +113,29 @@ object SlotProjectionEngine {
                     // 这里让两个字段说同一句话，坏数据也只坏在一处、可见。
                     val normalizedTime = localTime.format(TIME_FORMATTER)
                     val dateTime = LocalDateTime.of(current, localTime)
-                    val epochMilli = dateTime.atZone(zoneId).toInstant().toEpochMilli()
+                    // DST 空洞/重叠显式选边（orsbf P1-10 / §二-17）。
+                    //
+                    // 本地时刻在换季日可能不存在（春季前跳空洞）或出现两次（秋季回拨重叠）。
+                    // 这里用 validOffsets 显式检测并钉死选边方向，防止未来重构悄悄改变
+                    // `atZone` 的既定行为；两个方向都遵循同一条用药安全原则：
+                    // **宁可早/晚响一次，也不能让该响的提醒凭空消失或提前到未到点的时刻**。
+                    // - 重叠：本地时刻出现两次 ⇒ 取**较早**的一次（宁早勿晚，晚响才是事故方向）；
+                    // - 空洞：该时刻不存在 ⇒ 顺延到切换后的第一个有效时刻（gap 宽度向后跳，
+                    //   如美东 02:30 → 03:30、Lord Howe 02:00 → 02:30）。
+                    // 中国无 DST，实害为零；本段为正确性债的显式偿还，
+                    // 语义由 SlotProjectionDstPropertyTest（D1/D3）与
+                    // SlotProjectionEngineTest 的确定性场景测试共同钉住。
+                    val validOffsets = zoneId.rules.getValidOffsets(dateTime)
+                    val epochMilli = when {
+                        validOffsets.size > 1 ->
+                            // 秋季回拨重叠：localDateTime − offset = 瞬时，偏移越大瞬时越早
+                            //（美东 01:30：-04:00 ⇒ 05:30Z 早于 -05:00 ⇒ 06:30Z），取较早的一次
+                            dateTime.toInstant(validOffsets.maxBy { it.totalSeconds })
+                        validOffsets.isEmpty() ->
+                            // 春季前跳空洞：atZone 的既定行为即向后顺延到切换后时刻
+                            dateTime.atZone(zoneId).toInstant()
+                        else -> dateTime.toInstant(validOffsets.single())
+                    }.toEpochMilli()
 
                     result.add(
                         DoseSlotEntity(

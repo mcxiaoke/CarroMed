@@ -187,4 +187,76 @@ class SlotProjectionEngineTest {
             "2026-10-03"
         ).inOrder()
     }
+
+    // ================================================================
+    // DST 空洞/重叠显式选边（§二-17 / orsbf P1-10）
+    //
+    // 引擎在 SlotProjectionEngine.kt 对 `validOffsets` 三分支显式选边；
+    // 属性测试（SlotProjectionDstPropertyTest D1/D3）守"不漂移"，这里用
+    // **确定性**断言把选边方向本身钉死——属性测试对这两个选边都是宽容的，
+    // 只有场景测试能防止"选边方向被悄悄翻转"。
+    // 美国东部 2026 年换季日：3 月 8 日 02:00→03:00（前跳）、11 月 1 日 02:00→01:00（回拨）。
+    // ================================================================
+
+    /** 美东时区 + 单时点 DAILY 的便捷投影 */
+    private fun nyDailySlots(timeOfDay: String, date: LocalDate) =
+        SlotProjectionEngine.projectSlots(
+            policy = SchedulePolicyEntity(
+                id = 7L,
+                medicationId = 107L,
+                policyType = PolicyType.DAILY,
+                startDate = date.toString(),
+                endDate = null
+            ),
+            times = listOf(PolicyTimeEntity(policyId = 7L, timeOfDay = timeOfDay, doseAmount = 1000)),
+            fromDate = date,
+            toDate = date,
+            zoneId = ZoneId.of("America/New_York")
+        ).single()
+
+    @Test
+    fun projectSlots_dstGap_defersForwardToPostTransitionInstant() {
+        // 春季前跳空洞：2026-03-08 02:30 在美东不存在（02:00 整段跳到 03:00）。
+        // 选边语义：向后顺延到切换后的第一个有效时刻 = 03:30 EDT（UTC-04:00）。
+        // 槽位日期/时刻字段仍如实写计划值 02:30（显示口径不变，只有 scheduledTs 被顺延）。
+        val slot = nyDailySlots("02:30", LocalDate.of(2026, 3, 8))
+
+        assertThat(slot.scheduledDate).isEqualTo("2026-03-08")
+        assertThat(slot.scheduledTime).isEqualTo("02:30")
+        assertThat(slot.scheduledTs).isEqualTo(
+            java.time.LocalDateTime.of(2026, 3, 8, 3, 30)
+                .toInstant(java.time.ZoneOffset.ofHours(-4)).toEpochMilli()
+        )
+    }
+
+    @Test
+    fun projectSlots_dstOverlap_picksEarlierInstant() {
+        // 秋季回拨重叠：2026-11-01 01:30 在美东出现两次（EDT -04:00 与 EST -05:00）。
+        // 选边语义：取较早的一次 = 05:30Z（宁早勿晚）。
+        // 反解到后一个偏移应是 01:30 EST（06:30Z）——同一个挂钟时刻。
+        val slot = nyDailySlots("01:30", LocalDate.of(2026, 11, 1))
+
+        assertThat(slot.scheduledDate).isEqualTo("2026-11-01")
+        assertThat(slot.scheduledTime).isEqualTo("01:30")
+        assertThat(slot.scheduledTs).isEqualTo(
+            java.time.LocalDateTime.of(2026, 11, 1, 1, 30)
+                .toInstant(java.time.ZoneOffset.ofHours(-4)).toEpochMilli()
+        )
+        assertThat(slot.scheduledTs).isNotEqualTo(
+            java.time.LocalDateTime.of(2026, 11, 1, 1, 30)
+                .toInstant(java.time.ZoneOffset.ofHours(-5)).toEpochMilli()
+        )
+    }
+
+    @Test
+    fun projectSlots_dstNormalDay_usesSoleOffsetUnchanged() {
+        // 正常日期（唯一偏移）：行为必须与显式选边引入前逐位一致——
+        // 这条是"选边重构没有改变正常路径"的回归锚。
+        val slot = nyDailySlots("08:00", LocalDate.of(2026, 3, 9))
+
+        assertThat(slot.scheduledTs).isEqualTo(
+            java.time.LocalDateTime.of(2026, 3, 9, 8, 0)
+                .toInstant(java.time.ZoneOffset.ofHours(-4)).toEpochMilli()
+        )
+    }
 }
