@@ -67,9 +67,7 @@
     <!-- 频次描述文案 -->
     <string name="inv_freq_none">未设提醒</string>
     <string name="inv_freq_daily">每天 %1$d 次 (%2$s)</string>
-    <string name="inv_freq_day_everyday">每天</string>
-    <string name="inv_freq_day_alternate">隔天</string>
-    <string name="inv_freq_day_every_n">每 %1$d 天</string>
+    <!-- 间隔天数的「每天/隔天/每 n 天」已归一到 freq_interval_*（strings_vocab.xml） -->
     <string name="inv_freq_generic">%1$s %2$d 次 (%3$s)</string>
     <string name="inv_freq_weekly">每周 %1$s 各 %2$d 次 (%3$s)</string>
     <string name="inv_freq_cycle">周期用药 %1$d 次/服药日 (%2$s)</string>

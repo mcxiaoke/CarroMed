@@ -78,6 +78,7 @@ import com.mcxiaoke.carromed.core.data.model.TransactionType
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
+import com.mcxiaoke.carromed.ui.component.intervalLabel
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
@@ -751,8 +752,10 @@ private fun buildReminderSummary(s: MedDetailUiState): String {
     val freq = when (policy.policyType) {
         PolicyType.DAILY -> stringResource(R.string.mdetail_sum_freq_daily, s.times.size)
         PolicyType.INTERVAL ->
-            if (policy.intervalDays <= 2) stringResource(R.string.mdetail_sum_freq_interval_short)
-            else stringResource(R.string.mdetail_sum_freq_interval, policy.intervalDays - 1)
+            // §一-7：口径归一到 intervalLabel（n<=1 每天 / n==2 隔天 / 其余 每 n 天）。
+            // 旧实现「n <= 2 隔天，否则 每隔 n-1 天」把 intervalDays==1（每天）
+            // 标成了「隔天」，与库存页/药箱页相反。
+            intervalLabel(LocalContext.current, policy.intervalDays)
         PolicyType.DAYS_OF_WEEK -> stringResource(R.string.mdetail_sum_freq_weekly, policy.daysOfWeek.size)
         PolicyType.CYCLE ->
             stringResource(R.string.mdetail_sum_freq_cycle, policy.cycleOnDays, policy.cycleOffDays)
@@ -764,7 +767,16 @@ private fun buildReminderSummary(s: MedDetailUiState): String {
     else stringResource(R.string.mdetail_sum_indefinite)
     val flags = buildList {
         if (s.reminderSettings.isCriticalReminder) add(stringResource(R.string.mdetail_sum_flag_critical))
-        if (s.reminderSettings.snoozeMinutes > 0) add(stringResource(R.string.mdetail_sum_flag_snooze, s.reminderSettings.snoozeMinutes))
+        // §二-24：snoozeMinutes==0 是「跟随全局」哨兵而不是「未设置」——
+        // 通知实际按全局值生效（ReminderSettings.resolve：药品级 > 全局 > 默认），
+        // 此前这里不显示任何推迟信息，用户看到的推迟能力与真实行为不一致。
+        add(
+            if (s.reminderSettings.snoozeMinutes > 0) {
+                stringResource(R.string.mdetail_sum_flag_snooze, s.reminderSettings.snoozeMinutes)
+            } else {
+                stringResource(R.string.mdetail_sum_flag_snooze_global, s.globalSnoozeMinutes)
+            }
+        )
         if (s.reminderSettings.advanceMinutes > 0) add(stringResource(R.string.mdetail_sum_flag_advance, s.reminderSettings.advanceMinutes))
     }
     val flagText = if (flags.isEmpty()) "" else " · ${flags.joinToString("/")}"

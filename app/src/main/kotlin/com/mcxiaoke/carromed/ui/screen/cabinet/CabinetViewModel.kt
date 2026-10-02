@@ -15,6 +15,7 @@ import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.ui.component.MedVocab
+import com.mcxiaoke.carromed.ui.component.intervalLabel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -178,23 +179,15 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
         val freqDesc = when (policy?.policyType) {
             PolicyType.DAILY -> app.getString(R.string.cabinet_freq_daily, perDay, timeStr)
             PolicyType.INTERVAL -> {
-                // ⭐ 与库存页逐字同口径（M4-4）。
+                // ⭐ §一-7：文案归一到 intervalLabel（domain 语义 IntervalCadence），
+                // 三页（详情/库存/药箱）共用同一份实现。
                 //
                 // 旧实现：`if (n <= 2) "隔天" else "每隔 ${n-1} 天"`。
                 // 两个问题：
                 //   ① `n == 1`（**每天**）被标成「隔天」—— 引擎语义是每 1 天一次 = 每天，
                 //      文案与实际排班**相反**；
                 //   ② 措辞与库存页的「每 N 天」不统一，同一个药在两个页面被描述成两件事。
-                //
-                // 统一为「n<=1 每天 / n==2 隔天 / 其余 每 n 天」。
-                // 注意是「每 n 天」而不是「每隔 n-1 天」：中文里后者读起来是同一个意思，
-                // 但两个页面用两种写法会让人怀疑它们算的是不同的事。
-                val n = policy.intervalDays
-                val intervalText = when {
-                    n <= 1 -> app.getString(R.string.cabinet_freq_everyday)
-                    n == 2 -> app.getString(R.string.cabinet_freq_every_other_day)
-                    else -> app.getString(R.string.cabinet_freq_every_n_days, n)
-                }
+                val intervalText = intervalLabel(app, policy.intervalDays)
                 app.getString(R.string.cabinet_freq_pattern, intervalText, perDay, timeStr)
             }
             PolicyType.DAYS_OF_WEEK -> {

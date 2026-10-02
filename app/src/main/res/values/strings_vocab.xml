@@ -74,4 +74,11 @@
     <string name="note_record_skip">跳过本次服药</string>
     <string name="note_record_manual_backfill">添加服药</string>
     <string name="note_record_rejudge_taken">更改为已服</string>
+
+    <!-- INTERVAL 频次文案（freq_interval_*，ui.component.intervalLabel 唯一消费，
+         详情/库存/药箱三页共用；旧的 *_freq_everyday / *_freq_day_* /
+         mdetail_sum_freq_interval* 已删除） -->
+    <string name="freq_interval_everyday">每天</string>
+    <string name="freq_interval_alternate">隔天</string>
+    <string name="freq_interval_every_n_days">每 %1$d 天</string>
 </resources>

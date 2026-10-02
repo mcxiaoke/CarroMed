@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="today_cd_manual_log">补记一次已服用的药</string>
-    <string name="today_manual_log">补记服药</string>
+    <string name="today_manual_log">记录服药</string>
     <string name="today_title">今日用药</string>
+    <!-- 顶栏标题三态（§二-26）：选中日 ≠ 今天时顶栏不能继续自称「今日」 -->
+    <string name="today_title_future">%1$s 用药计划</string>
+    <string name="today_title_past">%1$s 用药记录</string>
+    <string name="today_back_to_today">今天</string>
     <string name="today_cd_settings">系统设置</string>
     <string name="today_cd_stock_alert">库存告警</string>
     <string name="today_date_pattern">yyyy年M月d日 EEEE</string>

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.R
+import com.mcxiaoke.carromed.core.alarm.ReminderSettings
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.entity.DoseRecordEntity
@@ -36,6 +37,14 @@ data class MedDetailUiState(
      * 存第二份必然在到期自动恢复后漂移。
      */
     val reminderSettings: ReminderSettingsEntity = ReminderSettingsEntity(0L),
+    /**
+     * 全局默认推迟时长（§二-24）。
+     * `reminderSettings.snoozeMinutes == 0` 是「跟随全局」哨兵，
+     * 详情页用它渲染「跟随全局（N 分）」，与 `ReminderSettings.resolve`
+     * 在通知侧的真实生效值保持一致。直接读 `app_settings` 的
+     * `KEY_SNOOZE_MINUTES`（resolve 的全局分支同源）。
+     */
+    val globalSnoozeMinutes: Int = ReminderSettings.DEFAULT_SNOOZE_MINUTES,
     val policy: SchedulePolicyEntity? = null,
     val times: List<PolicyTimeEntity> = emptyList(),
     val transactions: List<InventoryTransactionEntity> = emptyList(),
@@ -160,6 +169,8 @@ class MedicationDetailViewModel(
             _uiState.value = MedDetailUiState(
                 medication = med,
                 reminderSettings = reminderSettingsDao.ensureDefaults(medId),
+                globalSnoozeMinutes = db.appSettingDao().getValue(ReminderSettings.KEY_SNOOZE_MINUTES)
+                    ?.toIntOrNull() ?: ReminderSettings.DEFAULT_SNOOZE_MINUTES,
                 policy = policy,
                 times = times,
                 transactions = txList,

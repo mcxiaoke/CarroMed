@@ -2,6 +2,7 @@
 
 > **2026-10-02 更新**：批次①②③与卫生批次已实施（commit `62b2e42`、`a1d7fee`），
 > 修复条目在标题行以 ✅ 标记，部分修复标 ◐，决议不修标 ⏸；未标记的条目仍然开放。
+> 同日晚些的 UI 走查批次收掉了 §一-7、§二-24、§二-26 与 L-22 menuAnchor 迁移，
 > 修复详情见 `CHANGES-20261002.md`。
 >
 > **生成时间**：2026-10-01 19:09 (GMT+8)，基于工作区 HEAD `97612a7`（含 9/30–10/1 全部修复批次）。
@@ -81,13 +82,16 @@
   记录量大时导出卡顿/ANR。
 - 修法：在 `DataExporter` 各导出函数内部自包 `withContext(Dispatchers.IO)`，一处覆盖所有调用方。
 
-### 7. 详情页 INTERVAL 频次文案与排班语义相反
+### 7. 详情页 INTERVAL 频次文案与排班语义相反 ✅ 已修复（2026-10-02，UI 走查批次）
 - 来源：ocsbf P1-5
 - 现状：`MedicationDetailScreen.kt:754-755`：`intervalDays <= 2` 显示「隔天」
   （`mdetail_sum_freq_interval_short`），否则显示「每隔 intervalDays-1 天」。
   即 `intervalDays==1`（每天）被显示成「隔天」，`intervalDays==3` 显示成「每隔 2 天」，
   与库存页/药箱页的正确口径（n≤1 每天 / n==2 隔天 / 其余每 n 天）相反。
 - 修法：抽领域层单一 `intervalLabel(n)`，三页共用；详情页切换到该实现。
+- **实施（2026-10-02）**：domain 新增 `IntervalCadence`（唯一语义裁决）+ `ui.component.intervalLabel`
+  （唯一文案实现，共用 `freq_interval_*` 字符串），详情/库存/药箱三页统一切换，
+  删除 8 个失效字符串；debug/release 编译 + 单测全绿 + 实机走查（n=3 详情页显示「每 3 天」）通过。
 
 ### 8. 进展页首屏流与触底加载写-写竞态 ✅ 已修复（2026-10-02，62b2e42）
 - 来源：ocsbf P1-8 残余（防连点/失败重试已修，竞态本体未修）
@@ -217,11 +221,14 @@
   `writeSafetySnapshot` 在恢复链路中 OOM 会中断恢复。
 - 修法：JSON 按表流式写入；CSV 分批 append。保留事务包裹。
 
-### 24. 详情页不解析「0=跟随全局」推迟哨兵
+### 24. 详情页不解析「0=跟随全局」推迟哨兵 ✅ 已修复（2026-10-02，UI 走查批次）
 - 来源：ocsbf P1-6
 - 现状：`MedicationDetailScreen.kt:767` `if (snoozeMinutes > 0)` 才显示推迟标志；
   药品级 0（跟随全局）时详情页不显示任何推迟信息，而通知实际按全局值生效。
 - 修法：复用 `ReminderSettings.resolve` 渲染「跟随全局（N 分钟）」。
+- **实施（2026-10-02）**：`MedDetailUiState` 新增 `globalSnoozeMinutes`（直读 `app_settings`
+  的 `KEY_SNOOZE_MINUTES`，与 resolve 全局分支同源）；snoozeMinutes==0 时渲染
+  「推迟 跟随全局（N 分）」。实机走查通过。
 
 ### 25. 详情页 4 处 46dp 固定高度按钮 ✅ 已修复（2026-10-02，a1d7fee）
 - 来源：xdsf 4.4、UIUX A-01 残留
@@ -229,12 +236,16 @@
   仍 `.height(46.dp)`，低于 48dp 触摸目标；目标用户正是放大字号人群。
 - 修法：改 `defaultMinSize(minHeight = 48.dp)`。
 
-### 26. 今日页顶栏标题恒为「今日用药」、日期条随点平移
+### 26. 今日页顶栏标题恒为「今日用药」、日期条随点平移 ✅ 已修复（2026-10-02，UI 走查批次）
 - 来源：ocsbf P2-2、ocsbf P2-1/P2-8、wdsp U-8
 - 现状：`TodayScreen.kt:134` 标题与 selectedDate 无关（选中非今日时顶栏事实错误）；
   `TodayViewModel.kt:265,299` 日期条固定 `(-3L..3L)` 以选中日为中心，点远处日期窗口跟着飘，
   无「回到今天」快捷入口、无翻周控件。
 - 修法：标题三态；选中日≠今天时显示「今天」按钮。
+- **实施（2026-10-02）**：标题三态（今日用药 / 「M月d日 用药计划」 / 「M月d日 用药记录」，
+  新增 `today_title_future` / `today_title_past` / `today_back_to_today`）；选中日≠今天时
+  顶栏显示「今天」TextButton 一键复位。日期条窗口居中逻辑维持不变（有复位入口后可接受）。
+  实机走查：三态标题 + 回到今天均验证通过。
 
 ### 27. 导出失败 Toast 抛原始异常文本（5 处） ✅ 已修复（2026-10-02，62b2e42，实为 7 处）
 - 来源：orsbf P1-16 残留
@@ -350,8 +361,10 @@
   （:336-348 已有强断言并存，冗余容忍缺陷行为）。
 - **L-21**（TEST-AUDIT #4）：`DoseTest.kt:71` 演示型 `isAtMost` 断言（审计自评可不改）。
 - **L-22**（sbf P3-3）：弃用警告 7 处：`Icons.Default.Sort`（CabinetScreen.kt:140）+ 5 处裸 `.menuAnchor()`。
-  ◐ 部分修复（2026-10-02，a1d7fee）：Sort 图标已改 AutoMirrored；menuAnchor 新 API 迁移
-  影响下拉输入行为，留待有模拟器走查条件的批次。
+  ✅ 已修复（2026-10-02）：Sort 图标已改 AutoMirrored（a1d7fee）；menuAnchor 全部 8 处
+  （SettingsScreen 4 处 + AddEdit/ManualDose/Refill/ReminderSettings 各 1 处）迁移到
+  `menuAnchor(MenuAnchorType.PrimaryNotEditable)`，均为 readOnly 下拉字段、类型逐一核对，
+  实机验证提醒设置/系统设置/补录页下拉展开与选择正常（UI 走查批次）。
 
 ### 杂项（P4）
 - **L-23**（round2 N11-l）：SAF `OpenDocument()` 未 `takePersistableUriPermission`（一次性读取场景，影响有限）。

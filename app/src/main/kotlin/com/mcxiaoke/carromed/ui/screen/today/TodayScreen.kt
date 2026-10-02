@@ -126,6 +126,17 @@ fun TodayScreen(
 
     var showHistoryCalendarSheet by rememberSaveable { mutableStateOf(false) }
 
+    // §二-26：标题三态 —— 顶栏与 selectedDate 绑定。此前标题恒为「今日用药」，
+    // 用户选中过去/未来日期时顶栏说的是事实错误的话。
+    val selectedDateMd = stringResource(
+        R.string.today_date_md, uiState.selectedDate.monthValue, uiState.selectedDate.dayOfMonth
+    )
+    val topBarTitle = when {
+        uiState.selectedDate == uiState.today -> stringResource(R.string.today_title)
+        uiState.selectedDate > uiState.today -> stringResource(R.string.today_title_future, selectedDateMd)
+        else -> stringResource(R.string.today_title_past, selectedDateMd)
+    }
+
     Scaffold(
         // 顶栏必须走 Scaffold 的 topBar 槽位（PLAN-TITLEBAR-STANDARDIZATION-20260930.md）：
         // 旧实现是本 Scaffold 不带 topBar、标题手绘在 LazyColumn 第一个 item 里，
@@ -134,8 +145,15 @@ fun TodayScreen(
         // 进了 topBar 槽位后 TopAppBar 自己吃掉状态栏，innerPadding.top 归零。
         topBar = {
             CarroMedTopAppBar(
-                title = stringResource(R.string.today_title),
+                title = topBarTitle,
                 actions = {
+                    // §二-26：选中日 ≠ 今天时给一个一步回今天的入口，
+                    // 否则日期条窗口跟着选中日平移后没有快捷复位。
+                    if (uiState.selectedDate != uiState.today) {
+                        TextButton(onClick = { viewModel.selectDate(uiState.today) }) {
+                            Text(stringResource(R.string.today_back_to_today))
+                        }
+                    }
                     TodayStreakBadge(
                         streakDays = uiState.streakDays,
                         onClick = { showHistoryCalendarSheet = true }

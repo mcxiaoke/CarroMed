@@ -17,6 +17,7 @@ import com.mcxiaoke.carromed.core.data.model.TransactionType
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.ui.component.DecimalInput
+import com.mcxiaoke.carromed.ui.component.intervalLabel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -454,12 +455,9 @@ class InventoryViewModel(
         return when (type) {
             PolicyType.DAILY -> app.getString(R.string.inv_freq_daily, perDay, timeStr)
             PolicyType.INTERVAL -> {
-                val n = (intervalDays ?: 2).coerceAtLeast(1)
-                val dayText = when {
-                    n <= 1 -> app.getString(R.string.inv_freq_day_everyday)
-                    n == 2 -> app.getString(R.string.inv_freq_day_alternate)
-                    else -> app.getString(R.string.inv_freq_day_every_n, n)
-                }
+                // §一-7：文案归一到 intervalLabel（domain 语义 IntervalCadence），
+                // 与详情页/药箱页同一份实现；n 即周期天数（不变量 I7）。
+                val dayText = intervalLabel(app, (intervalDays ?: 2).coerceAtLeast(1))
                 app.getString(R.string.inv_freq_generic, dayText, perDay, timeStr)
             }
             PolicyType.DAYS_OF_WEEK -> {

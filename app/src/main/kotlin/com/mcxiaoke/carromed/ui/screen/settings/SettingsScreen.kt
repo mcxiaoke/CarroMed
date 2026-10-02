@@ -38,6 +38,7 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -272,7 +273,7 @@ fun SettingsScreen(
                                     readOnly = true,
                                     singleLine = true,
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = snoozeExpanded) },
-                                    modifier = Modifier.menuAnchor()
+                                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)
                                 )
                                 ExposedDropdownMenu(
                                     expanded = snoozeExpanded,
@@ -345,7 +346,7 @@ fun SettingsScreen(
                                         readOnly = true,
                                         singleLine = true,
                                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = intervalExpanded) },
-                                        modifier = Modifier.menuAnchor()
+                                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)
                                     )
                                     ExposedDropdownMenu(
                                         expanded = intervalExpanded,
@@ -389,7 +390,7 @@ fun SettingsScreen(
                                         readOnly = true,
                                         singleLine = true,
                                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = countExpanded) },
-                                        modifier = Modifier.menuAnchor()
+                                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)
                                     )
                                     ExposedDropdownMenu(
                                         expanded = countExpanded,
@@ -538,7 +539,7 @@ fun SettingsScreen(
                                     readOnly = true,
                                     singleLine = true,
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = soundExpanded) },
-                                    modifier = Modifier.menuAnchor()
+                                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)
                                 )
                                 ExposedDropdownMenu(
                                     expanded = soundExpanded,

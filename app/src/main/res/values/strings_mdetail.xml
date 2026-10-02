@@ -79,8 +79,6 @@
     <string name="mdetail_sum_defaults">%1$s · %2$s · 默认 %3$s %4$s/次</string>
     <string name="mdetail_sum_no_plan">尚未设置服药计划 · 无自动提醒 → 点击设置</string>
     <string name="mdetail_sum_freq_daily">每天 %1$d 次</string>
-    <string name="mdetail_sum_freq_interval_short">隔天</string>
-    <string name="mdetail_sum_freq_interval">每隔 %1$d 天</string>
     <string name="mdetail_sum_freq_weekly">每周 %1$d 天</string>
     <string name="mdetail_sum_freq_cycle">周期 %1$d服/%2$d停</string>
     <string name="mdetail_sum_freq_prn">按需服用</string>
@@ -89,6 +87,7 @@
     <string name="mdetail_sum_indefinite">无限期</string>
     <string name="mdetail_sum_flag_critical">重要提醒</string>
     <string name="mdetail_sum_flag_snooze">推迟 %1$d 分</string>
+    <string name="mdetail_sum_flag_snooze_global">推迟 跟随全局（%1$d 分）</string>
     <string name="mdetail_sum_flag_advance">提前 %1$d 分</string>
     <string name="mdetail_sum_stock_off">未开启库存追踪</string>
     <string name="mdetail_sum_stock_negative">记录余量为负（%1$s %2$s），请校准库存</string>
