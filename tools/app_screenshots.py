@@ -147,6 +147,17 @@ PROGRAM: list[Step] = [
          expect="点按可推迟或跳过"),
     Step("present_desc", "确认服药", note="回到今天后 ✓ 又回来了（防修过头：不能把今天也锁死）"),
 
+    # ---- 1c. 月历 Sheet（TodayStreakBadge → DoseHistoryCalendarSheet）------ #
+    # T-4 补登记：streak 徽章虽在 today 截图里可见，但月历 Sheet 本体只能
+    # 从徽章点击进入 —— 不登记的话它就是"编译过 + 单测绿"却从未被看过的组件。
+    # 关闭方式：Sheet 没有文字关闭按钮（today_calendar_close 未在此使用），
+    # 点 scrim / back 触发 onDismissRequest —— back 更稳定（scrim 坐标依赖布局）。
+    Step("desc", "点击查看月度记录", contains=True,
+         note="今日页 streak 徽章（today_streak_cd）", expect="已全服"),
+    Step("shot", key="today_calendar_sheet",
+         note="月历 Sheet：月份标题 / 图例（已全服·部分·漏服·跳过）/ 翻月 / streak 卡"),
+    Step("back", note="back 触发 onDismissRequest 关闭 Sheet", expect="今日用药"),
+
     # ---- 1b. 记录详情页（统一承载待服 / 已服 / 已跳过，非 sheet）----------- #
     # 点的是**卡片本体**（药名文本所在的可点击祖先），不是右侧的 ✓ 快捷打卡 ——
     # 点 ✓ 会真的写库，走查不该改动数据。

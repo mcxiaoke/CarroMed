@@ -1,0 +1,41 @@
+# CI（T-5 / orsbf P2-22）—— 最小可用流水线：编译 debug + 全量单测。
+#
+# 项目当前没有 lint/发布门禁需求；这条流水线的价值是把「单测全绿」从
+# 开发机纪律变成仓库事实：jqwik 属性测试与 Robolectric 真库测试在干净
+# 环境上重跑，反例库（.jqwik-database，已入库）能先复现历史失败。
+#
+# 验收口径与 AGENTS §二 一致：编译过 + testDebugUnitTest 全绿。
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble debug
+        run: ./gradlew assembleDebug --console=plain
+
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --console=plain
+
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: app/build/reports/tests/testDebugUnitTest/

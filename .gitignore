@@ -50,10 +50,10 @@ ehthumbs.db
 .cursor/
 .claude/
 
-# 7.1 jqwik 属性化测试的失败样本数据库
-# jqwik 会把反例（shrunk counterexample）写进这个文件用于复现，
-# 它是**测试产物**而非源码，不应进版本库。
-.jqwik-database
+# 7.1 jqwik 属性化测试的反例数据库（T-5 决议：**不再忽略**）
+# jqwik 把 shrunk counterexample 写进这个文件用于复现——它记录的是
+# "哪个生成的输入曾让性质失败"，入库后换机器 / CI 上能先复现再排查；
+# 它不是构建产物，忽略它等于把失败现场留在开发机上。
 
 # 7.2 Python 字节码缓存（走查脚本 import 后产生）
 __pycache__/

@@ -7,24 +7,36 @@ name: smoke-seeded
 # 定位纪律：tab 用 ^...$ 精确正则（避免"药箱"撞"我的药箱"），
 # 卡片/按钮用 testTag 的 resource-id 正则（testTagsAsResourceId 仅 debug 开启），
 # 带计数的分区标题用 \(\d+\) 正则（assertVisible 默认全等匹配，首跑踩过）。
+#
+# 断言文案与 strings.xml 的关联（T-4）：Maestro 读不到资源表，断言只能硬编码，
+# 但每条断言必须标注来源键 —— 文案改版时按键全局替换，避免脚本静默失配：
+#   今日用药      = today_title            (strings_today.xml)
+#   我的药箱      = cabinet_title          (strings_cabinet.xml)
+#   服药记录      = prog_title             (strings_prog.xml)
+#   用药统计      = stats_title            (strings_stats.xml)
+#   药品设置      = mdetail_section_settings (strings_mdetail.xml)
+#   待服药 (N)   = today_pending_title    (strings_today.xml)
+#   今日已服 (N)  = today_completed_title  (strings_today.xml)
+#   已服          = today_badge_taken      (strings_today.xml)
+#   撤销记录      = rdetail_undo           (strings_rdetail.xml)
 
 - launchApp
-- assertVisible: 今日用药
+- assertVisible: 今日用药        # today_title
 - takeScreenshot: 01_today
 
 - tapOn:
     text: "^药箱$"
-- assertVisible: 我的药箱
+- assertVisible: 我的药箱        # cabinet_title
 - takeScreenshot: 02_cabinet
 
 - tapOn:
     text: "^记录$"
-- assertVisible: 服药记录
+- assertVisible: 服药记录        # prog_title
 - takeScreenshot: 03_progress
 
 - tapOn:
     text: "^统计$"
-- assertVisible: 用药统计
+- assertVisible: 用药统计        # stats_title
 - takeScreenshot: 04_stats
 
 # 进药品详情（种子数据第一张药卡）
@@ -33,7 +45,7 @@ name: smoke-seeded
 - tapOn:
     id: ".*med_card.*"
     index: 0
-- assertVisible: 药品设置
+- assertVisible: 药品设置        # mdetail_section_settings
 - takeScreenshot: 05_med_detail
 # ⚠️ 二级页没有底栏，先返回药箱再切 Tab（首跑踩过：直接 tapOn ^今日$ 找不到）
 - back
@@ -41,18 +53,18 @@ name: smoke-seeded
 # 回今日页，打卡 → 已服区出现
 - tapOn:
     text: "^今日$"
-- assertVisible: '待服药 \(\d+\)'
+- assertVisible: '待服药 \(\d+\)'    # today_pending_title
 - tapOn:
     id: ".*dose_confirm.*"
     index: 0
-- assertVisible: '今日已服 \(\d+\)'
+- assertVisible: '今日已服 \(\d+\)'  # today_completed_title
 - takeScreenshot: 06_taken
 
 # 打开一条已服记录 → 撤销 → 待服数回补
 - tapOn:
-    text: "^已服$"
+    text: "^已服$"                   # today_badge_taken
     index: 0
-- assertVisible: 撤销记录
+- assertVisible: 撤销记录            # rdetail_undo
 - takeScreenshot: 07_record_detail
 - tapOn: 撤销记录
 - assertVisible: '待服药 \(\d+\)'
