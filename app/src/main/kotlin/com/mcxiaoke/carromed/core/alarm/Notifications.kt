@@ -27,19 +27,26 @@ import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 object Notifications {
 
     /**
-     * V2 服药提醒渠道（P1-4）：
-     * 绑定 AudioAttributes.USAGE_ALARM，铃声走系统闹钟音频流，不受普通通知静音影响。
-     * Android 渠道属性一经创建即不可变，因此存量迁移必须通过更换 Channel ID 完成。
+     * V3 服药提醒渠道：
+     * 绑定标准系统通知铃声与 USAGE_NOTIFICATION_EVENT 音频属性，与普通应用及 MyTherapy 保持一致，
+     * 解决在国产定制 ROM（如小米 MIUI/HyperOS、华为鸿蒙等）上因使用 USAGE_ALARM 导致系统静默拦截并禁用声音的严重缺陷。
+     * Android 渠道属性一经创建即不可变，因此修复存量必须通过更换 Channel ID 完成。
      */
-    const val CHANNEL_DOSE_REMINDER_V2 = "dose_reminder_v2"
+    const val CHANNEL_DOSE_REMINDER_V3 = "dose_reminder_v3"
 
     /**
-     * 重要药品专用强提醒渠道（P1-4）：
-     * 强力震动与闹钟音频流，确保关键处方药强效提醒。
+     * 重要药品专用强提醒渠道（V3）：
+     * 强力震动与系统通知提示音，确保关键处方药强效提醒。
      */
+    const val CHANNEL_DOSE_REMINDER_CRITICAL_V3 = "dose_reminder_critical_v3"
+
+    @Deprecated("Use CHANNEL_DOSE_REMINDER_V3 instead", ReplaceWith("CHANNEL_DOSE_REMINDER_V3"))
+    const val CHANNEL_DOSE_REMINDER_V2 = "dose_reminder_v2"
+
+    @Deprecated("Use CHANNEL_DOSE_REMINDER_CRITICAL_V3 instead", ReplaceWith("CHANNEL_DOSE_REMINDER_CRITICAL_V3"))
     const val CHANNEL_DOSE_REMINDER_CRITICAL = "dose_reminder_critical"
 
-    @Deprecated("Use CHANNEL_DOSE_REMINDER_V2 instead", ReplaceWith("CHANNEL_DOSE_REMINDER_V2"))
+    @Deprecated("Use CHANNEL_DOSE_REMINDER_V3 instead", ReplaceWith("CHANNEL_DOSE_REMINDER_V3"))
     const val CHANNEL_DOSE_REMINDER = "dose_reminder"
 
     /**
@@ -66,37 +73,41 @@ object Notifications {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
 
-        // 存量升级与清理（P1-4）：老渠道 dose_reminder 使用普通通知音频流，在此静默删除
-        runCatching { nm.deleteNotificationChannel(CHANNEL_DOSE_REMINDER) }
+        // 存量升级与清理：老渠道在此静默删除，迫使系统使用全新的 V3 渠道配置
+        runCatching {
+            nm.deleteNotificationChannel(CHANNEL_DOSE_REMINDER)
+            nm.deleteNotificationChannel(CHANNEL_DOSE_REMINDER_V2)
+            nm.deleteNotificationChannel(CHANNEL_DOSE_REMINDER_CRITICAL)
+        }
 
         val audioAttributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ALARM)
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
-        val alarmSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            ?: android.provider.Settings.System.DEFAULT_NOTIFICATION_URI
 
         val loud = NotificationChannel(
-            CHANNEL_DOSE_REMINDER_V2,
+            CHANNEL_DOSE_REMINDER_V3,
             context.getString(R.string.notif_channel_name),
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = context.getString(R.string.notif_channel_desc)
             enableVibration(true)
             vibrationPattern = longArrayOf(0, 500, 200, 500)
-            setSound(alarmSoundUri, audioAttributes)
+            setSound(defaultSoundUri, audioAttributes)
             setShowBadge(true)
         }
 
         val critical = NotificationChannel(
-            CHANNEL_DOSE_REMINDER_CRITICAL,
+            CHANNEL_DOSE_REMINDER_CRITICAL_V3,
             context.getString(R.string.notif_channel_name_critical),
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = context.getString(R.string.notif_channel_desc_critical)
             enableVibration(true)
             vibrationPattern = longArrayOf(0, 800, 300, 800, 300, 800)
-            setSound(alarmSoundUri, audioAttributes)
+            setSound(defaultSoundUri, audioAttributes)
             setShowBadge(true)
         }
 
@@ -204,8 +215,8 @@ object Notifications {
         val silent = ReminderSettings.shouldSilence(behavior, overview.isCriticalReminder, hour)
         val channel = when {
             silent -> CHANNEL_DOSE_REMINDER_SILENT
-            overview.isCriticalReminder -> CHANNEL_DOSE_REMINDER_CRITICAL
-            else -> CHANNEL_DOSE_REMINDER_V2
+            overview.isCriticalReminder -> CHANNEL_DOSE_REMINDER_CRITICAL_V3
+            else -> CHANNEL_DOSE_REMINDER_V3
         }
 
         val advanceMinutes = overview.advanceMinutes
@@ -268,6 +279,9 @@ object Notifications {
         }
         val isEligibleForFullScreen = !silent && (overview.isCriticalReminder || kind == AlarmScheduler.Kind.MAIN)
 
+        val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            ?: android.provider.Settings.System.DEFAULT_NOTIFICATION_URI
+
         val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(
@@ -282,11 +296,17 @@ object Notifications {
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(if (silent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
             .setOnlyAlertOnce(false)
+            .apply {
+                if (!silent) {
+                    setSound(defaultSoundUri)
+                    setDefaults(NotificationCompat.DEFAULT_LIGHTS or NotificationCompat.DEFAULT_VIBRATE)
+                }
+            }
             .addAction(
                 0, context.getString(R.string.notif_action_take),
                 actionPendingIntent(context, slot, ACTION_TAKE, RC_TAKE)
@@ -397,9 +417,9 @@ object Notifications {
         if (!nm.areNotificationsEnabled()) return false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val none = NotificationManager.IMPORTANCE_NONE
-            val v2Off = nm.getNotificationChannel(CHANNEL_DOSE_REMINDER_V2)?.importance == none
-            val criticalOff = nm.getNotificationChannel(CHANNEL_DOSE_REMINDER_CRITICAL)?.importance == none
-            if (v2Off && criticalOff) return false
+            val v3Off = nm.getNotificationChannel(CHANNEL_DOSE_REMINDER_V3)?.importance == none
+            val criticalOff = nm.getNotificationChannel(CHANNEL_DOSE_REMINDER_CRITICAL_V3)?.importance == none
+            if (v3Off && criticalOff) return false
         }
         return true
     }

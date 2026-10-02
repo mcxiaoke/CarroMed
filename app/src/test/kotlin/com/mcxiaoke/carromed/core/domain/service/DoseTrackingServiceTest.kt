@@ -372,7 +372,7 @@ class DoseTrackingServiceTest {
         val recordDao = db.doseRecordDao()
 
         val medId = medDao.insert(MedicationEntity(name = "补录关联药", unit = "片"))
-        val today = LocalDate.now()
+        val today = LocalDate.of(2026, 10, 1)
         val todayStr = today.toString()
         val slotTs = today.atTime(9, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
 

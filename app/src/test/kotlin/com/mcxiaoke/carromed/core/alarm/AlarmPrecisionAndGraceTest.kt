@@ -220,7 +220,7 @@ class AlarmPrecisionAndGraceTest {
         Notifications.ensureChannel(context)
         NotificationManagerCompat.from(context).notify(
             Notifications.notificationIdOf(id),
-            NotificationCompat.Builder(context, Notifications.CHANNEL_DOSE_REMINDER_V2)
+            NotificationCompat.Builder(context, Notifications.CHANNEL_DOSE_REMINDER_V3)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .build()
         )
