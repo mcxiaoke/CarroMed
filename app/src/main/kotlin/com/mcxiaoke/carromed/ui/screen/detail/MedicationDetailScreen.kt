@@ -344,7 +344,8 @@ fun MedicationDetailScreen(
                     completed = uiState.adherenceCompleted,
                     decided = uiState.adherenceDecided,
                     doseSum = uiState.doseSum,
-                    unit = med.unit
+                    unit = med.unit,
+                    hasPolicy = uiState.policy != null
                 )
             }
 
@@ -878,7 +879,14 @@ private fun DetailEntryRow(
 }
 
 @Composable
-private fun AdherenceCard(rate: Float, completed: Int, decided: Int, doseSum: Float, unit: String) {
+private fun AdherenceCard(
+    rate: Float,
+    completed: Int,
+    decided: Int,
+    doseSum: Float,
+    unit: String,
+    hasPolicy: Boolean
+) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -892,7 +900,10 @@ private fun AdherenceCard(rate: Float, completed: Int, decided: Int, doseSum: Fl
             ) {
                 Text(stringResource(R.string.mdetail_adherence_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 // 分母为 0 时显示"暂无到期"：0/0 在统计上等于 100%，
-                // 但对用户是误导 —— 看起来像"表现完美"，实际是"还没有样本"
+                // 但对用户是误导 —— 看起来像"表现完美"，实际是"还没有样本"。
+                // 「暂无计划」只允许出现在真的没有计划时（与汇总区同判据 policy == null，
+                // U-4）：有计划但 30 天内没有已确认时点（如新建/暂停/计划起始日在未来）
+                // 显示另一条空态文案，否则与上方"提醒已配置"自相矛盾。
                 if (decided > 0) {
                     Text(
                         stringResource(R.string.mdetail_adherence_rate, rate * 100),
@@ -900,9 +911,15 @@ private fun AdherenceCard(rate: Float, completed: Int, decided: Int, doseSum: Fl
                         fontWeight = FontWeight.Bold,
                         color = if (rate >= 0.8f) SuccessGreen else WarningAmber
                     )
-                } else {
+                } else if (!hasPolicy) {
                     Text(
                         stringResource(R.string.mdetail_adherence_none),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text(
+                        stringResource(R.string.mdetail_adherence_no_decided),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

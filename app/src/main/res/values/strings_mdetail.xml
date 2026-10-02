@@ -60,6 +60,7 @@
     <string name="mdetail_adherence_title">近 30 天用药</string>
     <string name="mdetail_adherence_rate">依从率 %1$.0f%%</string>
     <string name="mdetail_adherence_none">暂无计划</string>
+    <string name="mdetail_adherence_no_decided">暂无已确认的服药时点</string>
     <string name="mdetail_adherence_summary">按时服用 %1$d 次 / 计划 %2$d 次 · 近 30 天共消耗 %3$s %4$s</string>
 
     <!-- 服药记录状态徽标 -->

@@ -66,7 +66,7 @@
     <string name="rem_cd_delete">删除</string>
     <string name="rem_dose_label">剂量</string>
     <string name="rem_add_time">添加提醒时间</string>
-    <string name="rem_dose_advice">服药建议</string>
+    <string name="rem_dose_advice">服药时段</string>
 
     <!-- 未来 7 天提醒预览 -->
     <string name="rem_section_preview">未来 7 天提醒预览</string>
