@@ -44,6 +44,9 @@ class CarroMedApp : Application() {
         // 若首次弹通知时渠道还不存在，HIGH 这一档就永远生效了。
         Notifications.ensureChannel(this)
 
+        // 预热打卡完成提示音 (SoundPool)
+        com.mcxiaoke.carromed.core.alarm.CompletionSoundPlayer.prepare(this)
+
         // "今天是几号"的可刷新事实（M3-2）。进程级单例，任何页面都不再自己
         // `LocalDate.now()` 存字段 —— 那样进程跨夜存活时"今日"会永久停在昨天。
         CurrentDateHolder.install(this)

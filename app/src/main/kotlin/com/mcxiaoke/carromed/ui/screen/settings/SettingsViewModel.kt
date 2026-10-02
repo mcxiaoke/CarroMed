@@ -21,6 +21,13 @@ import kotlinx.coroutines.withContext
 data class SettingsUiState(
     val snoozeMinutes: Int = 30,
     val nightDnd: Boolean = true,
+    val nightDndStart: String = "23:00",
+    val nightDndEnd: String = "07:00",
+    val completionSound: String = "ding",
+    val completionHaptic: Boolean = true,
+    val repeatReminderEnabled: Boolean = true,
+    val repeatIntervalMinutes: Int = 30,
+    val repeatMaxCount: Int = 3,
     val isExporting: Boolean = false,
     /** 正在解析所选备份文件（此时尚未碰数据库） */
     val isInspectingBackup: Boolean = false,
@@ -61,27 +68,92 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            val snooze = settingDao.getValue("snooze_minutes")?.toIntOrNull() ?: 30
-            val dnd = settingDao.getValue("night_dnd")?.toBoolean() ?: true
+            val snooze = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES)?.toIntOrNull() ?: 30
+            val dnd = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND)?.toBoolean() ?: true
+            val dndStart = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND_START) ?: "23:00"
+            val dndEnd = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND_END) ?: "07:00"
+            val sound = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_SOUND) ?: "ding"
+            val haptic = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_HAPTIC)?.toBoolean() ?: true
+            val repeatEnabled = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: true
+            val repeatInterval = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_INTERVAL)?.toIntOrNull() ?: 30
+            val repeatMax = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_MAX_COUNT)?.toIntOrNull() ?: 3
 
             _uiState.value = SettingsUiState(
                 snoozeMinutes = snooze,
-                nightDnd = dnd
+                nightDnd = dnd,
+                nightDndStart = dndStart,
+                nightDndEnd = dndEnd,
+                completionSound = sound,
+                completionHaptic = haptic,
+                repeatReminderEnabled = repeatEnabled,
+                repeatIntervalMinutes = repeatInterval,
+                repeatMaxCount = repeatMax
             )
         }
     }
 
     fun onSnoozeMinutesChange(minutes: Int) {
+        AppLog.i(TAG, "snoozeMinutes changed: $minutes")
         _uiState.value = _uiState.value.copy(snoozeMinutes = minutes)
         viewModelScope.launch {
-            settingDao.setSetting(AppSettingEntity("snooze_minutes", minutes.toString()))
+            settingDao.setSetting(AppSettingEntity(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES, minutes.toString()))
         }
     }
 
     fun onNightDndChange(enabled: Boolean) {
+        AppLog.i(TAG, "nightDnd changed: $enabled")
         _uiState.value = _uiState.value.copy(nightDnd = enabled)
         viewModelScope.launch {
-            settingDao.setSetting(AppSettingEntity("night_dnd", enabled.toString()))
+            settingDao.setSetting(AppSettingEntity(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND, enabled.toString()))
+        }
+    }
+
+    fun onNightDndTimeChange(start: String, end: String) {
+        AppLog.i(TAG, "nightDndTime changed: $start ~ $end")
+        _uiState.value = _uiState.value.copy(nightDndStart = start, nightDndEnd = end)
+        viewModelScope.launch {
+            settingDao.setSetting(AppSettingEntity(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND_START, start))
+            settingDao.setSetting(AppSettingEntity(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND_END, end))
+        }
+    }
+
+    fun onCompletionSoundChange(sound: String) {
+        AppLog.i(TAG, "completionSound changed: $sound")
+        _uiState.value = _uiState.value.copy(completionSound = sound)
+        viewModelScope.launch {
+            settingDao.setSetting(AppSettingEntity(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_SOUND, sound))
+        }
+    }
+
+    fun onCompletionHapticChange(enabled: Boolean) {
+        AppLog.i(TAG, "completionHaptic changed: $enabled")
+        _uiState.value = _uiState.value.copy(completionHaptic = enabled)
+        viewModelScope.launch {
+            settingDao.setSetting(AppSettingEntity(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_HAPTIC, enabled.toString()))
+        }
+    }
+
+    fun onRepeatReminderEnabledChange(enabled: Boolean) {
+        AppLog.i(TAG, "repeatReminderEnabled changed: $enabled")
+        _uiState.value = _uiState.value.copy(repeatReminderEnabled = enabled)
+        viewModelScope.launch {
+            settingDao.setSetting(AppSettingEntity(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_ENABLED, enabled.toString()))
+        }
+    }
+
+    fun onRepeatIntervalMinutesChange(minutes: Int) {
+        AppLog.i(TAG, "repeatIntervalMinutes changed: $minutes")
+        _uiState.value = _uiState.value.copy(repeatIntervalMinutes = minutes)
+        viewModelScope.launch {
+            settingDao.setSetting(AppSettingEntity(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_INTERVAL, minutes.toString()))
+        }
+    }
+
+    fun onRepeatMaxCountChange(count: Int) {
+        AppLog.i(TAG, "repeatMaxCount changed: $count")
+        _uiState.value = _uiState.value.copy(repeatMaxCount = count)
+        viewModelScope.launch {
+            settingDao.setSetting(AppSettingEntity(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_MAX_COUNT, count.toString()))
         }
     }
 

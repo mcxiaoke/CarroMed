@@ -31,6 +31,9 @@ interface AppSettingDao {
     @Query("SELECT * FROM app_settings ORDER BY `key` ASC")
     suspend fun getAllSettings(): List<AppSettingEntity>
 
+    @Query("SELECT * FROM app_settings")
+    fun observeAllSettings(): Flow<List<AppSettingEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(settings: List<AppSettingEntity>)
 

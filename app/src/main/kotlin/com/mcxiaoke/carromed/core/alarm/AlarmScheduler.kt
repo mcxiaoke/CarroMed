@@ -92,7 +92,10 @@ object AlarmScheduler {
         ADVANCE("advance"),
 
         /** 用户手动推迟后的再次提醒 */
-        SNOOZE("snooze");
+        SNOOZE("snooze"),
+
+        /** 忽略/未操作后的自动重复提醒 */
+        REPEAT("repeat");
 
         companion object {
             fun fromCode(code: String?): Kind =
@@ -188,7 +191,8 @@ object AlarmScheduler {
         context: Context,
         slot: DoseSlotEntity,
         triggerAtMillis: Long,
-        kind: Kind = Kind.MAIN
+        kind: Kind = Kind.MAIN,
+        logVerbose: Boolean = true
     ) {
         val alarmManager = context.getSystemService(AlarmManager::class.java) ?: return
         val pi = pendingIntent(
@@ -201,7 +205,9 @@ object AlarmScheduler {
             Precision.EXACT -> {
                 try {
                     alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pi)
-                    AppLog.i(TAG, "scheduled uri=$uri triggerAt$triggerAt precision=EXACT")
+                    if (logVerbose) {
+                        AppLog.i(TAG, "scheduled uri=$uri triggerAt$triggerAt precision=EXACT")
+                    }
                     return
                 } catch (e: SecurityException) {
                     // 权限被运行时回收（用户刚在系统设置里关掉 / 某些 ROM 的额外限制），
@@ -218,7 +224,9 @@ object AlarmScheduler {
                 AlarmManager.AlarmClockInfo(triggerAtMillis, showIntent(context)),
                 pi
             )
-            AppLog.i(TAG, "scheduled uri=$uri triggerAt$triggerAt precision=ALARM_CLOCK")
+            if (logVerbose) {
+                AppLog.i(TAG, "scheduled uri=$uri triggerAt$triggerAt precision=ALARM_CLOCK")
+            }
             return
         } catch (e: SecurityException) {
             // 部分 ROM 上 setAlarmClock 同样要求精确闹钟权限

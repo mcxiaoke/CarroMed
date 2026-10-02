@@ -40,6 +40,7 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
  * | 7 | osbf P3-4 | `inventory_transactions` 加 `Index(record_id)`（改剂量/撤销按事实 id 聚合流水的高频过滤） |
  * | 8 | B5 | `inventory_transactions` 加 `note_key` 列（PLAN-I18N-20260930 D-C） |
  * | 9 | CODE-REVIEW | `dose_records` & `inventory_transactions` 外键改为 `RESTRICT` 阻止级联删历史 |
+ * | 10 | REPEAT | `dose_slots` 新增 `reminder_count` 列（追踪提醒次数支持重复提醒） |
  *
  * ⚠️ **A1 当时漏升了版本（3 → 3）**，靠 A2 的 3 → 4 顺带补救。
  * 这属于**运气**不是设计。核实依据（反编译 `room-runtime-2.6.1.aar` 的
@@ -68,9 +69,8 @@ import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
         MedicationEntity::class,
         AppSettingEntity::class
     ],
-    // v9：dose_records 与 inventory_transactions 外键改为 RESTRICT（阻止删药时级联抹杀核心历史数据）。
-    // 未发布不写迁移：schema 变更一律删库重装。
-    version = 9,
+    // v10：dose_slots 增加 reminder_count 列，未发布不写迁移，直接自毁重建。
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(AppConverters::class)

@@ -108,8 +108,8 @@ class AlarmIdentityTest {
                 }
             }
         }
-        // 40 药品 × 3 种类 × 2 时刻 = 240 个互不相同的身份
-        assertThat(seen.size).isEqualTo(40 * 3 * 2)
+        // 40 药品 × Kind 种类数 × 2 时刻 = 互不相同的身份
+        assertThat(seen.size).isEqualTo(40 * AlarmScheduler.Kind.entries.size * 2)
     }
 
     /**

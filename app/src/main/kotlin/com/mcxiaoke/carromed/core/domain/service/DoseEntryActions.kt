@@ -108,6 +108,8 @@ class DoseEntryActions(
                 AppLog.w(TAG, "confirm applied=false slot=$slotId reason=future-slot alarms-kept")
                 return failure
             }
+        } else {
+            AppLog.i(TAG, "confirm applied=true slot=$slotId takenAmount=$takenAmount isRetro=$isRetro")
         }
         cancelAlarmsAndNotification(slotId)
         return if (ok) DoseActionResult.APPLIED else DoseActionResult.ALREADY_HANDLED
@@ -126,6 +128,8 @@ class DoseEntryActions(
                 AppLog.w(TAG, "skip applied=false slot=$slotId reason=future-slot alarms-kept")
                 return failure
             }
+        } else {
+            AppLog.i(TAG, "skip applied=true slot=$slotId reason=$reason")
         }
         cancelAlarmsAndNotification(slotId)
         return if (ok) DoseActionResult.APPLIED else DoseActionResult.ALREADY_HANDLED
@@ -143,6 +147,7 @@ class DoseEntryActions(
         note: String? = null
     ): Boolean {
         val ok = tracking.restateSlot(slotId = slotId, target = target, note = note)
+        AppLog.i(TAG, "restate slot=$slotId target=$target ok=$ok")
         if (ok) cancelAlarmsAndNotification(slotId)
         return ok
     }
@@ -156,7 +161,9 @@ class DoseEntryActions(
      */
     suspend fun undo(slotId: Long): Boolean {
         val ok = tracking.undoDose(slotId)
+        AppLog.i(TAG, "undo slot=$slotId ok=$ok")
         if (!ok) return false
+        runCatching { db.doseSlotDao().resetReminderCount(slotId) }
         try {
             AlarmReconciler.rescheduleAll(context, db)
         } catch (t: Throwable) {
@@ -181,6 +188,7 @@ class DoseEntryActions(
      */
     suspend fun snooze(slotId: Long, minutes: Int): Boolean {
         val ok = tracking.snoozeDose(slotId, minutes)
+        AppLog.i(TAG, "snooze slot=$slotId minutes=$minutes ok=$ok")
         if (!ok) return false
 
         Notifications.cancelDoseNotification(context, slotId)
@@ -189,7 +197,7 @@ class DoseEntryActions(
 
         AlarmScheduler.cancelAll(
             context, slot.medicationId, slot.scheduledDate, slot.scheduledTime, slot.id,
-            kinds = listOf(AlarmScheduler.Kind.MAIN, AlarmScheduler.Kind.ADVANCE)
+            kinds = listOf(AlarmScheduler.Kind.MAIN, AlarmScheduler.Kind.ADVANCE, AlarmScheduler.Kind.REPEAT)
         )
         // 不吞异常：排闹钟失败必须能被用户看见（调用方负责上报），
         // 静默失败等于"我推迟了、以为会提醒，其实没有"。

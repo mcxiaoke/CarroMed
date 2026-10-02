@@ -309,6 +309,14 @@ interface DoseSlotDao {
     @Query("UPDATE dose_slots SET last_snooze_notified_ts = :notifiedTs WHERE id = :slotId")
     suspend fun updateLastSnoozeNotifiedTs(slotId: Long, notifiedTs: Long): Int
 
+    /** 更新提醒次数及最后主提醒时间戳 (用于忽略/划掉后的重复提醒) */
+    @Query("UPDATE dose_slots SET reminder_count = :count, last_main_notified_ts = :notifiedTs WHERE id = :slotId")
+    suspend fun updateReminderCountAndLastNotified(slotId: Long, count: Int, notifiedTs: Long): Int
+
+    /** 撤销或重新排班时重置提醒计数 */
+    @Query("UPDATE dose_slots SET reminder_count = 0 WHERE id = :slotId")
+    suspend fun resetReminderCount(slotId: Long): Int
+
     /**
      * 丢弃**投机区**（`scheduled_date > :afterDate`）里仍开放的槽位。
      *

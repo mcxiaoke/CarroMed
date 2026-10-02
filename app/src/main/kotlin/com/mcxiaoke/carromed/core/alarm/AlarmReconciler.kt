@@ -323,6 +323,10 @@ object AlarmReconciler {
         // 4. 注册：库中仍开放、属于在服药品、且当日不在暂停期内的槽位
         val advanceByMed = schedulableMeds.associate { it.id to it.advanceMinutes }
         val todayStr = today.format(SlotProjectionEngine.DATE_FORMATTER)
+        val repeatEnabled = db.appSettingDao().getValue(ReminderSettings.KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: true
+        val repeatInterval = db.appSettingDao().getValue(ReminderSettings.KEY_REPEAT_REMINDER_INTERVAL)?.toIntOrNull() ?: ReminderSettings.DEFAULT_REPEAT_INTERVAL_MINUTES
+        val repeatMaxCount = db.appSettingDao().getValue(ReminderSettings.KEY_REPEAT_REMINDER_MAX_COUNT)?.toIntOrNull() ?: ReminderSettings.DEFAULT_REPEAT_MAX_COUNT
+
         var overdueBeyondCatchupCount = 0
         var scheduled = 0
         var scheduleFailures = 0
@@ -350,7 +354,7 @@ object AlarmReconciler {
             if (slot.status == SlotStatus.SNOOZED) {
                 if (snoozeAt != null) {
                     if (snoozeAt > now) {
-                        runCatching { AlarmScheduler.schedule(context, slot, snoozeAt, AlarmScheduler.Kind.SNOOZE) }
+                        runCatching { AlarmScheduler.schedule(context, slot, snoozeAt, AlarmScheduler.Kind.SNOOZE, logVerbose = false) }
                             .onSuccess { scheduled++ }
                             .onFailure {
                                 scheduleFailures++
@@ -386,7 +390,7 @@ object AlarmReconciler {
             if (advance > 0) {
                 val advanceAt = mainAt - advance * 60_000L
                 if (advanceAt > now) {
-                    runCatching { AlarmScheduler.schedule(context, slot, advanceAt, AlarmScheduler.Kind.ADVANCE) }
+                    runCatching { AlarmScheduler.schedule(context, slot, advanceAt, AlarmScheduler.Kind.ADVANCE, logVerbose = false) }
                         .onFailure {
                             scheduleFailures++
                             AppLog.e(TAG, "advance schedule failed slot=${slot.id}", it)
@@ -394,7 +398,7 @@ object AlarmReconciler {
                 }
             }
             if (mainAt > now) {
-                runCatching { AlarmScheduler.schedule(context, slot, mainAt, AlarmScheduler.Kind.MAIN) }
+                runCatching { AlarmScheduler.schedule(context, slot, mainAt, AlarmScheduler.Kind.MAIN, logVerbose = false) }
                     .onSuccess { scheduled++ }
                     .onFailure {
                         scheduleFailures++
@@ -419,6 +423,36 @@ object AlarmReconciler {
                         scheduleFailures++
                         AppLog.e(TAG, "grace catch-up schedule failed slot=${slot.id}", it)
                     }
+            } else if (repeatEnabled && isToday && slot.lastMainNotifiedTs != null && slot.reminderCount < repeatMaxCount) {
+                // 需求 5：重复提醒对账。已提醒过但用户未表态 (PENDING)，且在最大重试次数内
+                val nextRepeatAt = slot.lastMainNotifiedTs + repeatInterval * 60_000L
+                if (nextRepeatAt > now) {
+                    runCatching {
+                        AlarmScheduler.schedule(context, slot, nextRepeatAt, AlarmScheduler.Kind.REPEAT, logVerbose = false)
+                    }
+                        .onSuccess { scheduled++ }
+                        .onFailure {
+                            scheduleFailures++
+                            AppLog.e(TAG, "repeat schedule failed slot=${slot.id}", it)
+                        }
+                } else if (nextRepeatAt >= catchupFloor &&
+                    Notifications.areNotificationsReachable(context) &&
+                    !Notifications.isDoseNotificationShown(context, slot.id)
+                ) {
+                    val catchupAt = now + GRACE_CATCHUP_DELAY_MS + catchupOffset
+                    catchupOffset += 5000L
+                    runCatching {
+                        AlarmScheduler.schedule(context, slot, catchupAt, AlarmScheduler.Kind.REPEAT)
+                    }
+                        .onSuccess {
+                            AppLog.i(TAG, "repeat catch-up: slot=${slot.id} next=$nextRepeatAt (now=$now)")
+                            scheduled++
+                        }
+                        .onFailure {
+                            scheduleFailures++
+                            AppLog.e(TAG, "repeat catch-up schedule failed slot=${slot.id}", it)
+                        }
+                }
             }
         }
 

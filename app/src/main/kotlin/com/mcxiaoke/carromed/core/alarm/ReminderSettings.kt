@@ -26,14 +26,31 @@ object ReminderSettings {
 
     const val KEY_SNOOZE_MINUTES = "snooze_minutes"
     const val KEY_NIGHT_DND = "night_dnd"
+    const val KEY_NIGHT_DND_START = "night_dnd_start"
+    const val KEY_NIGHT_DND_END = "night_dnd_end"
+    const val KEY_REPEAT_REMINDER_ENABLED = "repeat_reminder_enabled"
+    const val KEY_REPEAT_REMINDER_INTERVAL = "repeat_reminder_interval"
+    const val KEY_REPEAT_REMINDER_MAX_COUNT = "repeat_reminder_max_count"
+    const val KEY_COMPLETION_SOUND = "completion_sound"
+    const val KEY_COMPLETION_HAPTIC = "completion_haptic"
 
     const val DEFAULT_SNOOZE_MINUTES = 30
+    const val DEFAULT_NIGHT_DND_START = "23:00"
+    const val DEFAULT_NIGHT_DND_END = "07:00"
+    const val DEFAULT_REPEAT_INTERVAL_MINUTES = 30
+    const val DEFAULT_REPEAT_MAX_COUNT = 3
+
     private const val NIGHT_DND_START_HOUR = 23
     private const val NIGHT_DND_END_HOUR = 7
 
     data class Behavior(
         val snoozeMinutes: Int = DEFAULT_SNOOZE_MINUTES,
-        val nightDnd: Boolean = true
+        val nightDnd: Boolean = true,
+        val nightDndStart: String = DEFAULT_NIGHT_DND_START,
+        val nightDndEnd: String = DEFAULT_NIGHT_DND_END,
+        val repeatReminderEnabled: Boolean = true,
+        val repeatReminderIntervalMinutes: Int = DEFAULT_REPEAT_INTERVAL_MINUTES,
+        val repeatReminderMaxCount: Int = DEFAULT_REPEAT_MAX_COUNT
     )
 
     /** 全局行为：按药品优先级解析 (药品专属 > 全局 > 默认) */
@@ -41,16 +58,38 @@ object ReminderSettings {
         val dao = db.appSettingDao()
         val globalSnooze = dao.getValue(KEY_SNOOZE_MINUTES)?.toIntOrNull() ?: DEFAULT_SNOOZE_MINUTES
         val nightDnd = dao.getValue(KEY_NIGHT_DND)?.toBoolean() ?: true
+        val nightDndStart = dao.getValue(KEY_NIGHT_DND_START) ?: DEFAULT_NIGHT_DND_START
+        val nightDndEnd = dao.getValue(KEY_NIGHT_DND_END) ?: DEFAULT_NIGHT_DND_END
+        val repeatEnabled = dao.getValue(KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: true
+        val repeatInterval = dao.getValue(KEY_REPEAT_REMINDER_INTERVAL)?.toIntOrNull() ?: DEFAULT_REPEAT_INTERVAL_MINUTES
+        val repeatMaxCount = dao.getValue(KEY_REPEAT_REMINDER_MAX_COUNT)?.toIntOrNull() ?: DEFAULT_REPEAT_MAX_COUNT
+
         // 专属推迟时长已随 A2 迁到 `reminder_settings` 表（1:1）
         val medSnooze = db.reminderSettingsDao().getByMedicationId(medicationId)?.snoozeMinutes ?: 0
 
         return Behavior(
             snoozeMinutes = if (medSnooze > 0) medSnooze else globalSnooze,
-            nightDnd = nightDnd
+            nightDnd = nightDnd,
+            nightDndStart = nightDndStart,
+            nightDndEnd = nightDndEnd,
+            repeatReminderEnabled = repeatEnabled,
+            repeatReminderIntervalMinutes = repeatInterval,
+            repeatReminderMaxCount = repeatMaxCount
         )
     }
 
-    /** 当前是否处于夜间免打扰时段 (23:00 - 07:00) */
+    /** 当前是否处于夜间免打扰时段，支持跨午夜和同日时间段 */
+    fun inNightDndWindow(
+        now: java.time.LocalTime,
+        start: java.time.LocalTime,
+        end: java.time.LocalTime
+    ): Boolean = if (start <= end) {
+        now >= start && now < end
+    } else {
+        now >= start || now < end
+    }
+
+    /** 兼容旧版仅传 hourOfDay 的重载 */
     fun inNightDndWindow(hourOfDay: Int): Boolean =
         hourOfDay >= NIGHT_DND_START_HOUR || hourOfDay < NIGHT_DND_END_HOUR
 
@@ -58,6 +97,19 @@ object ReminderSettings {
      * 是否应当静默：夜间免打扰开启 且 当前在夜间 且 该药未标记为「重要提醒」。
      * 重要提醒会穿透夜间静音 —— 这是关键药品 (胰岛素、抗凝药) 的刚需。
      */
+    fun shouldSilence(
+        behavior: Behavior,
+        isCritical: Boolean,
+        nowTime: java.time.LocalTime = java.time.LocalTime.now()
+    ): Boolean {
+        if (!behavior.nightDnd || isCritical) return false
+        val start = runCatching { java.time.LocalTime.parse(behavior.nightDndStart) }
+            .getOrDefault(java.time.LocalTime.of(NIGHT_DND_START_HOUR, 0))
+        val end = runCatching { java.time.LocalTime.parse(behavior.nightDndEnd) }
+            .getOrDefault(java.time.LocalTime.of(NIGHT_DND_END_HOUR, 0))
+        return inNightDndWindow(nowTime, start, end)
+    }
+
     fun shouldSilence(behavior: Behavior, isCritical: Boolean, hourOfDay: Int): Boolean =
-        behavior.nightDnd && !isCritical && inNightDndWindow(hourOfDay)
+        shouldSilence(behavior, isCritical, java.time.LocalTime.of(hourOfDay.coerceIn(0, 23), 0))
 }

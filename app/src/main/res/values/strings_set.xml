@@ -26,8 +26,31 @@
     <string name="set_snooze_desc">通知栏与今日清单长按菜单的默认推迟分钟数（单个药品可在「提醒设置」中单独覆盖）</string>
     <string name="set_snooze_minutes_fmt">%1$d 分钟</string>
     <string name="set_snooze_minutes_custom">%1$d 分钟 (自定义)</string>
+
+    <!-- 完成提示音与触感 -->
+    <string name="set_completion_sound_title">完成提示音</string>
+    <string name="set_completion_sound_desc">打卡确认服药时播放声音反馈（系统未静音时生效）</string>
+    <string name="set_sound_ding">叮</string>
+    <string name="set_sound_none">无</string>
+    <string name="set_completion_haptic_title">应用触感</string>
+    <string name="set_completion_haptic_desc">完成服药打卡时，会有轻微震感</string>
+
+    <!-- 忽略后重复提醒 -->
+    <string name="set_repeat_reminder_title">忽略后重复提醒</string>
+    <string name="set_repeat_reminder_desc">提醒弹出后若未确认服药或被划掉，按设定间隔再次提醒</string>
+    <string name="set_repeat_interval_title">提醒间隔</string>
+    <string name="set_repeat_max_count_title">最多提醒</string>
+    <string name="set_repeat_count_fmt">%1$d 次</string>
+
+    <!-- 夜间免打扰 -->
     <string name="set_night_dnd_title">夜间免打扰 (静音)</string>
-    <string name="set_night_dnd_desc">23:00 至 07:00 之间改为静默渠道，不响铃不震动；标记为「重要提醒」的药品不受影响</string>
+    <string name="set_night_dnd_desc">指定时段内改为静默渠道，不响铃不震动；标记为「重要提醒」的药品不受影响</string>
+    <string name="set_night_dnd_time_range">免打扰时段</string>
+    <string name="set_night_dnd_time_fmt">%1$s 至 %2$s</string>
+    <string name="set_night_dnd_desc_dynamic">%1$s 至 %2$s 之间改为静默渠道，不响铃不震动；标记为「重要提醒」的药品不受影响</string>
+    <string name="set_night_dnd_start_title">开始时间</string>
+    <string name="set_night_dnd_end_title">结束时间</string>
+    <string name="set_confirm">确定</string>
 
     <!-- 2. 提醒防漏与系统保活 -->
     <string name="set_section_keepalive">防漏提醒与后台运行</string>

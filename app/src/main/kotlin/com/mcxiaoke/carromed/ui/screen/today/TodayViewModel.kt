@@ -82,6 +82,8 @@ data class TodayUiState(
     val skippedItems: List<DoseSlotItem> = emptyList(),
     val completedItems: List<DoseSlotItem> = emptyList(),
     val globalSnoozeMinutes: Int = 30,
+    val completionSound: String = "ding",
+    val completionHaptic: Boolean = true,
     /** 药箱里是否已有任何在服药品。用于区分"全新用户"与"这一天恰好没排班" */
     val hasAnyMedication: Boolean = false,
     /** 连续服药打卡天数 */
@@ -213,10 +215,10 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
                     emit(emptyList())
                 }
         },
-        db.appSettingDao().observeValue(
-            com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES
-        )
-    ) { selectedDate, today, overviews, slots, snoozeSetting ->
+        db.appSettingDao().observeAllSettings().map { list ->
+            list.associate { it.key to it.value }
+        }
+    ) { selectedDate, today, overviews, slots, settingsMap ->
         val medMap = overviews.associateBy { it.id }
 
         val pending = mutableListOf<DoseSlotItem>()
@@ -274,8 +276,10 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             pendingItems = pending.sortedBy { it.slot.scheduledTs },
             skippedItems = skipped.sortedBy { it.slot.scheduledTs },
             completedItems = completed.sortedByDescending { it.slot.actualTakenTs ?: it.slot.scheduledTs },
-            globalSnoozeMinutes = snoozeSetting?.toIntOrNull()
+            globalSnoozeMinutes = settingsMap[com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES]?.toIntOrNull()
                 ?: com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_SNOOZE_MINUTES,
+            completionSound = settingsMap[com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_SOUND] ?: "ding",
+            completionHaptic = settingsMap[com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_HAPTIC]?.toBoolean() ?: true,
             hasAnyMedication = overviews.isNotEmpty(),
             isLoading = false
         )
@@ -313,11 +317,13 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             date > maxAllowed -> today
             else -> date
         }
+        AppLog.i(TAG, "selectDate target=$date clamped=$clamped")
         _selectedDate.value = clamped
     }
 
     fun takeDose(slotId: Long) {
         viewModelScope.launch {
+            AppLog.i(TAG, "takeDose start slot=$slotId")
             val app = getApplication<Application>()
             // 三种结果必须说三种话：未来槽位说"已处理过"是撒谎
             // （事实是从未有机会处理），说"未重复扣减"也会让用户以为打卡生效了。
@@ -327,6 +333,7 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
                 .onFailure { AppLog.e(TAG, "takeDose failed slot=$slotId", it) }
                 .fold(
                     onSuccess = { result ->
+                        AppLog.i(TAG, "takeDose done slot=$slotId result=$result")
                         when (result) {
                             DoseActionResult.APPLIED -> Unit
                             DoseActionResult.FUTURE_SLOT -> emitEvent(app.getString(R.string.today_err_future_slot))

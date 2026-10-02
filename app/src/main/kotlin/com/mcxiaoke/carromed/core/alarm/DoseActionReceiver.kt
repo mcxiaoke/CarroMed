@@ -40,7 +40,8 @@ class DoseActionReceiver : BroadcastReceiver() {
         val action = intent.action ?: return
         if (action != Notifications.ACTION_TAKE &&
             action != Notifications.ACTION_SNOOZE &&
-            action != Notifications.ACTION_SKIP
+            action != Notifications.ACTION_SKIP &&
+            action != Notifications.ACTION_DISMISS
         ) return
 
         // ⭐ 按**业务键**（medId + date + time）反查开放槽位，而不是 extras 里的
@@ -120,6 +121,10 @@ class DoseActionReceiver : BroadcastReceiver() {
                         }
                         AppLog.i(TAG, "action=skip key=$key result=$applied")
                         notifyUser(appContext, applied.takeMessage(appContext, skip = true))
+                    }
+
+                    Notifications.ACTION_DISMISS -> {
+                        AppLog.i(TAG, "action=dismiss key=$key (notification dismissed by user, repeat reminder preserved)")
                     }
                 }
             } catch (t: Throwable) {

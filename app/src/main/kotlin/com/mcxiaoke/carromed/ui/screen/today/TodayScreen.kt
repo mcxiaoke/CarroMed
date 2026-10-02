@@ -1,4 +1,5 @@
 package com.mcxiaoke.carromed.ui.screen.today
+import com.mcxiaoke.carromed.core.alarm.CompletionSoundPlayer
 import com.mcxiaoke.carromed.core.domain.model.Dose
 
 import androidx.compose.foundation.background
@@ -106,6 +107,7 @@ fun TodayScreen(
     onOpenDose: (Long) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     // 一次性提示：VM 的 6 处失败分支全靠这条通道上报。
     //
@@ -342,7 +344,14 @@ fun TodayScreen(
                         item = item,
                         isActionable = uiState.isActionable,
                         today = uiState.today,
-                        onTakeDose = { viewModel.takeDose(item.slot.id) },
+                        onTakeDose = {
+                            CompletionSoundPlayer.play(
+                                context = context,
+                                soundEnabled = uiState.completionSound != "none",
+                                hapticEnabled = uiState.completionHaptic
+                            )
+                            viewModel.takeDose(item.slot.id)
+                        },
                         onClick = { onOpenDose(item.slot.id) }
                     )
                 }
@@ -431,6 +440,12 @@ private fun PendingDoseCard(
         runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
     } ?: MaterialTheme.colorScheme.primary
 
+    val isOverdue = isActionable && when (item.slot.status) {
+        SlotStatus.SNOOZED -> (item.slot.snoozeUntilTs ?: item.slot.scheduledTs) < System.currentTimeMillis()
+        SlotStatus.EXPIRED -> true
+        else -> item.slot.scheduledTs < System.currentTimeMillis()
+    }
+
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -468,7 +483,7 @@ private fun PendingDoseCard(
                         text = med?.name ?: stringResource(R.string.today_unknown_medication),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     )
                     med?.category?.takeIf { it.isNotBlank() }?.let { cat ->
                         Spacer(Modifier.width(8.dp))
@@ -491,7 +506,7 @@ private fun PendingDoseCard(
                         Icons.Default.Schedule,
                         contentDescription = stringResource(R.string.today_cd_scheduled_time),
                         modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
@@ -502,7 +517,7 @@ private fun PendingDoseCard(
                             unit
                         ),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     if (med?.isStockTracked == true && item.stock != null) {
                         Spacer(Modifier.width(6.dp))
@@ -558,21 +573,24 @@ private fun PendingDoseCard(
             // 置灰会让人以为"再等等就能用"，而这条槽位今天永远不会变可用 ——
             // 它要等到自己那天。卡片本体仍可点开，进详情页预览。
             if (isActionable) {
+                val confirmCd = stringResource(R.string.today_cd_confirm_dose)
                 IconButton(
                     onClick = onTakeDose,
                     modifier = Modifier
                         // 全 App 最高频的动作，触摸目标 48dp（orsbf P1-15）
                         .size(48.dp)
                         .testTag(TestTags.doseConfirm(item.slot.id))
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-                        .border(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), CircleShape)
+                        .semantics { contentDescription = confirmCd }
                 ) {
-                    Icon(
-                        Icons.Default.Check,
-                        contentDescription = stringResource(R.string.today_cd_confirm_dose),
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .border(
+                                width = 2.dp,
+                                color = if (isOverdue) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                                shape = CircleShape
+                            )
                     )
                 }
             } else {
@@ -695,6 +713,10 @@ private fun CompletedDoseCard(
     onClick: () -> Unit
 ) {
     val med = item.medication
+    val medColor = med?.colorHex?.let {
+        runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
+    } ?: MaterialTheme.colorScheme.primary
+
     OutlinedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -712,38 +734,39 @@ private fun CompletedDoseCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(46.dp)
                     .clip(CircleShape)
-                    .background(SuccessGreen.copy(alpha = 0.15f)),
+                    .background(medColor.copy(alpha = 0.10f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    Icons.Default.Check,
-                    contentDescription = stringResource(R.string.today_cd_completed),
-                    tint = SuccessGreen,
-                    modifier = Modifier.size(20.dp)
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(medColor.copy(alpha = 0.5f))
                 )
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = med?.name ?: stringResource(R.string.today_fallback_medication),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
                     )
                     Spacer(Modifier.width(6.dp))
-                    Surface(shape = RoundedCornerShape(4.dp), color = SuccessGreen.copy(alpha = 0.15f)) {
+                    Surface(shape = RoundedCornerShape(4.dp), color = SuccessGreen.copy(alpha = 0.12f)) {
                         Text(
                             stringResource(R.string.today_badge_taken),
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                             style = MaterialTheme.typography.labelSmall,
-                            color = SuccessGreen,
+                            color = SuccessGreen.copy(alpha = 0.8f),
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(4.dp))
                 val recNote = item.record?.let { r ->
                     MedVocab.recordNoteDisplay(LocalContext.current, r.noteKey, r.note)
                 }
@@ -763,12 +786,25 @@ private fun CompletedDoseCard(
                             }
                         }
                     },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
                 )
             }
-            // ⚠️ 这里**不再**放「撤销」按钮（2026-09-29）：低频操作统一收进记录详情页，
-            // 列表卡上放操作按钮等于把同一批动作实现第二遍，两处必然会漂移。
+            Spacer(Modifier.width(12.dp))
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(SuccessGreen.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = stringResource(R.string.today_cd_completed),
+                    tint = SuccessGreen,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
     }
 }

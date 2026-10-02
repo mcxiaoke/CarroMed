@@ -62,12 +62,14 @@ object Notifications {
     const val ACTION_TAKE = "com.mcxiaoke.carromed.action.DOSE_TAKE"
     const val ACTION_SNOOZE = "com.mcxiaoke.carromed.action.DOSE_SNOOZE"
     const val ACTION_SKIP = "com.mcxiaoke.carromed.action.DOSE_SKIP"
+    const val ACTION_DISMISS = "com.mcxiaoke.carromed.action.DOSE_DISMISS"
 
-    // 通知栏 Action 按钮 requestCode：同一时刻最多 3 种 Action，
+    // 通知栏 Action 按钮 requestCode：同一时刻最多 4 种 Action，
     // 身份由 action + data（业务键）区分，requestCode 恒为小常量即可。
     private const val RC_TAKE = 0
     private const val RC_SNOOZE = 1
     private const val RC_SKIP = 2
+    private const val RC_DISMISS = 3
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -162,6 +164,21 @@ object Notifications {
         )
     }
 
+    private fun deletePendingIntent(
+        context: Context,
+        slot: DoseSlotEntity
+    ): PendingIntent {
+        val intent = Intent(context, DoseActionReceiver::class.java)
+            .setAction(ACTION_DISMISS)
+            .setData(actionUri(slot))
+        return PendingIntent.getBroadcast(
+            context,
+            RC_DISMISS,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
     /** 通知 Action 的内容身份，与 `AlarmScheduler.alarmUri` 同形状、同判据。 */
     private fun actionUri(slot: DoseSlotEntity) = Uri.parse(
         "carromed://action/${slot.medicationId}/${slot.scheduledDate}/${slot.scheduledTime}/dose"
@@ -211,8 +228,7 @@ object Notifications {
         // doseAmount 是整数毫单位（D-7）。⚠️ 原先的 `doseAmount % 1f == 0f`
         // 判断能编译（Kotlin 允许 Int % Float）却恒为真，会把 1 片显示成「1000 片」。
         val doseText = Quantity.withUnit(Dose(slot.doseAmount).asFloat, med.unit)
-        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        val silent = ReminderSettings.shouldSilence(behavior, overview.isCriticalReminder, hour)
+        val silent = ReminderSettings.shouldSilence(behavior, overview.isCriticalReminder)
         val channel = when {
             silent -> CHANNEL_DOSE_REMINDER_SILENT
             overview.isCriticalReminder -> CHANNEL_DOSE_REMINDER_CRITICAL_V3
@@ -234,6 +250,8 @@ object Notifications {
                     )
                 AlarmScheduler.Kind.SNOOZE ->
                     append(context.getString(R.string.notif_body_snooze, doseText))
+                AlarmScheduler.Kind.REPEAT ->
+                    append(context.getString(R.string.notif_body_repeat, slot.scheduledTime, doseText))
                 AlarmScheduler.Kind.MAIN ->
                     append(context.getString(R.string.notif_body_main, slot.scheduledTime, doseText))
             }
@@ -277,7 +295,7 @@ object Notifications {
         } else {
             true
         }
-        val isEligibleForFullScreen = !silent && (overview.isCriticalReminder || kind == AlarmScheduler.Kind.MAIN)
+        val isEligibleForFullScreen = !silent && (overview.isCriticalReminder || kind == AlarmScheduler.Kind.MAIN || kind == AlarmScheduler.Kind.REPEAT)
 
         val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             ?: android.provider.Settings.System.DEFAULT_NOTIFICATION_URI
@@ -290,6 +308,7 @@ object Notifications {
                     overview.isCriticalReminder -> context.getString(R.string.notif_title_critical, med.name)
                     kind == AlarmScheduler.Kind.ADVANCE -> context.getString(R.string.notif_title_advance, med.name)
                     kind == AlarmScheduler.Kind.SNOOZE -> context.getString(R.string.notif_title_snooze, med.name)
+                    kind == AlarmScheduler.Kind.REPEAT -> context.getString(R.string.notif_title_repeat, med.name)
                     else -> context.getString(R.string.notif_title_main, med.name)
                 }
             )
@@ -300,6 +319,7 @@ object Notifications {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
+            .setDeleteIntent(deletePendingIntent(context, slot))
             .setOnlyAlertOnce(false)
             .apply {
                 if (!silent) {

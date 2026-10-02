@@ -75,11 +75,20 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-PKG = "com.mcxiaoke.carromed"
-ACTIVITY = f"{PKG}/.MainActivity"
-DEV_SEED_ACTION = f"{PKG}.dev.SEED"
-DEV_CLEAR_ACTION = f"{PKG}.dev.CLEAR"
-DEV_RECEIVER = f"{PKG}/.DevDataReceiver"
+PKG = "com.mcxiaoke.carromed.dev"
+ACTIVITY = f"{PKG}/com.mcxiaoke.carromed.MainActivity"
+DEV_SEED_ACTION = "com.mcxiaoke.carromed.dev.SEED"
+DEV_CLEAR_ACTION = "com.mcxiaoke.carromed.dev.CLEAR"
+DEV_RECEIVER = f"{PKG}/com.mcxiaoke.carromed.DevDataReceiver"
+
+
+def set_package(pkg: str) -> None:
+    global PKG, ACTIVITY, DEV_SEED_ACTION, DEV_CLEAR_ACTION, DEV_RECEIVER
+    PKG = pkg
+    ACTIVITY = f"{PKG}/com.mcxiaoke.carromed.MainActivity"
+    DEV_SEED_ACTION = "com.mcxiaoke.carromed.dev.SEED"
+    DEV_CLEAR_ACTION = "com.mcxiaoke.carromed.dev.CLEAR"
+    DEV_RECEIVER = f"{PKG}/com.mcxiaoke.carromed.DevDataReceiver"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = REPO_ROOT / "temp" / "appscreenshots"
@@ -288,7 +297,14 @@ class Driver:
 
     # -- 应用生命周期 ------------------------------------------------------ #
     def is_installed(self) -> bool:
-        return PKG in self.shell("pm", "list", "packages")
+        pkgs = self.shell("pm", "list", "packages")
+        if "package:com.mcxiaoke.carromed.dev" in pkgs:
+            set_package("com.mcxiaoke.carromed.dev")
+            return True
+        if "package:com.mcxiaoke.carromed" in pkgs:
+            set_package("com.mcxiaoke.carromed")
+            return True
+        return False
 
     def install(self, apk: Path) -> None:
         print(f"   安装 {apk}")
@@ -367,7 +383,7 @@ class Driver:
         # 收起来之后系统可能停在桌面，把 App 拉回前台再继续，
         # 否则后续每一步都会在桌面上"找不到任何控件"。
         if "carromed" not in self.focus_window():
-            self.shell("am", "start", "-n", f"{PKG}/.MainActivity")
+            self.shell("am", "start", "-n", ACTIVITY)
             time.sleep(2.0)
 
     def app_in_foreground(self) -> bool:

@@ -87,6 +87,9 @@ data class DoseSlotEntity(
     @ColumnInfo(name = "last_snooze_notified_ts")
     val lastSnoozeNotifiedTs: Long? = null, // 推迟提醒成功弹出的时间戳 (P1-1)
 
+    @ColumnInfo(name = "reminder_count")
+    val reminderCount: Int = 0, // 已提醒次数 (用于忽略/划掉后的重复提醒次数上限判断)
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis()
 )

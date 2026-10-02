@@ -1,5 +1,8 @@
 package com.mcxiaoke.carromed.ui.screen.settings
 
+import android.app.TimePickerDialog
+import java.util.Locale
+import com.mcxiaoke.carromed.core.alarm.CompletionSoundPlayer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -296,6 +299,118 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
+                        // 忽略后重复提醒
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(stringResource(R.string.set_repeat_reminder_title), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    stringResource(R.string.set_repeat_reminder_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = uiState.repeatReminderEnabled,
+                                onCheckedChange = { viewModel.onRepeatReminderEnabledChange(it) }
+                            )
+                        }
+
+                        if (uiState.repeatReminderEnabled) {
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // 提醒间隔
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.set_repeat_interval_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                }
+                                val intervalOptions = listOf(10, 15, 20, 30, 45, 60)
+                                var intervalExpanded by rememberSaveable { mutableStateOf(false) }
+
+                                ExposedDropdownMenuBox(
+                                    expanded = intervalExpanded,
+                                    onExpandedChange = { intervalExpanded = it },
+                                    modifier = Modifier.width(140.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = stringResource(R.string.set_snooze_minutes_fmt, uiState.repeatIntervalMinutes),
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        singleLine = true,
+                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = intervalExpanded) },
+                                        modifier = Modifier.menuAnchor()
+                                    )
+                                    ExposedDropdownMenu(
+                                        expanded = intervalExpanded,
+                                        onDismissRequest = { intervalExpanded = false }
+                                    ) {
+                                        intervalOptions.forEach { mins ->
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.set_snooze_minutes_fmt, mins)) },
+                                                onClick = {
+                                                    viewModel.onRepeatIntervalMinutesChange(mins)
+                                                    intervalExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // 最多提醒次数
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(stringResource(R.string.set_repeat_max_count_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                }
+                                val countOptions = listOf(1, 2, 3, 5)
+                                var countExpanded by rememberSaveable { mutableStateOf(false) }
+
+                                ExposedDropdownMenuBox(
+                                    expanded = countExpanded,
+                                    onExpandedChange = { countExpanded = it },
+                                    modifier = Modifier.width(140.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = stringResource(R.string.set_repeat_count_fmt, uiState.repeatMaxCount),
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        singleLine = true,
+                                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = countExpanded) },
+                                        modifier = Modifier.menuAnchor()
+                                    )
+                                    ExposedDropdownMenu(
+                                        expanded = countExpanded,
+                                        onDismissRequest = { countExpanded = false }
+                                    ) {
+                                        countOptions.forEach { count ->
+                                            DropdownMenuItem(
+                                                text = { Text(stringResource(R.string.set_repeat_count_fmt, count)) },
+                                                onClick = {
+                                                    viewModel.onRepeatMaxCountChange(count)
+                                                    countExpanded = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
                         // 夜间免打扰 (静音)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -305,7 +420,11 @@ fun SettingsScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(stringResource(R.string.set_night_dnd_title), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    stringResource(R.string.set_night_dnd_desc),
+                                    text = if (uiState.nightDnd) {
+                                        stringResource(R.string.set_night_dnd_desc_dynamic, uiState.nightDndStart, uiState.nightDndEnd)
+                                    } else {
+                                        stringResource(R.string.set_night_dnd_desc)
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -313,6 +432,153 @@ fun SettingsScreen(
                             Switch(
                                 checked = uiState.nightDnd,
                                 onCheckedChange = { viewModel.onNightDndChange(it) }
+                            )
+                        }
+
+                        if (uiState.nightDnd) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        stringResource(R.string.set_night_dnd_time_range),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val p = uiState.nightDndStart.split(":")
+                                            val h = p.getOrNull(0)?.toIntOrNull() ?: 23
+                                            val m = p.getOrNull(1)?.toIntOrNull() ?: 0
+                                            TimePickerDialog(
+                                                logExportContext,
+                                                { _, selH, selM ->
+                                                    val newStart = String.format(Locale.getDefault(), "%02d:%02d", selH, selM)
+                                                    viewModel.onNightDndTimeChange(newStart, uiState.nightDndEnd)
+                                                },
+                                                h,
+                                                m,
+                                                true
+                                            ).show()
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(uiState.nightDndStart, fontSize = 13.sp)
+                                    }
+                                    Text("~", style = MaterialTheme.typography.bodyMedium)
+                                    OutlinedButton(
+                                        onClick = {
+                                            val p = uiState.nightDndEnd.split(":")
+                                            val h = p.getOrNull(0)?.toIntOrNull() ?: 7
+                                            val m = p.getOrNull(1)?.toIntOrNull() ?: 0
+                                            TimePickerDialog(
+                                                logExportContext,
+                                                { _, selH, selM ->
+                                                    val newEnd = String.format(Locale.getDefault(), "%02d:%02d", selH, selM)
+                                                    viewModel.onNightDndTimeChange(uiState.nightDndStart, newEnd)
+                                                },
+                                                h,
+                                                m,
+                                                true
+                                            ).show()
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(uiState.nightDndEnd, fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // 完成提示音 (叮 / 无)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(stringResource(R.string.set_completion_sound_title), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    stringResource(R.string.set_completion_sound_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            val soundOptions = listOf(
+                                "ding" to stringResource(R.string.set_sound_ding),
+                                "none" to stringResource(R.string.set_sound_none)
+                            )
+                            var soundExpanded by rememberSaveable { mutableStateOf(false) }
+                            val currentSoundLabel = if (uiState.completionSound == "ding") {
+                                stringResource(R.string.set_sound_ding)
+                            } else {
+                                stringResource(R.string.set_sound_none)
+                            }
+
+                            ExposedDropdownMenuBox(
+                                expanded = soundExpanded,
+                                onExpandedChange = { soundExpanded = it },
+                                modifier = Modifier.width(140.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = currentSoundLabel,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    singleLine = true,
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = soundExpanded) },
+                                    modifier = Modifier.menuAnchor()
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = soundExpanded,
+                                    onDismissRequest = { soundExpanded = false }
+                                ) {
+                                    soundOptions.forEach { (key, label) ->
+                                        DropdownMenuItem(
+                                            text = { Text(label) },
+                                            onClick = {
+                                                viewModel.onCompletionSoundChange(key)
+                                                soundExpanded = false
+                                                if (key == "ding") {
+                                                    CompletionSoundPlayer.play(logExportContext, soundEnabled = true, hapticEnabled = false)
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // 应用触感 (轻微震感)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(stringResource(R.string.set_completion_haptic_title), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    stringResource(R.string.set_completion_haptic_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = uiState.completionHaptic,
+                                onCheckedChange = { viewModel.onCompletionHapticChange(it) }
                             )
                         }
                     }

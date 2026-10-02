@@ -119,11 +119,29 @@ class AlarmReceiver : BroadcastReceiver() {
                 }
                 AppLog.i("AlarmReceiver", "notification shown for slot=$slotId kind=$kind")
 
-                // 持久化记录本次提醒成功弹出（P1-1）：消除托盘通知被划掉后的 15 分钟周期性骚扰补响
+                // 持久化记录本次提醒成功弹出（P1-1）与重复提醒调度
                 val nowTs = System.currentTimeMillis()
                 when (kind) {
-                    AlarmScheduler.Kind.MAIN -> {
-                        db.doseSlotDao().updateLastMainNotifiedTs(slot.id, nowTs)
+                    AlarmScheduler.Kind.MAIN, AlarmScheduler.Kind.REPEAT -> {
+                        val newCount = slot.reminderCount + 1
+                        db.doseSlotDao().updateReminderCountAndLastNotified(slot.id, newCount, nowTs)
+                        // 调度下一次重复提醒（如果开启且未达到上限）
+                        if (behavior.repeatReminderEnabled && newCount < behavior.repeatReminderMaxCount) {
+                            val nextRepeatAt = nowTs + behavior.repeatReminderIntervalMinutes * 60_000L
+                            runCatching {
+                                AlarmScheduler.schedule(
+                                    appContext,
+                                    slot,
+                                    nextRepeatAt,
+                                    AlarmScheduler.Kind.REPEAT
+                                )
+                                AppLog.i("AlarmReceiver", "scheduled repeat reminder #$newCount for slot=${slot.id} at $nextRepeatAt (interval=${behavior.repeatReminderIntervalMinutes}m)")
+                            }.onFailure {
+                                AppLog.e("AlarmReceiver", "schedule repeat reminder failed for slot=${slot.id}", it)
+                            }
+                        } else {
+                            AppLog.i("AlarmReceiver", "repeat reminder complete/disabled: count=$newCount, max=${behavior.repeatReminderMaxCount}, enabled=${behavior.repeatReminderEnabled}")
+                        }
                     }
                     AlarmScheduler.Kind.SNOOZE -> {
                         db.doseSlotDao().updateLastSnoozeNotifiedTs(slot.id, nowTs)
