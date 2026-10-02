@@ -17,6 +17,7 @@ import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseActionResult
 import com.mcxiaoke.carromed.core.domain.service.DoseEntryActions
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -92,6 +94,11 @@ data class TodayUiState(
     val calendarMonth: YearMonth = YearMonth.now(),
     /** 当前月各自然日的打卡达成状态 */
     val calendarDayStates: Map<LocalDate, StatsEngine.DayAdherenceState> = emptyMap(),
+    /**
+     * 主数据流异常降级（orsbf P1-17）：数据库打不开等 Room 异常时置位。
+     * 此时列表绝不是"空状态"——显示错误卡而不是"去添药"引导，避免误导。
+     */
+    val loadError: Boolean = false,
     val isLoading: Boolean = true
 )
 
@@ -161,7 +168,9 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             val dailyBreakdowns = StatsEngine.aggregateDailyOverallBreakdowns(rows)
             StatsEngine.calculateStreak(today, dailyBreakdowns)
         }
-    }.catch { t ->
+        // 365 天窗口的查询 + 内存聚合较重（ocsbf P1-10）：
+        // 每次打卡/撤销/跨午夜都重算，切到 Default，避免占住主线程
+    }.flowOn(Dispatchers.Default).catch { t ->
         // 查询异常不让整条 stateIn 链死掉（L5）：徽章降级为 0 而不是列表冻结
         AppLog.e(TAG, "streak flow failed", t)
         emit(0)
@@ -282,6 +291,23 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             completionHaptic = settingsMap[com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_HAPTIC]?.toBoolean() ?: true,
             hasAnyMedication = overviews.isNotEmpty(),
             isLoading = false
+        )
+    }.catch { t ->
+        // 主状态流降级（orsbf P1-17）：药品列表/设置流抛 Room 异常时，
+        // 不能让 combine 链死掉后页面伪装成"空状态"诱导用户去"添加药品"。
+        // 与上方 streak/月历流的 `.catch` 同一纪律 —— 宁可如实报错。
+        AppLog.e(TAG, "today base state flow failed", t)
+        val d = _selectedDate.value
+        emit(
+            TodayUiState(
+                selectedDate = d,
+                today = d,
+                weekDates = (-3L..3L).map { d.plusDays(it) },
+                isLoading = false,
+                loadError = true,
+                // 保持 true：错误态下不得出现"首次使用，去添药"引导
+                hasAnyMedication = true
+            )
         )
     }
 

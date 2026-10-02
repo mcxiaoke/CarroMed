@@ -11,6 +11,7 @@ import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.R
+import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.ui.component.MedVocab
@@ -18,6 +19,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
@@ -51,6 +53,11 @@ data class CabinetUiState(
     val sortOrder: CabinetSortOrder = CabinetSortOrder.DEFAULT,
     val activeList: List<MedicationItemUi> = emptyList(),
     val archivedList: List<MedicationItemUi> = emptyList(),
+    /**
+     * 主数据流异常降级（orsbf P1-17）：数据库打不开等 Room 异常时置位。
+     * 空列表 + 空状态文案会诱导用户去"添加药品"，错误必须如实显示。
+     */
+    val loadError: Boolean = false,
     val isLoading: Boolean = true
 ) {
     val filteredActive: List<MedicationItemUi>
@@ -125,6 +132,19 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
             archivedList = allMeds.filter { it.medication.isArchived }
                 .map { buildItemUi(it, policiesByMed[it.id], timesByPolicy) },
             isLoading = false
+        )
+    }.catch { t ->
+        // 主状态流降级（orsbf P1-17）：药品列表流抛 Room 异常时不能让链死掉，
+        // 更不能让页面伪装成"药箱为空"诱导用户去添加药品 —— 如实进错误态。
+        AppLog.e("CabinetViewModel", "cabinet overview flow failed", t)
+        emit(
+            CabinetUiState(
+                selectedTab = _selectedTab.value,
+                keyword = _keyword.value,
+                sortOrder = _sortOrder.value,
+                isLoading = false,
+                loadError = true
+            )
         )
     }.stateIn(
         scope = viewModelScope,

@@ -277,7 +277,8 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
                 // e.message 可能为 null，堆栈才是归因依据
                 AppLog.w(TAG, "exportReport failed", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, app.getString(R.string.stats_export_failed, e.message), Toast.LENGTH_SHORT).show()
+                    // 异常原文不进用户文案（orsbf P1-16 残留），细节只在 AppLog
+                    Toast.makeText(app, app.getString(R.string.stats_export_failed_generic), Toast.LENGTH_SHORT).show()
                 }
             } finally {
                 _isExporting.value = false

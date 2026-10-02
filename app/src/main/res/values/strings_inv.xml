@@ -48,6 +48,7 @@
     <string name="inv_err_not_found">药品不存在或已被删除</string>
     <string name="inv_exported">已导出 %1$s</string>
     <string name="inv_export_failed">导出失败: %1$s</string>
+    <string name="inv_export_failed_generic">导出失败，请重试</string>
     <string name="inv_op_failed">操作失败，请重试</string>
     <string name="inv_tracking_on">已开启库存追踪</string>
     <string name="inv_tracking_off">已关闭库存追踪（不再自动扣减）</string>

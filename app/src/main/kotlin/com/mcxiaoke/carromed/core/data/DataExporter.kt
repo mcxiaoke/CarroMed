@@ -25,6 +25,8 @@ import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -258,15 +260,16 @@ object DataExporter {
         return File(base, "exports").apply { mkdirs() }
     }
 
+    // 毫秒精度（round2 N11-n）：同秒两次导出不再互相覆盖
     private fun timestamp(): String =
-        SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(Date())
+        SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.ROOT).format(Date())
 
     // ---------------- CSV 服药明细导出 ----------------
 
     /**
      * 导出全量服药明细记录为 CSV 文件 (计划打卡 + 补录 + 跳过)，返回生成的文件
      */
-    suspend fun exportDoseRecordsCsv(context: Context, db: AppDatabase): File {
+    suspend fun exportDoseRecordsCsv(context: Context, db: AppDatabase): File = withContext(Dispatchers.IO) {
         val (medMap, records) = db.withTransaction {
             val meds = db.medicationDao().getAllMedications().associateBy { it.id }
             val recs = db.doseRecordDao().getAllRecords() // actual_ts 升序
@@ -308,7 +311,7 @@ object DataExporter {
             context.getString(R.string.csv_file_dose_records) + timestamp() + ".csv"
         )
         file.writeText(sb.toString(), Charsets.UTF_8)
-        return file
+        file
     }
 
     /**
@@ -317,7 +320,7 @@ object DataExporter {
      * 与服药明细 CSV 互补：服药明细回答"哪天吃了什么"，
      * 本表回答"账面怎么变成现在这样的"，可与药盒实物逐条核对。
      */
-    suspend fun exportInventoryLedgerCsv(context: Context, db: AppDatabase): File {
+    suspend fun exportInventoryLedgerCsv(context: Context, db: AppDatabase): File = withContext(Dispatchers.IO) {
         val (medMap, txs) = db.withTransaction {
             val meds = db.medicationDao().getAllMedications().associateBy { it.id }
             val transactions = db.inventoryTransactionDao().getAllTransactions()
@@ -359,7 +362,7 @@ object DataExporter {
             context.getString(R.string.csv_file_inventory) + timestamp() + ".csv"
         )
         file.writeText(sb.toString(), Charsets.UTF_8)
-        return file
+        file
     }
 
     /**
@@ -631,8 +634,9 @@ object DataExporter {
             }
         }
 
-        // 药品 id 重复 ⇒ `MedicationDao.insertAll` 的 REPLACE 会覆盖前一行，
-        // 并按外键定义级联删掉它的设置/计划/槽位/记录 —— 静默丢数据。
+        // 药品 id 重复 ⇒ `MedicationDao.insertAll` 是 ABORT：事务中途抛异常、
+        // 整个恢复回滚，用户只看到失败 —— 重复必须在校验层拦下并明确报因，
+        // 不能让它退化成一句笼统的"恢复失败"。
         backup.medications.groupBy { it.id }
             .filterValues { it.size > 1 }
             .forEach { (id, dup) ->
@@ -931,14 +935,14 @@ object DataExporter {
     // ---------------- JSON 全量备份：IO 层 ----------------
 
     /** 导出全量数据库为 JSON 备份文件，返回生成的文件 */
-    suspend fun exportFullBackupJson(context: Context, db: AppDatabase): File {
+    suspend fun exportFullBackupJson(context: Context, db: AppDatabase): File = withContext(Dispatchers.IO) {
         val file = File(
             exportDir(context),
             context.getString(R.string.csv_file_backup) + timestamp() + ".json"
         )
         file.writeText(encodeBackup(buildBackup(db)), Charsets.UTF_8)
         AppLog.i(TAG, "full backup written: ${file.name}")
-        return file
+        file
     }
 
     /**
@@ -949,13 +953,15 @@ object DataExporter {
      * 写失败**不阻断恢复** —— 快照是保险，不是前置条件。
      */
     private suspend fun writeSafetySnapshot(context: Context, db: AppDatabase): File? = try {
-        val file = File(
-            exportDir(context),
-            context.getString(R.string.csv_file_snapshot) + timestamp() + ".json"
-        )
-        file.writeText(encodeBackup(buildBackup(db)), Charsets.UTF_8)
-        AppLog.i(TAG, "safety snapshot written: ${file.name}")
-        file
+        withContext(Dispatchers.IO) {
+            val file = File(
+                exportDir(context),
+                context.getString(R.string.csv_file_snapshot) + timestamp() + ".json"
+            )
+            file.writeText(encodeBackup(buildBackup(db)), Charsets.UTF_8)
+            AppLog.i(TAG, "safety snapshot written: ${file.name}")
+            file
+        }
     } catch (e: Exception) {
         AppLog.w(TAG, "safety snapshot failed", e)
         null
@@ -966,7 +972,13 @@ object DataExporter {
         data class Success(
             val medications: Int,
             val records: Int,
-            val snapshotFile: String?
+            val snapshotFile: String?,
+            /**
+             * 恢复前后的两次托盘全清都失败（极小概率）时置位。
+             * 残留的旧通知带着旧库的槽位 id，与恢复后的 id 空间交叠 ——
+             * 撤销与补响判据可能作用于错误对象。用户必须知道要手动清通知。
+             */
+            val trayCleanupFailed: Boolean = false
         ) : RestoreResult()
 
         /** 备份文件本身不合法 —— **数据库未被触碰** */
@@ -1188,19 +1200,38 @@ object DataExporter {
         // 恢复后 id 空间交叠时会把别的药的新槽位扣掉库存。
         // cancelAll 一步到位：任何"挑着撤"的方案都得先证明旧通知的身份集合可得，
         // 而恢复场景里这个集合没有意义 —— 旧库已经整个被替换了。
-        runCatching { NotificationManagerCompat.from(context.applicationContext).cancelAll() }
-            .onFailure { AppLog.w(TAG, "cancel all notifications before restore failed", it) }
+        //
+        // ⚠️ 托盘是**系统侧**状态：旧通知只要还在，恢复后新库的撤销与补响判据
+        // 就可能作用到错误对象 —— 这一步是恢复路径上 id 交叠风险的唯一清场口。
+        // 失败先记下，恢复成功后（重排闹钟前）**再清一次**兜底；两次都失败
+        // 则在恢复结果里明确告知用户手动清通知（§一-11）。
+        val trayWipeFailedBefore = runCatching {
+            NotificationManagerCompat.from(context.applicationContext).cancelAll()
+        }.onFailure { AppLog.w(TAG, "cancel all notifications before restore failed", it) }
+            .isFailure
 
         return try {
             val (medCount, recordCount) = restoreBackup(db, backup)
             // 恢复是数据安全路径的最高危动作（G6）：成败都必须在时间线上留痕
             AppLog.i(TAG, "restore ok meds=$medCount records=$recordCount snapshot=${snapshot != null}")
+            // 恢复后、重排闹钟前**再清一次托盘**（§一-11）：兜住恢复前那次
+            // cancelAll 的失败。此刻新库已落定、新闹钟尚未排上，托盘上如果有
+            // 通知就必然是旧库残留 —— 全清是无条件的正确。
+            // 重排路径不会在此窗口内直接 notify（补响走 AlarmReceiver 定时），
+            // 不存在误清新通知的竞态。
+            val trayCleanupFailed = trayWipeFailedBefore && runCatching {
+                NotificationManagerCompat.from(context.applicationContext).cancelAll()
+            }.onFailure { AppLog.e(TAG, "cancel all notifications after restore failed too", it) }
+                .isFailure
+            if (trayCleanupFailed) {
+                AppLog.e(TAG, "tray cleanup failed BOTH before and after restore; stale notifications remain")
+            }
             // 恢复后必须**立即**重排全部闹钟（orsbf P1-1）：清库前已撤掉所有闹钟，
             // 若等用户下次打开 MainActivity / 周期 Worker 才对账，
             // 中间窗口内这个 App 不响任何提醒 —— 而第一承诺就是"到点一定响"。
             runCatching { AlarmReconciler.rescheduleAll(context, db) }
                 .onFailure { AppLog.e(TAG, "reschedule alarms after restore failed", it) }
-            RestoreResult.Success(medCount, recordCount, snapshot?.absolutePath)
+            RestoreResult.Success(medCount, recordCount, snapshot?.absolutePath, trayCleanupFailed)
         } catch (e: Exception) {
             // 事务整体回滚，数据库回到恢复前的样子
             AppLog.e(TAG, "restore failed, transaction rolled back", e)

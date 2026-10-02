@@ -251,10 +251,23 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
      * 而他刚加了一条记录，顶部正是他关心的地方，所以这个取舍是划算的。
      * 真的想保住滚动位置，得引入"记录 id 水位线 + 差量合并"，那是过度设计。
      */
+    /**
+     * 首屏流的单调修订号（ocsbf P1-8 残余）。
+     *
+     * [loadMoreTimeline] 取快照后要挂起查库，期间首屏流可能重发射（新打卡/撤销/
+     * 补录）并**整表替换** `_timelineRecords`。恢复后若照旧用旧快照覆盖写回，
+     * 就会把首屏刚带进来的新记录丢掉 —— 写-写竞态。
+     * 首屏每次发射 [firstPageRevision] 自增；loadMore 比对快照时的值，
+     * 不一致即本次追加过期，直接丢弃（首屏已接管列表，重新触底即可续页）。
+     * 全部读写都在 viewModelScope（Main）上，普通字段即可，无需原子类。
+     */
+    private var firstPageRevision: Long = 0L
+
     private val firstPageFlow: Flow<List<TimelineItem>> =
         recordDao.observeLatestRecords(FIRST_PAGE_SIZE)
             .map { records -> records.toTimelineItems() }
             .onEach { items ->
+                firstPageRevision++
                 _timelineRecords.value = items
                 _hasMoreTimeline.value = items.size >= FIRST_PAGE_SIZE
                 // 首屏重新发射（数据已变）时旧失败态不再有意义
@@ -282,6 +295,8 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
         if (_timelineLoadFailed.value) return
         val current = _timelineRecords.value
         if (current.isEmpty()) return
+        // 快照与修订号必须**同刻**取得：修订号是"首屏是否重发射过"的判据
+        val revisionAtSnapshot = firstPageRevision
         // 复合游标 (actualTs, id)（orsbf P1-3）：同毫秒记录簇之间也要有全序，
         // 只用时间戳做游标时，页边界切在簇中间会静默吞掉簇里其余记录。
         val cursorTs = current.minOf { it.record.actualTs }
@@ -298,6 +313,13 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
                     val fresh = older
                         .filter { it.id !in existingIds }
                         .map { it.toTimelineItem(medMap) }
+                    // 追加前检查修订号：挂起期间首屏若已重发射（整表替换），
+                    // 本次基于旧快照的追加即过期 —— 写回会丢掉首屏的新记录，
+                    // 直接丢弃，hasMore/失败态均由首屏发射方接管（ocsbf P1-8 残余）
+                    if (firstPageRevision != revisionAtSnapshot) {
+                        AppLog.i(TAG, "loadMoreTimeline stale (revision changed), append discarded")
+                        return@launch
+                    }
                     // 追加后仍需按时间倒序：游标保证更早，同刻记录按 id 稳定排序
                     // （与 DAO 的 ORDER BY actual_ts DESC, id DESC 同口径）
                     _timelineRecords.value =
@@ -306,7 +328,9 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
                                 .thenByDescending { it.record.id }
                         )
                 }
-                _hasMoreTimeline.value = older.size >= FIRST_PAGE_SIZE
+                if (firstPageRevision == revisionAtSnapshot) {
+                    _hasMoreTimeline.value = older.size >= FIRST_PAGE_SIZE
+                }
             } catch (t: Throwable) {
                 // 加载失败必须让用户看见（M10）：旧实现把它置成"没有更多"，
                 // 错误被伪装成正常结束。现在进独立的失败态，footer 给出「重试」入口。
@@ -407,7 +431,8 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
                 // 吞异常降级成 Toast 的地方必须留痕（PLAN-LOGGING G4）
                 AppLog.w(TAG, "exportReport failed", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, app.getString(R.string.prog_export_failure, e.message), Toast.LENGTH_SHORT).show()
+                    // 异常原文不进用户文案（orsbf P1-16 残留），细节只在 AppLog
+                    Toast.makeText(app, app.getString(R.string.prog_export_failed_generic), Toast.LENGTH_SHORT).show()
                 }
             }
         }

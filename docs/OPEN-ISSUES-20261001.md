@@ -113,6 +113,13 @@
   另外 `DataExporter.kt:1191-1192` 恢复前 `runCatching { cancelAll() }` 失败仅 WARN 不阻断，
   旧通知可能残留并被错误判据放行补响。
 - 修法：通知 id 改为业务键派生（与闹钟 identity 同哲学）；cancelAll 失败升级为阻断恢复或至少计入恢复问题清单。
+- **【2026-10-02 决议：以托盘双清收口，id 内容寻址降级为不做的防御纵深】**
+  经场景核对：同进程内 notify 与 cancel/isShown 用的是同一代 slot id（一致），
+  改计划删行路径有 presnap 旧身份兜底（一致），重启不重映射 id —— id 交叠的
+  **唯一受害者场景是恢复备份**，而恢复路径本就有 `cancelAll()` 一步清场。
+  据此实施：恢复成功后、重排闹钟前**再清一次托盘**兜底第一次失败；
+  两次都失败时 `RestoreResult.Success.trayCleanupFailed = true`，
+  恢复成功提示明确告知用户手动清通知。通知 id 维持 `slot.id` 派生不变。
 
 ### 12. 点通知销毁重建 Activity、无深链落点
 - 来源：orsbf P1-12、bda 三.4、ocsbf P1-7
@@ -121,7 +128,10 @@
   manifest 无 `launchMode`（standard，已有实例时销毁重建）；MainActivity 不读 intent，
   通知上没有「查看这条提醒」的落点，DoseRecordDetail 路由存在但无人从通知进入。
 - 修法：Intent 带 `carromed://dose/{medId}/{date}/{time}` 深链 + `singleTask`/`onNewIntent` 处理，
-  导航就绪后跳记录详情。
+- **【2026-10-02 决议：只修销毁重建，深链暂不做】**
+  manifest 已加 `android:launchMode="singleTask"` —— 已有实例时点通知走
+  `onNewIntent` 复用，不再销毁重建（状态不丢）。通知点击维持「打开首页今日页」
+  的行为不变；深链落点（导航到记录详情）经用户决策暂缓，需要时再从本条恢复。
 
 ### 13. `getStaleOpenSlots` OR 双分支无适配索引
 - 来源：ocsbf P1-9、zcg 上轮遗留 #3

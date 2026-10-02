@@ -28,8 +28,8 @@ import kotlinx.serialization.Serializable
  *
  * ## 字段名刻意与 V1（旧的 org.json 格式）保持一致
  *
- * 这样**旧备份文件仍能被读**。唯一的 wire 差异是本文件多一个 `schemaVersion` 字段，
- * 而 `Json { ignoreUnknownKeys = true }` 会忽略它。值不同的备份一律拒绝，
+ * 这样**旧备份文件仍能被读**（`Json { ignoreUnknownKeys = true }` 会忽略 V1 文件
+ * 里本类没有的字段）。版本不同的备份一律拒绝，
  * 绝不"尽力而为"地部分恢复 —— 部分恢复比拒绝更危险。
  *
  * ## 毫单位字段的命名

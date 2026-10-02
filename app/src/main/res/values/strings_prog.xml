@@ -22,6 +22,7 @@
     <string name="prog_today_label">今日</string>
     <string name="prog_export_success">已导出 %1$s</string>
     <string name="prog_export_failure">导出失败: %1$s</string>
+    <string name="prog_export_failed_generic">导出失败，请重试</string>
     <string name="prog_unit_tablet">片</string>
     <string name="prog_deleted_medication">已删除的药品</string>
     <string name="prog_manual_dose">临时用药</string>

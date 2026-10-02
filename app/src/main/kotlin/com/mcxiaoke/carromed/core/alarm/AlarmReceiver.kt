@@ -72,7 +72,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     scheduledTime = key.time
                 )
                 if (slotId == null) {
-                    AppLog.i("AlarmReceiver", "skip: no open slot for $key (已打卡/已结算/已删除)")
+                    AppLog.i("AlarmReceiver", "skip: no open slot for $key (taken/settled/deleted)")
                     return@launch
                 }
                 val slot = db.doseSlotDao().getSlotById(slotId)

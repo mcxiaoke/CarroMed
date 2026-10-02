@@ -81,6 +81,13 @@ class InventoryViewModel(
 
     private var loadJob: Job? = null
 
+    // 草稿归属标记（ocsbf P1-1 残余）：用户一旦编辑过有效期/预警线草稿，
+    // 后台探针触发的 load() 就不许再用库值覆盖 —— 否则"编辑期间后台刷新吃掉
+    // 输入、保存时把被覆盖后的旧值写回"。与 calibrateInput 的保护同一哲学。
+    // 保存成功后复位，让草稿重新与库值同步。
+    private var expiryDraftDirty = false
+    private var alertDraftDirty = false
+
     init {
         load()
         // 响应式重载（osbf P2-3 / DB C-27）：本页曾是进页一次性读取，
@@ -160,9 +167,15 @@ class InventoryViewModel(
                 runwayDays = runway,
                 isLowStock = alert,
                 dailyConsumption = if (perWeek > 0.0) dosesPerScheduledDay * (perWeek / 7.0).toFloat() else dosesPerScheduledDay,
-                expiryDate = med.expiryDate,
+                // 草稿只在"用户还没动过"时跟随库值（ocsbf P1-1 残余）：
+                // 编辑期间的后台刷新不许吃掉输入。calibrateInput 见下方的 M7-3 注释。
+                expiryDate = if (expiryDraftDirty) _uiState.value.expiryDate else med.expiryDate,
                 daysToExpiry = expiryDays,
-                minStockAlertInput = fmt(Dose(med.minStockAlert).asFloat),
+                minStockAlertInput = if (alertDraftDirty) {
+                    _uiState.value.minStockAlertInput
+                } else {
+                    fmt(Dose(med.minStockAlert).asFloat)
+                },
                 transactions = txs,
                 // ⚠️ **不要**在这里重建 `calibrateInput`（M7-3）。
                 //
@@ -182,6 +195,7 @@ class InventoryViewModel(
     }
 
     fun onMinStockAlertChange(v: String) {
+        alertDraftDirty = true
         _uiState.value = _uiState.value.copy(minStockAlertInput = DecimalInput.filter(v))
     }
 
@@ -190,6 +204,7 @@ class InventoryViewModel(
     }
 
     fun onExpiryDateChange(v: String) {
+        expiryDraftDirty = true
         _uiState.value = _uiState.value.copy(expiryDate = v)
     }
 
@@ -225,7 +240,8 @@ class InventoryViewModel(
             } catch (e: Exception) {
                 // 吞异常降级成 UI error 的地方必须留痕（PLAN-LOGGING G4）
                 AppLog.w(TAG, "exportLedger failed", e)
-                _uiState.value = _uiState.value.copy(error = app.getString(R.string.inv_export_failed, e.message))
+                // 异常原文不进用户文案（orsbf P1-16 残留），细节只在 AppLog
+                _uiState.value = _uiState.value.copy(error = app.getString(R.string.inv_export_failed_generic))
             } finally {
                 _uiState.value = _uiState.value.copy(isSaving = false)
             }
@@ -389,6 +405,9 @@ class InventoryViewModel(
                 isSaving = false,
                 message = app.getString(R.string.inv_saved)
             )
+            // 落库成功：草稿与库值重新对齐，后续后台刷新恢复接管
+            expiryDraftDirty = false
+            alertDraftDirty = false
             load()
         }
     }

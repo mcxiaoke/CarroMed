@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
+import com.mcxiaoke.carromed.core.alarm.ReconcileWorker
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.model.PolicyType
@@ -49,7 +50,7 @@ enum class AddEditMode { FULL, INFO_ONLY }
  *    一次打卡给库存**加** 2 片。
  *
  * 改成 `String` 后由 [DecimalInput] 统一做字符过滤与"必须 > 0"的解析，
- * 与同文件里的 `defaultDose` / `minStockAlert` 口径一致。
+ * 与同文件里的 `defaultDose` 口径一致。
  */
 data class TimeSlotDraft(
     val time: String = "08:30",
@@ -114,16 +115,6 @@ data class AddEditUiState(
 
     // ---- 库存维度 (仅 FULL 模式) ----
     val currentStock: String = "",
-
-    /**
-     * 默认 **"0"（= 关闭低库存告警）**。
-     *
-     * 本表单**没有**预警线输入框（预警线归库存页独占），这里只是随档案
-     * 写回的快照 —— 旧默认值 "10" 会让每个新药都被悄悄设上 10 片预警线：
-     * 用户从没选过、页面上也看不见，药还剩 9 片时就开始告警。
-     * 与"minStockAlert=0 表示关闭告警"的全局约定一致。
-     */
-    val minStockAlert: String = "0",
 
     val isSaving: Boolean = false,
     val error: String? = null
@@ -269,11 +260,8 @@ class AddEditMedicationViewModel(
                 // ⚠️ 编辑模式不预填库存余额：账面是台账聚合值，在本页编辑它
                 // 语义上等于"直接改账面"，必须走盘点校准（库存页）或补药入库。
                 // 这里保持空字符串，保存时不会产生任何库存写入。
-                currentStock = "",
-                // ⚠️ 预警线不要用业务默认值"10"污染用户数据：minStockAlert = 0
-                // 在本项目里语义是"关闭低库存告警"，预填 10 会让用户在只改药名时
-                // 意外把已关闭的告警又打开。
-                minStockAlert = trimFloat(Dose(med.minStockAlert).asFloat)
+                // 预警线同样不进本页：唯一写入口在库存页（ocsbf P1-2 / DB C-14）。
+                currentStock = ""
             )
         }
     }
@@ -386,7 +374,6 @@ class AddEditMedicationViewModel(
     // ---------------- 库存维度 ----------------
 
     fun onCurrentStockChange(v: String) = mutate { it.copy(currentStock = v) }
-    fun onMinStockAlertChange(v: String) = mutate { it.copy(minStockAlert = v) }
 
     // ---------------- 保存 ----------------
 
@@ -480,14 +467,11 @@ class AddEditMedicationViewModel(
             _uiState.value = s.copy(error = app.getString(DEFAULT_DOSE_ERROR))
             return
         }
-        // 初始库存 / 预警线同样不得静默回落（L9）：非法输入以前被 toFloatOrNull
-        // 悄悄折算成 0 —— 库存不建档、低库存告警被关闭，用户毫不知情。
+        // 初始库存不得静默回落（L9）：非法输入以前被 toFloatOrNull
+        // 悄悄折算成 0 —— 库存不建档，用户毫不知情。
+        // （预警线不在本页：唯一写入口是库存页，ocsbf P1-2 / DB C-14。）
         if (!s.isEdit && s.currentStock.isNotBlank() && s.currentStock.toFloatOrNull() == null) {
             _uiState.value = s.copy(error = app.getString(R.string.medit_error_stock_invalid))
-            return
-        }
-        if (s.minStockAlert.isNotBlank() && s.minStockAlert.toFloatOrNull() == null) {
-            _uiState.value = s.copy(error = app.getString(R.string.medit_error_alert_invalid))
             return
         }
 
@@ -521,9 +505,10 @@ class AddEditMedicationViewModel(
         val policyRequired = s.mode == AddEditMode.FULL
         run {
             val stockFloat = s.currentStock.toFloatOrNull() ?: 0f
-            val alertFloat = s.minStockAlert.toFloatOrNull() ?: 0f
 
-            // 1) 药品档案 (新增或编辑，绝不整行覆盖状态位)
+            // 1) 药品档案 (新增或编辑，绝不整行覆盖状态位)。
+            // 预警线不在本页所有权内：ProfileDraft 已无 minStockAlert 字段，
+            // 唯一写入口是库存页 updateMinStockAlert（ocsbf P1-2 / DB C-14）。
             val medId = adminService.saveProfile(
                 MedicationAdminService.ProfileDraft(
                     medId = s.medId ?: 0L,
@@ -537,8 +522,7 @@ class AddEditMedicationViewModel(
                     description = s.description,
                     precautions = s.precautions,
                     noticeShort = s.noticeShort,
-                    expiryDate = s.expiryDate,
-                    minStockAlert = alertFloat
+                    expiryDate = s.expiryDate
                 )
             )
 
@@ -579,7 +563,23 @@ class AddEditMedicationViewModel(
             trackingService.reconcileSchedule(medId)
 
             // 5) 按最新计划重排全部精确闹钟
-            runCatching { AlarmReconciler.rescheduleAll(getApplication<Application>(), db) }
+            //
+            // 重排失败不能静默（round2 N11-g 残留）：药品和计划已保存，但精确闹钟
+            // 没排上 ⇒ 提醒可能不响。与 6553081 批次同口径：长 Toast 顶住导航后的
+            // 下一屏 + ERROR 日志，并交 ReconcileWorker 立即补一轮对账兜底。
+            val appContext = getApplication<Application>()
+            val rescheduled = runCatching { AlarmReconciler.rescheduleAll(appContext, db) }
+                .onFailure { AppLog.e("AddEditMedVM", "rescheduleAll after save failed med=$medId", it) }
+                .isSuccess
+            if (!rescheduled) {
+                runCatching { ReconcileWorker.enqueueOneShot(appContext) }
+                    .onFailure { AppLog.e("AddEditMedVM", "enqueueOneShot fallback failed med=$medId", it) }
+                android.widget.Toast.makeText(
+                    appContext,
+                    appContext.getString(R.string.medit_saved_schedule_failed),
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
 
             _uiState.value = _uiState.value.copy(isSaving = false, medId = medId)
             onSuccess(medId)

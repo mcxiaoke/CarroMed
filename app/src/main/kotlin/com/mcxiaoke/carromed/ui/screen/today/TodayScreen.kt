@@ -305,6 +305,30 @@ fun TodayScreen(
                         contentAlignment = Alignment.Center
                     ) { CircularProgressIndicator() }
                 }
+            } else if (uiState.loadError) {
+                // 数据流异常（orsbf P1-17）：如实报错，绝不伪装成"这一天没有任务"
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.today_error_load),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
             } else if (uiState.pendingItems.isEmpty()) {
                 item {
                     // 全新用户（药箱为空）与"这一天恰好没排班"是两回事，

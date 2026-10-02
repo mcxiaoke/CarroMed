@@ -375,7 +375,6 @@ class AppDatabaseRealTest {
             precautions = listOf("整粒吞服禁嚼碎", "禁葡萄柚"),
             noticeShort = "温水吞服",
             expiryDate = "2027-12-31",
-            minStockAlert = 20000,
             updatedAt = System.currentTimeMillis()
         )
 
@@ -384,7 +383,9 @@ class AppDatabaseRealTest {
         assertThat(after.unit).isEqualTo("粒")
         assertThat(after.precautions).containsExactly("整粒吞服禁嚼碎", "禁葡萄柚")
         assertThat(after.expiryDate).isEqualTo("2027-12-31")
-        assertDoseValue(after.minStockAlert, 20f)
+        // min_stock_alert 不在 updateProfile 的 SET 列表（ocsbf P1-2 / DB C-14）：
+        // 预警线唯一写入口是 updateMinStockAlert，档案编辑不得触碰
+        assertDoseValue(after.minStockAlert, 10f)
         // 状态位与账面绝不能被档案编辑波及
         assertThat(after.isArchived).isTrue()
         assertThat(after.isStockTracked).isTrue()

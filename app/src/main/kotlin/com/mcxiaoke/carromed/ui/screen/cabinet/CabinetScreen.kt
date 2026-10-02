@@ -231,6 +231,31 @@ fun CabinetScreen(
                         contentAlignment = Alignment.Center
                     ) { CircularProgressIndicator() }
                 }
+            } else if (uiState.loadError) {
+                // 数据流异常（orsbf P1-17）：如实报错，绝不伪装成"药箱为空"
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.cabinet_error_load),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
             } else if (displayList.isEmpty()) {
                 item {
                     Card(

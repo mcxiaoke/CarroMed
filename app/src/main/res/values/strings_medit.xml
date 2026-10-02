@@ -72,6 +72,6 @@
     <string name="medit_error_dose_invalid">%1$s 的剂量无效：请输入大于 0 的数值（例如 1 或 0.5）</string>
     <string name="medit_error_default_dose_invalid">默认剂量无效：请输入大于 0 的数值（例如 1 或 0.5）</string>
     <string name="medit_error_stock_invalid">初始库存无效：请输入正数，或留空表示暂不建档</string>
-    <string name="medit_error_alert_invalid">低库存预警线无效：请输入 0 或正数（0 表示关闭告警）</string>
     <string name="medit_error_save_failed">保存失败，请重试</string>
+    <string name="medit_saved_schedule_failed">药品已保存，但闹钟调度失败：提醒可能不响。请检查精确闹钟权限后重试</string>
 </resources>

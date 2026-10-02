@@ -67,6 +67,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
+        loadSettings()
+    }
+
+    /**
+     * 从 `app_settings` 读回全部设置项并刷新回显。
+     *
+     * 抽成方法是因为 init 的一次性读取不够（round2 N11-j）：覆盖式恢复会把
+     * 备份里的设置项原样写回数据库，不重读的话「推迟时长 / 夜间免打扰」的
+     * 回显停留在恢复前的旧值。只 copy 设置字段，避免把恢复流程中的
+     * isRestoring / localBackups 等流程态一并冲掉。
+     */
+    private fun loadSettings() {
         viewModelScope.launch(Dispatchers.IO) {
             val snooze = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES)?.toIntOrNull() ?: 30
             val dnd = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND)?.toBoolean() ?: true
@@ -78,7 +90,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val repeatInterval = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_INTERVAL)?.toIntOrNull() ?: 30
             val repeatMax = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_MAX_COUNT)?.toIntOrNull() ?: 3
 
-            _uiState.value = SettingsUiState(
+            _uiState.value = _uiState.value.copy(
                 snoozeMinutes = snooze,
                 nightDnd = dnd,
                 nightDndStart = dndStart,
@@ -178,7 +190,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 // 吞异常降级成 Toast 的地方必须留痕（PLAN-LOGGING G4）
                 AppLog.w(TAG, "exportCsv failed", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, app.getString(R.string.set_export_failed, e.message), Toast.LENGTH_SHORT).show()
+                    // 异常原文不进用户文案（orsbf P1-16 残留），细节只在 AppLog
+                    Toast.makeText(app, app.getString(R.string.set_export_failed_generic), Toast.LENGTH_SHORT).show()
                 }
             } finally {
                 _uiState.value = _uiState.value.copy(isExporting = false)
@@ -205,7 +218,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             } catch (e: Exception) {
                 AppLog.w(TAG, "exportBackup failed", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(app, app.getString(R.string.set_backup_failed, e.message), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(app, app.getString(R.string.set_backup_failed_generic), Toast.LENGTH_SHORT).show()
                 }
             } finally {
                 _uiState.value = _uiState.value.copy(isExporting = false)
@@ -295,7 +308,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val app = getApplication<Application>()
         viewModelScope.launch {
             withContext(Dispatchers.Main) {
-                Toast.makeText(app, app.getString(R.string.set_restore_error, t.message), Toast.LENGTH_LONG).show()
+                Toast.makeText(app, app.getString(R.string.set_restore_failed_generic), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -329,13 +342,17 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     val snap = result.snapshotFile
                         ?.let { app.getString(R.string.set_restore_snapshot_fmt, it.substringAfterLast('/')) }
                         ?: app.getString(R.string.set_restore_no_snapshot)
-                    val base = app.getString(R.string.set_restore_success_fmt, result.medications, result.records) + snap
-                    if (rescheduled) base
-                    else base + "\n" + app.getString(R.string.set_restore_schedule_failed)
+                    var base = app.getString(R.string.set_restore_success_fmt, result.medications, result.records) + snap
+                    if (!rescheduled) base += "\n" + app.getString(R.string.set_restore_schedule_failed)
+                    // 两次托盘清理都失败（§一-11）：旧通知可能残留，必须让用户知道
+                    if (result.trayCleanupFailed) base += "\n" + app.getString(R.string.set_restore_tray_cleanup_failed)
+                    base
                 }
                 is DataExporter.RestoreResult.Invalid -> app.getString(R.string.set_restore_error, result.reason)
                 is DataExporter.RestoreResult.Failure -> app.getString(R.string.set_restore_failed, result.message)
             }
+            // 备份里的设置项已覆盖写入数据库，重读刷新回显（round2 N11-j）
+            if (result is DataExporter.RestoreResult.Success) loadSettings()
             _uiState.value = _uiState.value.copy(isRestoring = false)
             withContext(Dispatchers.Main) {
                 Toast.makeText(app, message, Toast.LENGTH_LONG).show()

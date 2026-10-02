@@ -799,7 +799,7 @@ fun SettingsScreen(
                                             }
                                         } catch (e: Exception) {
                                             AppLog.w("SettingsScreen", "export diagnostic logs failed", e)
-                                            Toast.makeText(logExportContext, logExportContext.getString(R.string.set_export_failed, e.message), Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(logExportContext, logExportContext.getString(R.string.set_export_failed_generic), Toast.LENGTH_SHORT).show()
                                         } finally {
                                             exportingLogs = false
                                         }

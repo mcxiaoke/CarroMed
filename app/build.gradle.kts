@@ -71,7 +71,8 @@ android {
 
     buildFeatures {
         compose = true
-        // 供 SampleDataSeeder 判定 debug/release：生产构建必须关闭演示数据播种
+        // 供 BuildConfig.DEBUG 判定构建类型：日志 Logcat 挂载、debug 源集入口、
+        // destructive migration 仅在 debug 开启
         buildConfig = true
     }
 

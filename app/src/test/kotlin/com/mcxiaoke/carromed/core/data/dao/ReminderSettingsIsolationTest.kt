@@ -93,7 +93,7 @@ class ReminderSettingsIsolationTest {
             MedicationAdminService.ProfileDraft(
                 medId = id, name = "改名后", alias = "新别名", unit = "粒",
                 precautions = listOf("新注意事项"), noticeShort = "新简述",
-                expiryDate = "2028-01-01", minStockAlert = 20f
+                expiryDate = "2028-01-01"
             )
         )
 
@@ -105,13 +105,13 @@ class ReminderSettingsIsolationTest {
     }
 
     @Test
-    fun `档案编辑不影响库存台账与预警线以外的档案字段`() = runTest {
+    fun `档案编辑不影响库存台账与预警线`() = runTest {
         val id = newMed(stock = 30000)
         val before = db.medicationDao().getMedicationById(id)!!
 
         service.saveProfile(
             MedicationAdminService.ProfileDraft(
-                medId = id, name = "改名后", unit = "粒", minStockAlert = 3f
+                medId = id, name = "改名后", unit = "粒"
             )
         )
 
@@ -120,7 +120,8 @@ class ReminderSettingsIsolationTest {
         assertThat(after.isArchived).isFalse()
         assertThat(after.isStockTracked).isTrue()
         assertThat(db.medicationDao().getOverviewById(id)?.stock).isEqualTo(30f)
-        assertThat(Dose(after.minStockAlert).asFloat).isEqualTo(3f)
+        // 预警线不在档案所有权内（ocsbf P1-2 / DB C-14）：编辑档案不得触碰
+        assertThat(after.minStockAlert).isEqualTo(before.minStockAlert)
     }
 
     // ---------------- 提醒行为不碰档案与库存 ----------------

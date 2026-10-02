@@ -25,4 +25,5 @@
     <string name="stats_period_year">过去 1 年</string>
     <string name="stats_export_done">已导出 %1$s</string>
     <string name="stats_export_failed">导出失败: %1$s</string>
+    <string name="stats_export_failed_generic">导出失败，请重试</string>
 </resources>

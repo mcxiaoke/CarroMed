@@ -77,7 +77,10 @@
     <string name="set_export_csv_done">已导出 %1$s，请选择保存或分享方式</string>
     <string name="set_backup_done">备份已生成 %1$s</string>
     <string name="set_backup_failed">备份失败: %1$s</string>
+    <string name="set_backup_failed_generic">备份失败，请重试</string>
     <string name="set_restore_error">无法恢复：%1$s</string>
+    <string name="set_restore_failed_generic">恢复失败，请重试</string>
+    <string name="set_restore_tray_cleanup_failed">⚠ 旧通知清理失败：建议手动清除本应用在通知栏的全部通知</string>
     <string name="set_restore_success_fmt">恢复成功：%1$d 种药品、%2$d 条服药记录已还原。</string>
     <string name="set_restore_snapshot_fmt">已留恢复前快照：%1$s</string>
     <string name="set_restore_no_snapshot">（未能生成恢复前快照）</string>
@@ -91,6 +94,7 @@
     <string name="set_share_log_title">分享诊断日志</string>
     <string name="set_no_log_files">还没有日志文件</string>
     <string name="set_export_failed">导出失败: %1$s</string>
+    <string name="set_export_failed_generic">导出失败，请重试</string>
     <string name="set_export_log_button">导出日志</string>
 
     <!-- 4. 版本号 -->

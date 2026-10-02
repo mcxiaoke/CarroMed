@@ -329,8 +329,7 @@ class FieldPreservationInvariantTest {
                 noticeShort = Sentinel.NOTICE,
                 expiryDate = Sentinel.EXPIRY,
                 unit = "ml",
-                defaultDose = 2.5f,
-                minStockAlert = 9f
+                defaultDose = 2.5f
             )
         )
 
@@ -339,7 +338,9 @@ class FieldPreservationInvariantTest {
         assertThat(after.name).isEqualTo("新药名")
         assertThat(after.unit).isEqualTo("ml")
         assertThat(after.defaultDose).isEqualTo(2500)
-        assertThat(after.minStockAlert).isEqualTo(9000)
+        // ⚠️ 预警线**不在**档案自有列（ocsbf P1-2 / DB C-14）：
+        // ProfileDraft 已无该字段，编辑档案不得把它写回进页快照
+        assertThat(after.minStockAlert).isEqualTo(Sentinel.MIN_STOCK_ALERT)
         // alias 是 null（不修改），必须沿用哨兵值 —— 一次部分提交不该抹掉别名
         assertThat(after.alias).isEqualTo(Sentinel.ALIAS)
 

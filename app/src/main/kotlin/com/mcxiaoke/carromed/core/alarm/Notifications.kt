@@ -301,7 +301,7 @@ object Notifications {
             ?: android.provider.Settings.System.DEFAULT_NOTIFICATION_URI
 
         val builder = NotificationCompat.Builder(context, channel)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_stat_reminder)
             .setContentTitle(
                 when {
                     // 重要提醒优先：它决定的是"响不响"，不是"什么时候提醒"
@@ -403,7 +403,7 @@ object Notifications {
         val body = context.getString(R.string.notif_body_overdue_summary, count)
 
         val notification = NotificationCompat.Builder(context, CHANNEL_DOSE_REMINDER_SILENT)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_stat_reminder)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))

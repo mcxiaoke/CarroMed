@@ -26,7 +26,13 @@ data class RefillUiState(
     val expiryDate: String = "",
     val note: String = "",
     val isSaving: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    /**
+     * 入库已成功、但随后的开启库存追踪失败（ocsbf P0-3）。
+     * 置位后「确认」键只补做 setStockTracking —— 绝不能再走一遍 refillStock，
+     * 否则同一笔库存会记两遍；补做成功后清位并回调 onSuccess。
+     */
+    val pendingTracking: Boolean = false
 )
 
 /**
@@ -85,6 +91,16 @@ class RefillViewModel(
 
     fun confirmRefill(onSuccess: () -> Unit) {
         val s = _uiState.value
+        // 双击保护与另两个表单同一条纪律（M2-4）
+        if (s.isSaving) return
+
+        // ocsbf P0-3：上次入库已成功、只差开启追踪时，确认键是「重试开启追踪」，
+        // 必须先于数量/有效期校验短路 —— 绝不能再执行一次 refillStock。
+        if (s.pendingTracking) {
+            viewModelScope.launch { enableTrackingAndFinish(onSuccess) }
+            return
+        }
+
         val amt = DecimalInput.parsePositive(s.addAmount)
         if (amt == null) {
             _uiState.value = s.copy(
@@ -98,8 +114,6 @@ class RefillViewModel(
             )
             return
         }
-        // 双击保护与另两个表单同一条纪律（M2-4）
-        if (s.isSaving) return
 
         viewModelScope.launch {
             val app = getApplication<Application>()
@@ -136,21 +150,38 @@ class RefillViewModel(
                 return@launch
             }
             // 入库即自动开启库存追踪（此前需用户手工在表单里填初始库存才开）。
-            // ⚠️ **必须传 initialStock = null**（M2-5）：本页面停留期间可能已发生打卡扣减，
-            // 传页面上的陈旧余额会把它当"用户声明的初始库存"写回账面，凭空多出一份。
-            //
-            // 失败不能静默（osbf P2-5）：入库已成功而开启追踪失败，用户必须知道
-            // "这次入库没有开始自动扣库存"，否则他会以为追踪一直是开着的。
-            runCatching { trackingService.setStockTracking(medId, true, initialStock = null) }
-                .onFailure { t ->
-                    AppLog.w("RefillViewModel", "enable stock tracking after refill failed med=$medId", t)
-                    _uiState.value = _uiState.value.copy(
-                        error = app.getString(R.string.refill_error_tracking_failed)
-                    )
-                }
-            _uiState.value = _uiState.value.copy(isSaving = false)
-            onSuccess()
+            enableTrackingAndFinish(onSuccess)
         }
+    }
+
+    /**
+     * 入库成功后开启库存追踪（ocsbf P0-3）。
+     *
+     * ⚠️ 必须传 `initialStock = null`（M2-5）：本页面停留期间可能已发生打卡扣减，
+     * 传页面上的陈旧余额会把它当"用户声明的初始库存"写回账面，凭空多出一份。
+     *
+     * 失败不能静默，也不能照旧回调 onSuccess —— 导航会销毁本页、错误横幅随之
+     * 丢弃，用户会以为"这次入库已开始自动扣库存"而实际没有。改为置位
+     * [RefillUiState.pendingTracking] 留在原地显示错误，确认键可只补追踪。
+     */
+    private suspend fun enableTrackingAndFinish(onSuccess: () -> Unit) {
+        val app = getApplication<Application>()
+        _uiState.value = _uiState.value.copy(isSaving = true, error = null)
+        val trackingOk = runCatching {
+            trackingService.setStockTracking(medId, true, initialStock = null)
+        }.onFailure { t ->
+            AppLog.w("RefillViewModel", "enable stock tracking after refill failed med=$medId", t)
+        }.isSuccess
+        if (!trackingOk) {
+            _uiState.value = _uiState.value.copy(
+                isSaving = false,
+                pendingTracking = true,
+                error = app.getString(R.string.refill_error_tracking_failed)
+            )
+            return
+        }
+        _uiState.value = _uiState.value.copy(isSaving = false, pendingTracking = false)
+        onSuccess()
     }
 
     private fun trim(v: Float): String = if (v % 1f == 0f) v.toInt().toString() else v.toString()

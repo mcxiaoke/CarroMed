@@ -70,8 +70,7 @@ class MedicationAdminServiceTest {
                 unit = "片",
                 precautions = listOf("饭后半小时服用", "避免与布洛芬同服"),
                 noticeShort = "饭后温水送服",
-                expiryDate = "2027-12-31",
-                minStockAlert = 7f
+                expiryDate = "2027-12-31"
             )
         )
         val saved = medDao.getMedicationById(id)!!
@@ -80,7 +79,8 @@ class MedicationAdminServiceTest {
         assertThat(saved.precautions).containsExactly("饭后半小时服用", "避免与布洛芬同服")
         assertThat(saved.noticeShort).isEqualTo("饭后温水送服")
         assertThat(saved.expiryDate).isEqualTo("2027-12-31")
-        assertDoseValue(saved.minStockAlert, 7f)
+        // 新建即关闭告警：预警线唯一写入口在库存页（ocsbf P1-2 / DB C-14）
+        assertDoseValue(saved.minStockAlert, 0f)
     }
 
     @Test
@@ -90,10 +90,12 @@ class MedicationAdminServiceTest {
                 name = "环孢素",
                 alias = "新赛斯平",
                 precautions = listOf("整粒吞服禁嚼碎", "严禁与葡萄柚同食"),
-                noticeShort = "温水吞服",
-                minStockAlert = 10f
+                noticeShort = "温水吞服"
             )
         )
+        // 预警线由库存页写入（唯一写入口），先设一个可辨识值，
+        // 验证档案编辑**不会**把它覆盖回去（ocsbf P1-2 / DB C-14）
+        medDao.updateMinStockAlert(id, Dose.of(10f).milli)
         db.reminderSettingsDao().ensureDefaults(id)
         db.reminderSettingsDao().setPausedUntil(id, "")
         medDao.updateArchiveStatus(id, true)
@@ -117,8 +119,7 @@ class MedicationAdminServiceTest {
                 defaultDose = 2f,
                 description = "改个名字看看会不会把别的字段冲掉",
                 precautions = listOf("仅保留一条"),
-                noticeShort = "改过的简述",
-                minStockAlert = 20f
+                noticeShort = "改过的简述"
             )
         )
 
@@ -129,7 +130,8 @@ class MedicationAdminServiceTest {
         assertThat(after.unit).isEqualTo("粒")
         assertDoseValue(after.defaultDose, 2f)
         assertThat(after.precautions).containsExactly("仅保留一条")
-        assertDoseValue(after.minStockAlert, 20f)
+        // 不在本页所有权内的预警线必须原样保留
+        assertDoseValue(after.minStockAlert, 10f)
         // 不可编辑/未提交的字段必须原样保留
         assertThat(after.alias).isEqualTo("新赛斯平")
         // 暂停已迁到 reminder_settings（A2）：档案编辑结构上碰不到它

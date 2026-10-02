@@ -193,6 +193,10 @@ interface MedicationDao {
      * ⚠️ 集合契约：本 SQL 的 SET 列表**必须**与"药品信息"页表单暴露的字段一一对应。
      * 新增列时若不同时加进表单，就会重演 P0-5（静默抹掉用户配置）。
      * 见 `MedicationAdminServiceTest` 的穷举式字段保全测试。
+     *
+     * ⚠️ `min_stock_alert` **刻意不在** SET 列表（ocsbf P1-2 / DB C-14）：
+     * 编辑页已无预警线输入框，快照写回会把用户在库存页改过的预警线静默改回旧值。
+     * 预警线的唯一写入口是 [updateMinStockAlert]。
      */
     @Query(
         """
@@ -208,7 +212,6 @@ interface MedicationDao {
             precautions = :precautions,
             notice_short = :noticeShort,
             expiry_date = :expiryDate,
-            min_stock_alert = :minStockAlert,
             updated_at = :updatedAt
         WHERE id = :id
         """
@@ -226,7 +229,6 @@ interface MedicationDao {
         precautions: List<String>,
         noticeShort: String,
         expiryDate: String,
-        minStockAlert: Int,
         updatedAt: Long
     )
 

@@ -13,6 +13,7 @@
     <string name="cabinet_empty_search_active">没有匹配「%1$s」的在服药品</string>
     <string name="cabinet_empty_search_archived">归档中没有匹配的药品</string>
     <string name="cabinet_empty_active">药箱暂无药品\n点按右上角「+」添加</string>
+    <string name="cabinet_error_load">数据加载失败，请返回后重新进入；若反复出现，请在设置页导出日志反馈</string>
     <string name="cabinet_empty_archived">暂无归档停药记录</string>
     <string name="cabinet_stock_low">⚠️ 剩 %1$s %2$s</string>
     <string name="cabinet_stock_normal">剩 %1$s %2$s</string>

@@ -48,6 +48,10 @@ class MedicationAdminService(private val db: AppDatabase) {
      * 草稿里出现不属于本屏幕的字段，正是 P0-5「漏传型」的温床：调用方会把
      * 进页面时的快照值原样传回，用户的真实配置就被覆盖回去。
      * 见 `docs/REMINDER-DOMAIN-REDESIGN.md` §1.3。
+     *
+     * ⚠️ **刻意不含** `minStockAlert`（ocsbf P1-2 / DB C-14）：编辑页没有预警线
+     * 输入框，把它放回草稿只会让"进编辑页 → 库存页改预警线 → 回编辑页保存"
+     * 静默把预警线改回进页快照。预警线唯一写入口 = `MedicationDao.updateMinStockAlert`。
      */
     data class ProfileDraft(
         val medId: Long = 0L,
@@ -61,8 +65,7 @@ class MedicationAdminService(private val db: AppDatabase) {
         val description: String = "",
         val precautions: List<String> = emptyList(),
         val noticeShort: String = "",
-        val expiryDate: String = "",
-        val minStockAlert: Float = 0f
+        val expiryDate: String = ""
     )
 
     /** 提醒行为草稿 (对应"提醒设置"这一独立维度，由提醒设置页独占) */
@@ -148,12 +151,13 @@ class MedicationAdminService(private val db: AppDatabase) {
                 precautions = draft.precautions.map { it.trim() }.filter { it.isNotEmpty() },
                 noticeShort = draft.noticeShort.trim(),
                 expiryDate = draft.expiryDate.trim(),
-                minStockAlert = Dose.of(draft.minStockAlert.coerceAtLeast(0f)).milli,
                 updatedAt = System.currentTimeMillis()
             )
             // G7：档案编辑是 I9 不变量（不碰 reminder 四列与状态位）的关键路径，
             // 出问题时这条线是第一现场。alias 用 patch 语义，日志记实际生效值的存在性
-            AppLog.i(TAG, "saveProfile update med=${draft.medId} name=$name aliasPresent=${resolvedAlias != null}")
+            // 日志只记 medId 不记药名（orsbf P2-18）：日志文件随诊断导出外发，
+            // 药名即用药隐私。
+            AppLog.i(TAG, "saveProfile update med=${draft.medId} aliasPresent=${resolvedAlias != null}")
             return@withTransaction draft.medId
         }
 
@@ -171,13 +175,14 @@ class MedicationAdminService(private val db: AppDatabase) {
                 precautions = draft.precautions.map { it.trim() }.filter { it.isNotEmpty() },
                 noticeShort = draft.noticeShort.trim(),
                 expiryDate = draft.expiryDate.trim(),
-                minStockAlert = Dose.of(draft.minStockAlert.coerceAtLeast(0f)).milli
+                // 新建即 0（关闭告警）：预警线唯一写入口在库存页（ocsbf P1-2）
+                minStockAlert = 0
             )
         )
         // 必须建默认提醒设置行：否则提醒设置页第一次保存时 UPDATE 命中 0 行，
         // 用户改了设置、点保存、回到详情页发现什么都没变，且**没有任何报错**。
         reminderSettingsDao.ensureDefaults(newId)
-        AppLog.i(TAG, "saveProfile insert med=$newId name=$name")
+        AppLog.i(TAG, "saveProfile insert med=$newId")
         newId
     }
 

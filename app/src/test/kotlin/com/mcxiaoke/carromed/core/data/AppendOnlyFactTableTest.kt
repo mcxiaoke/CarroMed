@@ -90,8 +90,7 @@ class AppendOnlyFactTableTest {
             MedicationAdminService.ProfileDraft(
                 name = "哨兵药",
                 unit = "片",
-                defaultDose = 1f,
-                minStockAlert = 3f
+                defaultDose = 1f
             )
         )
         admin.saveReminderPolicy(
@@ -137,7 +136,7 @@ class AppendOnlyFactTableTest {
                 medId = medId, name = "改名了", unit = "粒", defaultDose = 2f,
                 category = MedicationCategory.COMMON.name, form = MedicationForm.TABLET.name, colorHex = "#2563EB",
                 description = "", precautions = emptyList(), noticeShort = "",
-                expiryDate = "", minStockAlert = 5f
+                expiryDate = ""
             )
         )
         admin.setPausedUntil(medId, today.plusDays(2).toString())
