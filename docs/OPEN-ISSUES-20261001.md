@@ -411,17 +411,55 @@
 - **T-1**（orsbf P1-19）：`escapeCsv`（含公式注入防护）零测试；`ReminderSettingsViewModel`/
   `ProgressViewModel`/`InventoryViewModel`/`ManualDoseViewModel`/`RefillViewModel`/
   `DoseRecordDetailViewModel` 六个核心 VM 零直接测试。
+  ✅ 已补齐（2026-10-02 测试补课批次）：`escapeCsv` 收为 internal 并加 12 条专项测试
+  （公式前缀/trimStart/引号双写/换行回车）；六个 VM 各建直接测试文件共 23 条
+  （Robolectric 沙箱 + `AppDatabase.resetForTest` + `setMain(Unconfined)` 模式），
+  钉住各自此前的真实缺陷修复：补录时间窗与扣减透传（M2）、预警线非法输入报错与
+  列级更新（M7-3/§一-3）、草稿 dirty 保护（ocsbf P1-1）、入库自动追踪（ocsbf P0-3）、
+  snooze 哨兵 0 原样保留（M7-5）、跨月分页无重复倒序（orsbf P1-3/8）、未来槽位不可操作。
+  ⏸ 竞态防护（Progress revision 丢弃）不做并发测试：无法确定性编排，由实现注释自证。
 - **T-2**（sba P1-15 残留）：本机备份 File 链路（`importLocalBackup`/`listLocalBackups`/
   `inspectLocalBackup`/`writeSafetySnapshot`）零测试覆盖。
+  ✅ 已补齐（2026-10-02 测试补课批次）：`DataExporterLocalBackupFileTest` 8 条——
+  目录缺省/过滤排序/有效预览/垃圾与异源拒绝/往返恢复且快照真实落盘/File 路径 BOM 剥头/
+  非法文件库分毫未动。
 - **T-3**（osbf P0-1 验收，悬置 2 天）：补响循环修复后未做 10 分钟 `dumpsys alarm` 实测
   （观察单槽位唤醒次数 ≤1）。
+  ✅ 实测通过（2026-10-02，emulator-5554）：时钟快进制造「过期 5 分钟」槽位，
+  应用日志显示三轮对账（onResume + periodic + oneshot）把补响注册在 +30s 同一身份
+  （PendingIntent 替换不堆积），**13:36:05 恰好唤醒一次**、通知弹出一次、
+  `lastMainNotifiedTs` 落库；其后 68 分钟（远超 10 分钟窗口）零重复唤醒，
+  15 分钟周期对账只发聚合通知、不再排槽位闹钟 —— 托盘判据正确打断循环。
+  备注：实测靠快进设备时钟 1 小时完成，其遗留的过期槽位 heads-up 通知曾与走查
+  脚本的「系统设置」段时序冲突（3 处断言假红），定向重跑全过，非回归。
 - **T-4**（orsbf P0-8 残留）：Roborazzi 快照基线停在 `99254c1`（09-30），其后 10+ 个 UI 提交未重录；
   走查词表硬编码在脚本、`DoseHistoryCalendarSheet`/`TodayStreakBadge` 未登记走查 PROGRAM；
   `.maestro/smoke-seeded.yaml` 断言硬编码中文、与 strings.xml 无关联。
+  ✅ 已补齐（2026-10-02 测试补课批次）：`recordRoborazziDebug` 全量重录（6 张基线更新，
+  吸收标题三态/顶栏/卡片布局变更）；走查 PROGRAM 新增「1c 月历 Sheet」段
+  （streak 徽章 → DoseHistoryCalendarSheet → back 关闭，65 步实跑通过——Sheet 无文字
+  关闭按钮，`today_calendar_close` 字符串未用于此，勿再按文本定位）；
+  `.maestro/smoke-seeded.yaml` 每条断言补 strings.xml 来源键注释表。
 - **T-5**（orsbf P2-21/22/23 + P3）：无 `robolectric.properties`（34 个测试类未钉 SDK）、
   无 CI、无 version catalog、`.gitignore` 仍忽略 jqwik 反例库、签名未配 V3/V4、wrapper 无 sha256 校验。
+  ◐ 部分完成（2026-10-02 测试补课批次）：新增 `app/src/test/resources/robolectric.properties`
+  （sdk=35，快照类显式 `sdk=[34]` 优先）；`.gitignore` 不再忽略 `.jqwik-database`
+  （反例入库可跨机复现）并首次入库；wrapper 加 `distributionSha256Sum`（本地缓存 zip
+  逐位核对官方发布值）；新增最小 CI（`.github/workflows/ci.yml`：assembleDebug +
+  testDebugUnitTest）。
+  ⏸ 有意不做：version catalog（纯机械重构、零行为收益、动全部依赖声明，风险/收益
+  不成比例）；签名 V3/V4（release 未配置 keystore，需先有签名方案才有配置对象）。
 - **T-6**（UIUX A-02/A-03）：TalkBack 全量审计未做（33 处 `contentDescription = null` 待逐项定性）；
   大字号 130–200% 缩放未验证。
+  ◐ 已完成（2026-10-02 测试补课批次）：33 处 `contentDescription = null` 逐项定性——
+  **全部为装饰性图标**（icon+text 组合按钮内的图标、箭头、图例、卡片角标，语义由相邻
+  文本承载；底栏一处有 orsbf P3-9 注释依据），无一处是"图标承载唯一交互语义却无标签"，
+  零代码改动。大字号实测 130%/180%/200%（今日/药箱/记录页）：130% 无损；180% 布局
+  开始松散（分类 chip 换行）但无信息丢失；**200% 发现真缺陷——药箱卡片药名被截成
+  「钙...」**，已修：药名独占整行 + maxLines=2、类别标签移至频次行尾
+  （orsbf P1-3 的让位约束由整行独占自然满足），200% 下药名完整、信息零丢失。
+  ⏸ 遗留：200% 下部分卡片频次文字逐字竖排（cosmetic，无信息丢失），TalkBack 实机
+  逐屏听读仍未做（需要真机 + 人工）。
 
 ---
 
