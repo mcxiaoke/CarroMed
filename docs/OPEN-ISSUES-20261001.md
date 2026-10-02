@@ -325,6 +325,8 @@
   `AppSettingDao.getSetting`；`StatsEngine.calculateAdherence`(:35)/`sumDoseByDate`(:211)。
 - **L-4**（DB C-09）：`DoseTrackingService.kt:943-956` `refillStock` 绕过 `appendLedger` 自算
   `balanceAfter`（结果正确，纯 DRY 债）。
+  ✅ 已修复（2026-10-02 卫生批次）：`appendLedger` 增加 `batchNumber`/`expiryDate` 可选参数，
+  `refillStock` 改走统一入口，删除自算与重复日志。
 - **L-5**（sba 4.1 残余）：仅测试引用/不可达代码：`Dose.isNegative`/`equalsWithin`/`Doses.ONE`/`Doses.UNLIMITED`；
   `Theme.kt:75` `dynamicColor` 不可达分支；`Color.kt:76/78` `OnWarningAmber`/`WarningAmberBorder` 零引用；
   `ReminderSettingsScreen.kt:641` PreviewCard PRN 死分支；`ManualDoseViewModel.onActualDateTimeChange` 零调用；
@@ -335,6 +337,7 @@
 ### 一致性 / 注释失真
 - **L-7**（L5 / DB C-20 残留）：`AppConverters.kt:113-114` `toIntList` 仍 `mapNotNull { toIntOrNull() }`
   静默丢未知 token，无日志（服务层 `require(1..7)` 已加，此为读路径残留）。
+  ✅ 已修复（2026-10-02 卫生批次）：丢 token 时补 `AppLog.w` 留痕。
 - **L-8**（ocsbf P2-4 / xdsf P3-4）：`Type.kt` 仍缺 `bodySmall`/`labelMedium` M3 槽位
   （约 60 处硬编码 sp，见 UIUX V-03）。
 - **L-9**（ocsbf P1-4 / P1-3 残余）：星期标签 6 套实现并存（today/rem/cabinet/java.time SHORT/NARROW/
@@ -346,6 +349,8 @@
 - **L-11**（ocsbf P2-7）：三处缩进错乱误导事务边界：`ReminderSettingsViewModel.kt:416-457`
   （withTransaction 内两步缩进错乱）、`InventoryViewModel.kt:119-182`、
   `MedicationDetailViewModel.kt:176`（`}    /**` 挤同一行）。
+  ✅ 已修复（2026-10-02 卫生批次）：三处均为纯格式重排（withTransaction 块内 +4、
+  早期 return 后残留块 -4、挤行注释拆行），无行为变化。
 - **L-12**（ocsbf P3-3）：`DoseRecordDetailViewModel.kt:50-68,139-144` `isWithinEditWindow`/
   `isSameLocalDay` 在 getter 里实时读挂钟，跨午夜 UI 不重组（同文件 :109-116 KDoc 声明的纪律相反）。
 - **L-13**（xdsf 4.5）：`AlarmReceiver.kt:67` 日志中英混排（`"skip: no open slot for $key (已打卡/…)"`）。
@@ -363,10 +368,14 @@
 
 ### 测试卫生（L3 残余 + TEST-AUDIT 残余）
 - **L-18**：`SlotProjectionEngineProperties.kt:83-94` I6「同参数重复投影结果相同」对纯函数是恒真性质测试。
+  ✅ 已修复（2026-10-02 卫生批次）：整条删除。
 - **L-19**：`StatsDaoAggregationTest.kt:133-151` `slotStatusCounts_flowEmitsOnChange` 是
   `.first()` 前后各查一次的假响应式断言（Room cold Flow 下恒绿）。
+  ✅ 已修复（2026-10-02 卫生批次）：改写为先订阅（等首个发射）再提交变更的真响应式断言，
+  只有 InvalidationTracker 真正触发重发射才通过；实跑通过。
 - **L-20**：`AlarmReconcilerIdempotencyTest.kt:319` 旧 `isAtMost(before)` 未删
   （:336-348 已有强断言并存，冗余容忍缺陷行为）。
+  ✅ 已修复（2026-10-02 卫生批次）：删除，注释指向强断言测试。
 - **L-21**（TEST-AUDIT #4）：`DoseTest.kt:71` 演示型 `isAtMost` 断言（审计自评可不改）。
 - **L-22**（sbf P3-3）：弃用警告 7 处：`Icons.Default.Sort`（CabinetScreen.kt:140）+ 5 处裸 `.menuAnchor()`。
   ✅ 已修复（2026-10-02）：Sort 图标已改 AutoMirrored（a1d7fee）；menuAnchor 全部 8 处
@@ -377,9 +386,13 @@
 ### 杂项（P4）
 - **L-23**（round2 N11-l）：SAF `OpenDocument()` 未 `takePersistableUriPermission`（一次性读取场景，影响有限）。
 - **L-24**（DB C-35）：`DevDataReceiver` `clearAllTables()` 不复位 sqlite_sequence（debug-only）。
+  ✅ 已修复（2026-10-02 卫生批次）：清库后 `DELETE FROM sqlite_sequence`（runCatching 防表不存在）。
 - **L-25**（round2 N9 / sbf P3-10 / P3-11 / P3-12）：文档债——README 测试数写 420（实际 526+）、
   README 文档索引未收录新文档、`FINAL-ARCHITECTURE.md` 仍写「id 作为 RequestCode」与不存在的
   `snooze_count`、README/FINAL-PRODUCT 准时率优先级矛盾。
+  ✅ 已修复（2026-10-02 卫生批次）：README 测试数更新为 526+（并纠正 schema v2→v1、表数 7→8）、
+  文档索引补 OPEN-ISSUES/REVIEW 审计/CHANGES 系列；FINAL-ARCHITECTURE 删除 snooze_count 行、
+  改为内容寻址身份说明；FINAL-PRODUCT M-07 标注准时率暂缓待口径规范，与 README 对齐。
 
 ---
 

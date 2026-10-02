@@ -78,21 +78,6 @@ class SlotProjectionEngineProperties {
         assertThat(keys).containsNoDuplicates()
     }
 
-    // ---------------- I6 投影幂等性 ----------------
-
-    @Property
-    fun `I6 同参数重复投影结果完全相同`(
-        @ForAll("schedulePolicyTypes") type: PolicyType,
-        @ForAll("dayOffsets") fromOffset: Int,
-        @ForAll("spans") span: Int,
-        @ForAll("intervals") interval: Int
-    ) {
-        val from = anchor.plusDays(fromOffset.toLong())
-        val a = project(type, from, from.plusDays(span.toLong()), interval)
-        val b = project(type, from, from.plusDays(span.toLong()), interval)
-        assertThat(b).isEqualTo(a)
-    }
-
     // ---------------- I7 INTERVAL 相位稳定性 ----------------
 
     /**

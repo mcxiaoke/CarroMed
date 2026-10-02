@@ -124,75 +124,75 @@ class InventoryViewModel(
             )
             return
         }
-            val med = overview.medication
-            val stock = overview.stock
-            val policy = policyDao.getActivePolicyForMedication(medId)
-            val times = if (policy != null) policyDao.getTimesForPolicy(policy.id) else emptyList()
-            val txs = inventoryDao.getTransactionsForMedication(medId)
+        val med = overview.medication
+        val stock = overview.stock
+        val policy = policyDao.getActivePolicyForMedication(medId)
+        val times = if (policy != null) policyDao.getTimesForPolicy(policy.id) else emptyList()
+        val txs = inventoryDao.getTransactionsForMedication(medId)
 
-            // 日均消耗：按"排班日"折算，避免隔日/每周用药被高估消耗。
-            // ⚠️ doseAmount 是整数毫单位（D-7），必须先聚合成毫单位再一次性换算，
-            //    绝不能逐项 asFloat —— 那会把 1 片的两个时点算成 2.0 而不是 1.0。
-            val dosesPerScheduledDay = Dose(times.sumOf { it.doseAmount }).asFloat
-            val perWeek = scheduledDosesPerWeek(
-                policy?.policyType, policy?.intervalDays, policy?.daysOfWeek,
-                policy?.cycleOnDays, policy?.cycleOffDays
-            )
-            val (runway, alert) = StatsEngine.calculateStockRunwayBySchedule(
-                currentStock = stock,
-                dosesPerScheduledDay = dosesPerScheduledDay,
-                scheduledDosesPerWeek = perWeek,
-                // 必须传用户配置的预警线，否则本页的"低库存"判定会与今日页/药箱页不一致
-                // （引擎在 minStockAlert=0 时只剩"7 天内"一条硬规则）
-                minStockAlert = Dose(med.minStockAlert).asFloat
-            )
+        // 日均消耗：按"排班日"折算，避免隔日/每周用药被高估消耗。
+        // ⚠️ doseAmount 是整数毫单位（D-7），必须先聚合成毫单位再一次性换算，
+        //    绝不能逐项 asFloat —— 那会把 1 片的两个时点算成 2.0 而不是 1.0。
+        val dosesPerScheduledDay = Dose(times.sumOf { it.doseAmount }).asFloat
+        val perWeek = scheduledDosesPerWeek(
+            policy?.policyType, policy?.intervalDays, policy?.daysOfWeek,
+            policy?.cycleOnDays, policy?.cycleOffDays
+        )
+        val (runway, alert) = StatsEngine.calculateStockRunwayBySchedule(
+            currentStock = stock,
+            dosesPerScheduledDay = dosesPerScheduledDay,
+            scheduledDosesPerWeek = perWeek,
+            // 必须传用户配置的预警线，否则本页的"低库存"判定会与今日页/药箱页不一致
+            // （引擎在 minStockAlert=0 时只剩"7 天内"一条硬规则）
+            minStockAlert = Dose(med.minStockAlert).asFloat
+        )
 
-            val expiryDays = if (med.expiryDate.isNotBlank()) {
-                runCatching {
-                    ChronoUnit.DAYS.between(
-                        LocalDate.now(),
-                        LocalDate.parse(med.expiryDate)
-                    ).toInt()
-                }.getOrNull()
-            } else null
+        val expiryDays = if (med.expiryDate.isNotBlank()) {
+            runCatching {
+                ChronoUnit.DAYS.between(
+                    LocalDate.now(),
+                    LocalDate.parse(med.expiryDate)
+                ).toInt()
+            }.getOrNull()
+        } else null
 
-            _uiState.value = _uiState.value.copy(
-                medication = med,
-                frequencyDescription = describe(
-                    policy?.policyType, policy?.intervalDays, policy?.daysOfWeek, times
-                ),
-                isLoading = false,
-                isTracked = med.isStockTracked,
-                currentStock = stock,
-                minStockAlert = Dose(med.minStockAlert).asFloat,
-                runwayDays = runway,
-                isLowStock = alert,
-                dailyConsumption = if (perWeek > 0.0) dosesPerScheduledDay * (perWeek / 7.0).toFloat() else dosesPerScheduledDay,
-                // 草稿只在"用户还没动过"时跟随库值（ocsbf P1-1 残余）：
-                // 编辑期间的后台刷新不许吃掉输入。calibrateInput 见下方的 M7-3 注释。
-                expiryDate = if (expiryDraftDirty) _uiState.value.expiryDate else med.expiryDate,
-                daysToExpiry = expiryDays,
-                minStockAlertInput = if (alertDraftDirty) {
-                    _uiState.value.minStockAlertInput
-                } else {
-                    fmt(Dose(med.minStockAlert).asFloat)
-                },
-                transactions = txs,
-                // ⚠️ **不要**在这里重建 `calibrateInput`（M7-3）。
-                //
-                // `load()` 在保存成功、开关切换、盘点完成之后都会被调用，而用户可能
-                // 正在盘点框里敲到一半。旧实现无条件 `calibrateInput = fmt(stock)`，
-                // 于是用户敲的 "2" 被静默改写成当前账面 —— 他以为在填 20，
-                // 点保存时校准到的是账面原值，于是提示"账面与实物一致，无需调整"。
-                //
-                // 判据用"用户还没动过"而不是无条件回填：首次进入时给一个合理初值，
-                // 一旦用户输入过就**归他所有**，任何后台刷新都不许覆盖。
-                calibrateInput = if (_uiState.value.calibrateInput.isBlank()) {
-                    if (stock > 0f) fmt(stock) else ""
-                } else {
-                    _uiState.value.calibrateInput
-                }
-            )
+        _uiState.value = _uiState.value.copy(
+            medication = med,
+            frequencyDescription = describe(
+                policy?.policyType, policy?.intervalDays, policy?.daysOfWeek, times
+            ),
+            isLoading = false,
+            isTracked = med.isStockTracked,
+            currentStock = stock,
+            minStockAlert = Dose(med.minStockAlert).asFloat,
+            runwayDays = runway,
+            isLowStock = alert,
+            dailyConsumption = if (perWeek > 0.0) dosesPerScheduledDay * (perWeek / 7.0).toFloat() else dosesPerScheduledDay,
+            // 草稿只在"用户还没动过"时跟随库值（ocsbf P1-1 残余）：
+            // 编辑期间的后台刷新不许吃掉输入。calibrateInput 见下方的 M7-3 注释。
+            expiryDate = if (expiryDraftDirty) _uiState.value.expiryDate else med.expiryDate,
+            daysToExpiry = expiryDays,
+            minStockAlertInput = if (alertDraftDirty) {
+                _uiState.value.minStockAlertInput
+            } else {
+                fmt(Dose(med.minStockAlert).asFloat)
+            },
+            transactions = txs,
+            // ⚠️ **不要**在这里重建 `calibrateInput`（M7-3）。
+            //
+            // `load()` 在保存成功、开关切换、盘点完成之后都会被调用，而用户可能
+            // 正在盘点框里敲到一半。旧实现无条件 `calibrateInput = fmt(stock)`，
+            // 于是用户敲的 "2" 被静默改写成当前账面 —— 他以为在填 20，
+            // 点保存时校准到的是账面原值，于是提示"账面与实物一致，无需调整"。
+            //
+            // 判据用"用户还没动过"而不是无条件回填：首次进入时给一个合理初值，
+            // 一旦用户输入过就**归他所有**，任何后台刷新都不许覆盖。
+            calibrateInput = if (_uiState.value.calibrateInput.isBlank()) {
+                if (stock > 0f) fmt(stock) else ""
+            } else {
+                _uiState.value.calibrateInput
+            }
+        )
     }
 
     fun onMinStockAlertChange(v: String) {

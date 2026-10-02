@@ -165,11 +165,11 @@ python tools/app_screenshots.py --clear --seed
 | 语言 | Kotlin 2.0.21 |
 | UI | Jetpack Compose + Material 3（Compose BOM 2024.10.01） |
 | 导航 | Navigation Compose 2.8.3 |
-| 持久化 | Room 2.6.1（7 张表，schema v2） |
+| 持久化 | Room 2.6.1（8 张表，schema v1；未发布阶段不写迁移，改 schema 直接删库重装） |
 | 异步 | Coroutines + Flow |
 | 调度 | AlarmManager（`setExactAndAllowWhileIdle` / `setAlarmClock`） |
 | 构建 | AGP 8.11.1，Gradle Wrapper |
-| 测试 | JUnit4 + Robolectric 4.14.1 + Truth + room-testing（**420 项，全绿**） |
+| 测试 | JUnit4 + Robolectric 4.14.1 + Truth + jqwik + room-testing（**526+ 项，全绿**） |
 | minSdk / targetSdk | 26 (Android 8.0) / 35 |
 
 **无任何第三方运行时依赖**，无网络库、无图片加载库、无 DI 框架。
@@ -240,7 +240,7 @@ adb shell am start -n com.mcxiaoke.carromed/.MainActivity
 ./gradlew testDebugUnitTest
 ```
 
-420 项单元测试，全部基于**真实的内存 SQLite 数据库**（Robolectric），
+526+ 项单元测试，全部基于**真实的内存 SQLite 数据库**（Robolectric），
 不使用 mock 数据源 —— 领域层的数学守恒只有跑真库才验得出来。
 
 ---
@@ -259,7 +259,7 @@ CarroMed/
 │       ├── debug/kotlin/.../DevSampleDataSeeder.kt   # 仅 debug：演示数据播种
 │       ├── debug/kotlin/.../DevDataReceiver.kt       # 仅 debug：adb 遥控播种/清库
 │       ├── debug/AndroidManifest.xml                 # 仅 debug：注册上面那个 receiver
-│       └── test/kotlin/.../                          # 420 项单元测试
+│       └── test/kotlin/.../                          # 526+ 项单元测试
 ├── tools/app_screenshots.py    # 全屏页面自动走查截图
 ├── docs/                       # 设计与变更文档
 ├── temp/                       # 临时产物（git 忽略）：截图、数据库快照、脚本
@@ -294,7 +294,9 @@ CarroMed/
 | [docs/FINAL-UI.md](docs/FINAL-UI.md) | UI 终稿 |
 | [docs/APP_DESIGN_SPEC.md](docs/APP_DESIGN_SPEC.md) | App 设计规格 |
 | [docs/PLAN-REVIEW-20260927-v2r.md](docs/PLAN-REVIEW-20260927-v2r.md) | 2026-09-27 全面代码与 UI/UX 审查报告（12 P0 缺陷 + 分步计划 + 实施结果） |
-| [docs/CHANGES-20260927.md](docs/CHANGES-20260927.md) | 变更记录 |
+| [docs/OPEN-ISSUES-20261001.md](docs/OPEN-ISSUES-20261001.md) | 唯一有效的开放问题清单（全部历史 review 逐条核对后的汇总与决议） |
+| [docs/REVIEW-ALARM-NOTIFICATION-AUDIT-20261001.md](docs/REVIEW-ALARM-NOTIFICATION-AUDIT-20261001.md) 等 | 闹钟与通知链路专项审计（2026-10-01，三份） |
+| [docs/CHANGES-20260927.md](docs/CHANGES-20260927.md) 起 | 按日变更记录（CHANGES-20260927 ~ 最新） |
 | [AGENTS.md](AGENTS.md) | 编码助手入口（产品承诺 + 红线 + 收口自检） |
 | [DEVGUIDE.md](DEVGUIDE.md) | 开发 / 测试 / UI 走查完整流程与踩坑记录 |
 
@@ -306,7 +308,7 @@ CarroMed/
 
 - 13 个全屏页面全部实现并实测通过
 - 12 个 P0 缺陷全部修复（详见审查报告）
-- 420 项单元测试全绿；`assembleDebug` / `compileReleaseKotlin` / `testDebugUnitTest` 通过
+- 526+ 项单元测试全绿；`assembleDebug` / `compileReleaseKotlin` / `testDebugUnitTest` 通过
 - 模拟器（Android 15 / API 35）逐页实测通过
 
 ### 明确未做

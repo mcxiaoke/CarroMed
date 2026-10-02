@@ -184,7 +184,9 @@ class MedicationDetailViewModel(
                 recentRecords = recent,
                 doseSum = doseSum
             )
-    }    /**
+    }
+
+    /**
      * 每周实际排班天数，用于把日均消耗折算到"日历日"而非"服药日"。
      *
      * ## 为什么必须与 `InventoryViewModel` 逐字一致（M4-1）

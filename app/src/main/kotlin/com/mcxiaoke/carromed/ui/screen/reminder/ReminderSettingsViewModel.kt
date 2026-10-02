@@ -439,21 +439,21 @@ class ReminderSettingsViewModel(
                             )
                         }
                     )
-                )
-
-                // 提醒行为写回 reminder_settings (只写这三列，不动药品档案、库存、暂停状态)。
-                // P0-5 至此没有第二条写路径。snoozeMinutes 的 30 是 UI 的"跟随全局"档位，存 0。
-                adminService.saveReminderBehavior(
-                    MedicationAdminService.ReminderBehaviorDraft(
-                        medId = medId,
-                        isCriticalReminder = s.isCriticalReminder,
-                        // ⚠️ 这里**直接写**状态值，不再做 `== 30 → 0` 的翻译（M7-5）。
-                        // 旧翻译让"本药固定 30 分钟"永远存成"跟随全局"，于是 30 不可表达；
-                        // 而"跟随全局"现在有了显式档位（[FOLLOW_GLOBAL]），不需要再猜。
-                        snoozeMinutes = s.snoozeMinutes,
-                        advanceMinutes = s.advanceMinutes
                     )
-                )
+
+                    // 提醒行为写回 reminder_settings (只写这三列，不动药品档案、库存、暂停状态)。
+                    // P0-5 至此没有第二条写路径。snoozeMinutes 的 30 是 UI 的"跟随全局"档位，存 0。
+                    adminService.saveReminderBehavior(
+                        MedicationAdminService.ReminderBehaviorDraft(
+                            medId = medId,
+                            isCriticalReminder = s.isCriticalReminder,
+                            // ⚠️ 这里**直接写**状态值，不再做 `== 30 → 0` 的翻译（M7-5）。
+                            // 旧翻译让"本药固定 30 分钟"永远存成"跟随全局"，于是 30 不可表达；
+                            // 而"跟随全局"现在有了显式档位（[FOLLOW_GLOBAL]），不需要再猜。
+                            snoozeMinutes = s.snoozeMinutes,
+                            advanceMinutes = s.advanceMinutes
+                        )
+                    )
                 }
 
                 // 暂停归详情页的开关所有；提醒设置页只读展示，**不在这里改**

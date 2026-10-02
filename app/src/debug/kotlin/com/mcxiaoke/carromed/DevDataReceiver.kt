@@ -60,6 +60,12 @@ class DevDataReceiver : BroadcastReceiver() {
                             androidx.core.app.NotificationManagerCompat.from(appContext).cancelAll()
                         }.onFailure { AppLog.w(TAG, "cancel all notifications failed", it) }
                         db.clearAllTables()
+                        // clearAllTables 只 DELETE，不复位 AUTOINCREMENT 计数（DB C-35）：
+                        // 清库后再播种，新 id 会从上次的高位继续，走查截图与首启不一致。
+                        // sqlite_sequence 在无任何自增列行数前可能不存在，故 runCatching。
+                        runCatching {
+                            db.openHelper.writableDatabase.execSQL("DELETE FROM sqlite_sequence")
+                        }.onFailure { AppLog.w(TAG, "reset sqlite_sequence failed", it) }
                         // 清库后全量对账一轮：空库里没有任何开放槽位，
                         // rescheduleAll 会把系统里残留的旧闹钟全部撤掉。
                         runCatching {

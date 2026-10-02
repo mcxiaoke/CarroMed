@@ -125,7 +125,7 @@ erDiagram
 
 | 字段 | 类型 | 说明 |
 | :--- | :--- | :--- |
-| id | Long PK (自增) | **天然作为 AlarmManager 的全局唯一 RequestCode** |
+| id | Long PK (自增) | 槽位唯一标识；闹钟身份已改**内容寻址**（`carromed://alarm/{medId}/{date}/{time}/{kind}`，requestCode 恒为 0），id 不再直接作为 RequestCode |
 | medication_id | Long FK | 关联药品 ID |
 | policy_id | Long FK | 关联规则 ID |
 | scheduled_date | String | 本地日期 YYYY-MM-DD（统计与日历的核心归属键） |
@@ -133,7 +133,6 @@ erDiagram
 | dose_milli | Long | 计划剂量毫单位快照 |
 | status | String | `PENDING`(待服) / `SNOOZED`(推迟中) / `TAKEN`(已服) / `SKIPPED`(跳过) / `EXPIRED`(未确认过期) / `CANCELLED`(改计划取消) |
 | snooze_until | Long? | 推迟目标时间戳（毫秒） |
-| snooze_count | Int | 已推迟次数（上限 3 次） |
 | record_id | Long? | 打卡后关联的 `dose_records.id` |
 | updated_at | Long | 更新时间戳 |
 

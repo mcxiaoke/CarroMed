@@ -110,8 +110,17 @@ class AppConverters {
         list?.joinToString(separator = ",")
 
     @TypeConverter
-    fun toIntList(data: String?): List<Int> =
-        if (data.isNullOrEmpty()) emptyList() else data.split(",").mapNotNull { it.trim().toIntOrNull() }
+    fun toIntList(data: String?): List<Int> {
+        if (data.isNullOrEmpty()) return emptyList()
+        val tokens = data.split(",").filter { it.isNotBlank() }
+        val values = tokens.mapNotNull { it.trim().toIntOrNull() }
+        // 写路径（fromIntList + 服务层 1..7 校验）不会产出脏 token，这里出现丢 token
+        // 只可能是库被人改过或旧版本残留 —— 静默丢会让 daysOfWeek 变形且无迹可循（L-7）。
+        if (values.size < tokens.size) {
+            AppLog.w(TAG, "toIntList dropped invalid token(s): \"$data\"")
+        }
+        return values
+    }
 
     private companion object {
         const val TAG = "AppConverters"

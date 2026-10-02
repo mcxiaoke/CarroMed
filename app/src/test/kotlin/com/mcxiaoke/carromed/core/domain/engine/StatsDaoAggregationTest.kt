@@ -16,8 +16,14 @@ import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -130,24 +136,40 @@ class StatsDaoAggregationTest {
     }
 
     @Test
-    fun slotStatusCounts_flowEmitsOnChange() = runTest {
+    fun slotStatusCounts_flowReemitsAfterDataChange() = runBlocking {
         val medId = seedMed("环孢素")
         val today = LocalDate.now().format(SlotProjectionEngine.DATE_FORMATTER)
         seedSlot(medId, today, "10:30", SlotStatus.PENDING)
 
-        val before = slotDao.observeSlotStatusCounts(today, today).first()
-        assertThat(StatsEngine.aggregateBreakdowns(before).getValue(medId).getValue(today).pending)
-            .isEqualTo(1)
+        // 真响应式断言（L-19）：旧实现 .first() 前后各查一次，Room 冷流下恒绿。
+        // 这里先订阅、等首个发射（此时 InvalidationTracker 观察者已注册），
+        // 再提交变更 —— 只有真正的重发射才能让 completed==1 到达，
+        // 若数据变更不触发重发射，下方 withTimeout 会失败。
+        val initial = CompletableDeferred<Unit>()
+        val completed = CompletableDeferred<Unit>()
+        val job = launch {
+            slotDao.observeSlotStatusCounts(today, today)
+                .onEach { rows ->
+                    val breakdown =
+                        StatsEngine.aggregateBreakdowns(rows).getValue(medId).getValue(today)
+                    if (breakdown.completed == 0) initial.complete(Unit)
+                    if (breakdown.completed == 1) completed.complete(Unit)
+                }
+                .collect()
+        }
+        try {
+            withTimeout(10_000) { initial.await() }
 
-        slotDao.forceStatusForTest(
-            slotDao.getSlotsForDate(today).first().id,
-            SlotStatus.COMPLETED,
-            System.currentTimeMillis()
-        )
+            slotDao.forceStatusForTest(
+                slotDao.getSlotsForDate(today).first().id,
+                SlotStatus.COMPLETED,
+                System.currentTimeMillis()
+            )
 
-        val after = slotDao.observeSlotStatusCounts(today, today).first()
-        assertThat(StatsEngine.aggregateBreakdowns(after).getValue(medId).getValue(today).completed)
-            .isEqualTo(1)
+            withTimeout(10_000) { completed.await() }
+        } finally {
+            job.cancel()
+        }
     }
 
     @Test

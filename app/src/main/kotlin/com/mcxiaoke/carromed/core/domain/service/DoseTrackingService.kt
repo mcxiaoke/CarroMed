@@ -130,7 +130,9 @@ class DoseTrackingService(
         changeAmount: Dose,
         txType: TransactionType,
         note: String?,
-        noteKey: String? = null
+        noteKey: String? = null,
+        batchNumber: String? = null,
+        expiryDate: String? = null
     ) {
         val balanceAfter = balanceOf(medicationId) + changeAmount.milli
         inventoryDao.insert(
@@ -141,7 +143,9 @@ class DoseTrackingService(
                 balanceAfter = balanceAfter,
                 txType = txType,
                 note = note,
-                noteKey = noteKey
+                noteKey = noteKey,
+                batchNumber = batchNumber,
+                expiryDate = expiryDate
             )
         )
         // 台账审计线（PLAN-LOGGING G1）：余额出问题时，这条 INFO 与
@@ -943,28 +947,22 @@ class DoseTrackingService(
         require(addedAmount > 0f && addedAmount.isFinite()) {
             "入库数量必须大于 0，当前 $addedAmount"
         }
-        val medication = medDao.getMedicationById(medicationId) ?: run {
+        if (medDao.getMedicationById(medicationId) == null) {
             AppLog.w(TAG, "refillStock rejected med=$medicationId reason=med-missing")
             return@withTransaction false
         }
 
-        val balanceAfter = balanceOf(medicationId) + Dose.of(addedAmount).milli
-        inventoryDao.insert(
-            InventoryTransactionEntity(
-                medicationId = medicationId,
-                recordId = null,
-                changeAmount = Dose.of(addedAmount).milli,
-                balanceAfter = balanceAfter,
-                txType = TransactionType.REFILL,
-                note = note,
-                noteKey = LedgerNoteKey.REFILL.name,
-                batchNumber = batchNumber,
-                expiryDate = expiryDate
-            )
-        )
-        AppLog.i(
-            TAG,
-            "refillStock ok med=$medicationId addedMilli=${Dose.of(addedAmount).milli} balanceAfter=$balanceAfter"
+        // 统一走 appendLedger 唯一入口（L-4）：余额快照与审计日志与打卡/盘点同源，
+        // 不在这里自算 balanceAfter。
+        appendLedger(
+            medicationId = medicationId,
+            recordId = null,
+            changeAmount = Dose.of(addedAmount),
+            txType = TransactionType.REFILL,
+            note = note,
+            noteKey = LedgerNoteKey.REFILL.name,
+            batchNumber = batchNumber,
+            expiryDate = expiryDate
         )
         return@withTransaction true
     }

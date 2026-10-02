@@ -315,9 +315,9 @@ class AlarmReconcilerIdempotencyTest {
         db.medicationDao().updateArchiveStatus(medId, isArchived = true)
         AlarmReconciler.rescheduleAll(context, db)
 
-        // 归档药不再被排新槽位
-        assertThat(openSlotsOf(medId).size).isAtMost(before)
-        // 另一味药照常排班 ⇒ 过滤是按药品粒度的，没有误伤
+        // 另一味药照常排班 ⇒ 过滤是按药品粒度的，没有误伤。
+        // 归档药不得残留开放槽位的强断言在下一测试（旧的 isAtMost(before)
+        // 会把"槽位残留"放进容差，容忍缺陷行为，已删除）。
         assertThat(openSlotsOf(otherId)).isNotEmpty()
     }
 
