@@ -31,6 +31,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // ABI 拆分仅在本机打包脚本传入 -PabiSplits 时启用（tools/package_apks.py），
+    // 日常构建与 CI 不受影响。产出 arm64-v8a / x86_64 / universal 三个 APK。
+    splits {
+        abi {
+            isEnable = project.hasProperty("abiSplits")
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
     signingConfigs {
         create("release") {
             if (hasReleaseKey) {

@@ -19,6 +19,8 @@ google-services.json
 *.apk
 *.ap_
 *.aab
+# 打包脚本（tools/package_apks.py）的产物目录
+dist/
 
 # 4. Android Studio & IDE 配置
 .idea/
