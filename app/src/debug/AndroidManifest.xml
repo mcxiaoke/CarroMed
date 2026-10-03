@@ -13,6 +13,7 @@
                 <action android:name="com.mcxiaoke.carromed.dev.SEED" />
                 <action android:name="com.mcxiaoke.carromed.dev.CLEAR" />
                 <action android:name="com.mcxiaoke.carromed.dev.CRASH" />
+                <action android:name="com.mcxiaoke.carromed.dev.EXPORT" />
             </intent-filter>
         </receiver>
 

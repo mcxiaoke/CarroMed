@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import com.mcxiaoke.carromed.core.data.AppDatabase
 import com.mcxiaoke.carromed.core.data.DevSampleDataSeeder
+import com.mcxiaoke.carromed.core.data.DownloadsLogExporter
+import com.mcxiaoke.carromed.core.alarm.AppLogging
 import com.mcxiaoke.carromed.core.domain.AppLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +54,19 @@ class DevDataReceiver : BroadcastReceiver() {
                         AppLog.i(TAG, "Dev data seeded: ${db.medicationDao().getAllMedications().size} medication(s)")
                     }
 
+                    ACTION_EXPORT -> {
+                        // 手动验证诊断外投链路：崩溃现场那次是"尽力而为"，
+                        // 这里走启动补投的同一条路径，可主动触发一次。
+                        val now = System.currentTimeMillis()
+                        val dir = AppLogging.logDir(appContext)
+                        val written = DownloadsLogExporter.exportAll(appContext, dir, now)
+                        AppLog.i(
+                            TAG,
+                            "dev export -> ${if (written.isEmpty()) "nothing to export" else written.joinToString()} " +
+                                "(via ${DownloadsLogExporter.activePathLabel(appContext)})"
+                        )
+                    }
+
                     ACTION_CLEAR -> {
                         // 清库前撤掉托盘全部通知（osbf P3-8）：旧提醒还挂着，
                         // 走查截图带僵尸通知；清库后逐槽位撤闹钟已无从做起，
@@ -89,5 +104,6 @@ class DevDataReceiver : BroadcastReceiver() {
         const val ACTION_SEED = "com.mcxiaoke.carromed.dev.SEED"
         const val ACTION_CLEAR = "com.mcxiaoke.carromed.dev.CLEAR"
         const val ACTION_CRASH = "com.mcxiaoke.carromed.dev.CRASH"
+        const val ACTION_EXPORT = "com.mcxiaoke.carromed.dev.EXPORT"
     }
 }
