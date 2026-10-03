@@ -13,6 +13,7 @@ import com.mcxiaoke.carromed.core.domain.engine.SlotActionPolicy
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.core.alarm.DoseEntryActions
+import com.mcxiaoke.carromed.core.time.CurrentDateHolder
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.core.domain.service.MANUAL_DOSE_BACKFILL_DAYS
 import com.mcxiaoke.carromed.ui.component.DecimalInput
@@ -47,8 +48,7 @@ import java.time.ZoneId
  */
 const val EDITABLE_WINDOW_DAYS: Long = MANUAL_DOSE_BACKFILL_DAYS
 
-fun isWithinEditWindow(actualTs: Long): Boolean {
-    val today = LocalDate.now()
+fun isWithinEditWindow(actualTs: Long, today: LocalDate = LocalDate.now()): Boolean {
     val day = Instant.ofEpochMilli(actualTs).atZone(ZoneId.systemDefault()).toLocalDate()
     val age = java.time.temporal.ChronoUnit.DAYS.between(day, today)
     return age in 0..EDITABLE_WINDOW_DAYS
@@ -66,6 +66,9 @@ fun isSameLocalDay(a: Long, b: Long): Boolean {
     return Instant.ofEpochMilli(a).atZone(zone).toLocalDate() ==
         Instant.ofEpochMilli(b).atZone(zone).toLocalDate()
 }
+
+private fun Long.toLocalDate(): LocalDate =
+    Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
 
 /**
  * 统一「记录详情页」的界面状态。
@@ -121,6 +124,16 @@ data class DoseEntryUiState(
      * 与 `record.actualTs` 分开存：`record` 代表**已落库的事实**，
      * 就地改会让用户在没点保存前就看到"已经改了"的假象。
      */
+    /**
+     * 「今天」的可观察事实（L-12）。
+     *
+     * 与 [isActionable] 同一条纪律：状态类自己**不读挂钟**，判据用的"今天"由
+     * ViewModel 从 [com.mcxiaoke.carromed.core.time.CurrentDateHolder] 灌进来。
+     * 此前 [isToday] / [withinEditWindow] 在 getter 里实时读挂钟 —— 跨午夜时
+     * 没有任何状态变化，Compose 不重组，页面继续按昨天判"仅当天可撤销"。
+     * 现在午夜翻面时 ViewModel 会写入新 today，StateFlow 发射 ⇒ 重组 ⇒ 判据刷新。
+     */
+    val today: LocalDate = LocalDate.now(),
     val pendingActualTs: Long? = null,
     val globalSnoozeMinutes: Int = 30,
     val isSaving: Boolean = false,
@@ -135,13 +148,13 @@ data class DoseEntryUiState(
 
     val isReverted: Boolean get() = record?.status == RecordStatus.REVERTED
 
-    /** 有事实，且发生在今天 —— 「撤销仅当天」的唯一判据 */
+    /** 有事实，且发生在今天 —— 「撤销仅当天」的唯一判据（today 为可观察字段，见其 KDoc） */
     val isToday: Boolean
-        get() = record?.let { isSameLocalDay(it.actualTs, System.currentTimeMillis()) } ?: false
+        get() = record?.actualTs?.toLocalDate() == today
 
     /** 手动补录记录的 7 天窗口（与补录时间窗同源，见 [EDITABLE_WINDOW_DAYS]） */
     val withinEditWindow: Boolean
-        get() = record?.let { isWithinEditWindow(it.actualTs) } ?: false
+        get() = record?.let { isWithinEditWindow(it.actualTs, today) } ?: false
 
     /**
      * 确认服用。
@@ -271,6 +284,14 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
     private var slotJob: Job? = null
 
     init {
+        // 「今天」走可观察事实（L-12）：跨午夜 / 进程回前台时 CurrentDateHolder
+        // 发射新日期 ⇒ 状态里 today 刷新 ⇒ isToday / withinEditWindow 判据随之重组。
+        // 与今日页/进展页同一来源，本页不再自建定时器。
+        viewModelScope.launch {
+            CurrentDateHolder.today.collect { d ->
+                _uiState.update { it.copy(today = d) }
+            }
+        }
         // 推迟档位的默认档来自全局设置（与今日页长按弹窗同一个来源）
         viewModelScope.launch {
             db.appSettingDao().observeValue(ReminderSettings.KEY_SNOOZE_MINUTES).collect { v ->

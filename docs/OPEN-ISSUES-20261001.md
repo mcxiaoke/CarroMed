@@ -13,6 +13,11 @@
 > 同批次 DB 版本**归零为 v1 并移除一切升级/回退**（未发布），本清单中原按 v10 论述的
 > 迁移/索引条目均已随之失效。详情见 `CHANGES-20261002.md` 顶部。
 >
+> **2026-10-03 批次（收益大风险小）**：再收掉 §二-23（导出流式化）、
+> L-8（Typography 补槽位）、L-9（WeekLabels 单一实现）、
+> L-12（记录详情页挂钟改可观察）、L-17（dose_records 复合索引）。
+> 详情见 `CHANGES-20261003.md` 顶部。
+>
 > **生成时间**：2026-10-01 19:09 (GMT+8)，基于工作区 HEAD `97612a7`（含 9/30–10/1 全部修复批次）。
 >
 > **本文档取代此前所有 review 与问题清单，是唯一有效的开放问题清单。**
@@ -227,12 +232,16 @@
   频繁前后台切换时线性叠加。
 - 修法：AlarmReconciler 内置 lastFullReconcileAt 节流（如 5 分钟），显式路径（保存/恢复）不受节流。
 
-### 23. 备份导出全量驻留内存
+### 23. 备份导出全量驻留内存 ✅ 已修复（2026-10-03）
 - 来源：xdsf P2-4
 - 现状：`DataExporter.kt:939,956` `file.writeText(encodeBackup(buildBackup(db)))` 整对象编码；
   CSV 仍 StringBuilder 全量拼接。恢复侧已分块（chunked(50)）但导出侧未流式化；
   `writeSafetySnapshot` 在恢复链路中 OOM 会中断恢复。
 - 修法：JSON 按表流式写入；CSV 分批 append。保留事务包裹。
+- **实施（2026-10-03）**：JSON 改 `Json.encodeToStream` 流式写入
+  （`writeBackupStreaming`，产物与 `encodeBackup` 逐字节一致，`BackupRoundTripTest`
+  真实读回验证）；CSV 改 `bufferedWriter` 逐行写入（BOM/转义/公式防护不变）。
+  统计页导出 CSV 实测正常。
 
 ### 24. 详情页不解析「0=跟随全局」推迟哨兵 ✅ 已修复（2026-10-02，UI 走查批次）
 - 来源：ocsbf P1-6
@@ -350,9 +359,14 @@
   ✅ 已修复（2026-10-02 卫生批次）：丢 token 时补 `AppLog.w` 留痕。
 - **L-8**（ocsbf P2-4 / xdsf P3-4）：`Type.kt` 仍缺 `bodySmall`/`labelMedium` M3 槽位
   （约 60 处硬编码 sp，见 UIUX V-03）。
+  ✅ 已修复（2026-10-03）：两槽位按 M3 默认值补齐（当前零调用方、零行为变化），
+  逐处迁移 60 处硬编码 sp 留待后续。
 - **L-9**（ocsbf P1-4 / P1-3 残余）：星期标签 6 套实现并存（today/rem/cabinet/java.time SHORT/NARROW/
   日历硬编码中文），周起始不一致（今日 ±3 天按选中日 vs 月历周一起）——抽 `WeekLabels` 单一实现；
   `DoseHistoryCalendarSheet.kt:133` 硬编码 `listOf("周一",…)` 应改 `DayOfWeek.getDisplayName`。
+  ✅ 已修复（2026-10-03）：新增 `ui/component/WeekLabels`（short/narrow 两档，
+  中文输出与原资源逐字相同），迁移今日页/月历/提醒设置/库存/进展全部调用点，
+  删除 14 条星期字符串资源；周起始差异维持现状（有「回到今天」入口后可接受）。
 - **L-10**（ocsbf P2-6）：`SchedulePolicyDao.kt:96` 注释称空 id 集合「必须由调用方短路」，
   实际 `IN ()` 由 Room 处理且唯一调用方未短路也正常——注释与事实相反。
   ✅ 已修复（2026-10-02，a1d7fee）：注释已更正。
@@ -363,6 +377,9 @@
   早期 return 后残留块 -4、挤行注释拆行），无行为变化。
 - **L-12**（ocsbf P3-3）：`DoseRecordDetailViewModel.kt:50-68,139-144` `isWithinEditWindow`/
   `isSameLocalDay` 在 getter 里实时读挂钟，跨午夜 UI 不重组（同文件 :109-116 KDoc 声明的纪律相反）。
+  ✅ 已修复（2026-10-03）：`DoseEntryUiState` 新增可观察字段 `today`（VM 从
+  `CurrentDateHolder.today` 灌入），`isToday`/`withinEditWindow` 判据改用该字段，
+  跨午夜由状态发射驱动重组；`isWithinEditWindow` 加 `today` 参数保持测试兼容。
 - **L-13**（xdsf 4.5）：`AlarmReceiver.kt:67` 日志中英混排（`"skip: no open slot for $key (已打卡/…)"`）。
   ✅ 已修复（2026-10-02，62b2e42）：改纯英文。
 - **L-14**（orsbf P3）：文档注释失真三处：`BackupFormat.kt:31` 引用不存在的 `schemaVersion` 字段；
@@ -375,6 +392,9 @@
 - **L-16**（DB C-30）：`dose_slots.policy_id` 无索引无设计说明（当前无按它过滤的查询，可记录「有意不加」）。
 - **L-17**（orsbf P3）：`DoseRecordEntity` 缺 `(medication_id, actual_ts)` 复合索引
   （keyset 分页查询现在只有主键序扫描可用）。
+  ✅ 已修复（2026-10-03）：单列 `(medication_id)` 升级为 `(medication_id, actual_ts)`
+  复合索引（最左前缀仍覆盖外键），schema `1.json` 再生，
+  `AppDatabaseRealTest` 新增 PRAGMA 断言（复合索引有序命中 + 四索引覆盖不丢）。
 
 ### 测试卫生（L3 残余 + TEST-AUDIT 残余）
 - **L-18**：`SlotProjectionEngineProperties.kt:83-94` I6「同参数重复投影结果相同」对纯函数是恒真性质测试。

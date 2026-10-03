@@ -24,7 +24,9 @@ import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.encodeToStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -288,40 +290,48 @@ object DataExporter {
         }
 
         val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
-        val sb = StringBuilder()
-        sb.append(BOM)
-        sb.append(context.getString(R.string.csv_header_dose_records)).append('\n')
-        val unknownMed = context.getString(R.string.csv_value_unknown_medication)
-        for (r in records) {
-            val med = medMap[r.medicationId]
-            val statusText = when (r.status) {
-                RecordStatus.COMPLETED -> if (r.isRetrospective) {
-                    context.getString(R.string.csv_status_completed_retro)
-                } else {
-                    context.getString(R.string.csv_status_completed)
-                }
-                RecordStatus.SKIPPED -> context.getString(R.string.csv_status_skipped)
-                RecordStatus.REVERTED -> context.getString(R.string.csv_status_reverted)
-            }
-            val typeText = if (r.slotId != null) {
-                context.getString(R.string.csv_record_type_planned)
-            } else {
-                context.getString(R.string.csv_record_type_manual)
-            }
-            sb.append(escapeCsv(fmt.format(Date(r.actualTs)))).append(',')
-            sb.append(escapeCsv(med?.name ?: unknownMed)).append(',')
-            sb.append(Dose(r.doseTaken).asFloat).append(',')
-            sb.append(escapeCsv(med?.unit ?: "")).append(',')
-            sb.append(escapeCsv(statusText)).append(',')
-            sb.append(escapeCsv(typeText)).append(',')
-            sb.append(escapeCsv(MedVocab.recordNoteDisplay(context, r.noteKey, r.note) ?: "")).append('\n')
-        }
-
         val file = File(
             exportDir(context),
             context.getString(R.string.csv_file_dose_records) + timestamp() + ".csv"
         )
-        file.writeText(sb.toString(), Charsets.UTF_8)
+        // 分批流式写入（§二-23）：不再把全量 CSV 拼成一个大 StringBuilder 再落盘
+        file.bufferedWriter(Charsets.UTF_8).use { w ->
+            w.write(BOM)
+            w.write(context.getString(R.string.csv_header_dose_records))
+            w.write("\n")
+            val unknownMed = context.getString(R.string.csv_value_unknown_medication)
+            for (r in records) {
+                val med = medMap[r.medicationId]
+                val statusText = when (r.status) {
+                    RecordStatus.COMPLETED -> if (r.isRetrospective) {
+                        context.getString(R.string.csv_status_completed_retro)
+                    } else {
+                        context.getString(R.string.csv_status_completed)
+                    }
+                    RecordStatus.SKIPPED -> context.getString(R.string.csv_status_skipped)
+                    RecordStatus.REVERTED -> context.getString(R.string.csv_status_reverted)
+                }
+                val typeText = if (r.slotId != null) {
+                    context.getString(R.string.csv_record_type_planned)
+                } else {
+                    context.getString(R.string.csv_record_type_manual)
+                }
+                w.write(escapeCsv(fmt.format(Date(r.actualTs))))
+                w.write(",")
+                w.write(escapeCsv(med?.name ?: unknownMed))
+                w.write(",")
+                w.write(Dose(r.doseTaken).asFloat.toString())
+                w.write(",")
+                w.write(escapeCsv(med?.unit ?: ""))
+                w.write(",")
+                w.write(escapeCsv(statusText))
+                w.write(",")
+                w.write(escapeCsv(typeText))
+                w.write(",")
+                w.write(escapeCsv(MedVocab.recordNoteDisplay(context, r.noteKey, r.note) ?: ""))
+                w.write("\n")
+            }
+        }
         file
     }
 
@@ -339,40 +349,50 @@ object DataExporter {
         }
 
         val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
-        val sb = StringBuilder()
-        sb.append(BOM)
-        sb.append(context.getString(R.string.csv_header_inventory)).append('\n')
-        val unknownMed = context.getString(R.string.csv_value_unknown_medication)
-        for (t in txs) {
-            val med = medMap[t.medicationId]
-            val typeText = when (t.txType) {
-                com.mcxiaoke.carromed.core.data.model.TransactionType.TAKEN_DEDUCT ->
-                    context.getString(R.string.csv_tx_type_taken_deduct)
-                com.mcxiaoke.carromed.core.data.model.TransactionType.REFILL ->
-                    context.getString(R.string.csv_tx_type_refill)
-                com.mcxiaoke.carromed.core.data.model.TransactionType.REVERT_ROLLBACK ->
-                    context.getString(R.string.csv_tx_type_revert_rollback)
-                com.mcxiaoke.carromed.core.data.model.TransactionType.CALIBRATION_ADJUST ->
-                    context.getString(R.string.csv_tx_type_calibration_adjust)
-                com.mcxiaoke.carromed.core.data.model.TransactionType.DOSE_EDIT_ADJUST ->
-                    context.getString(R.string.csv_tx_type_dose_edit_adjust)
-            }
-            sb.append(escapeCsv(fmt.format(Date(t.createdAt)))).append(',')
-            sb.append(escapeCsv(med?.name ?: unknownMed)).append(',')
-            sb.append(Dose(t.changeAmount).asFloat).append(',')
-            sb.append(escapeCsv(med?.unit ?: "")).append(',')
-            sb.append(Dose(t.balanceAfter).asFloat).append(',')
-            sb.append(escapeCsv(typeText)).append(',')
-            sb.append(escapeCsv(t.batchNumber ?: "")).append(',')
-            sb.append(escapeCsv(t.expiryDate ?: "")).append(',')
-            sb.append(escapeCsv(MedVocab.ledgerNoteDisplay(context, t.noteKey, t.note) ?: "")).append('\n')
-        }
-
         val file = File(
             exportDir(context),
             context.getString(R.string.csv_file_inventory) + timestamp() + ".csv"
         )
-        file.writeText(sb.toString(), Charsets.UTF_8)
+        // 分批流式写入（§二-23）：同 exportDoseRecordsCsv
+        file.bufferedWriter(Charsets.UTF_8).use { w ->
+            w.write(BOM)
+            w.write(context.getString(R.string.csv_header_inventory))
+            w.write("\n")
+            val unknownMed = context.getString(R.string.csv_value_unknown_medication)
+            for (t in txs) {
+                val med = medMap[t.medicationId]
+                val typeText = when (t.txType) {
+                    com.mcxiaoke.carromed.core.data.model.TransactionType.TAKEN_DEDUCT ->
+                        context.getString(R.string.csv_tx_type_taken_deduct)
+                    com.mcxiaoke.carromed.core.data.model.TransactionType.REFILL ->
+                        context.getString(R.string.csv_tx_type_refill)
+                    com.mcxiaoke.carromed.core.data.model.TransactionType.REVERT_ROLLBACK ->
+                        context.getString(R.string.csv_tx_type_revert_rollback)
+                    com.mcxiaoke.carromed.core.data.model.TransactionType.CALIBRATION_ADJUST ->
+                        context.getString(R.string.csv_tx_type_calibration_adjust)
+                    com.mcxiaoke.carromed.core.data.model.TransactionType.DOSE_EDIT_ADJUST ->
+                        context.getString(R.string.csv_tx_type_dose_edit_adjust)
+                }
+                w.write(escapeCsv(fmt.format(Date(t.createdAt))))
+                w.write(",")
+                w.write(escapeCsv(med?.name ?: unknownMed))
+                w.write(",")
+                w.write(Dose(t.changeAmount).asFloat.toString())
+                w.write(",")
+                w.write(escapeCsv(med?.unit ?: ""))
+                w.write(",")
+                w.write(Dose(t.balanceAfter).asFloat.toString())
+                w.write(",")
+                w.write(escapeCsv(typeText))
+                w.write(",")
+                w.write(escapeCsv(t.batchNumber ?: ""))
+                w.write(",")
+                w.write(escapeCsv(t.expiryDate ?: ""))
+                w.write(",")
+                w.write(escapeCsv(MedVocab.ledgerNoteDisplay(context, t.noteKey, t.note) ?: ""))
+                w.write("\n")
+            }
+        }
         file
     }
 
@@ -562,6 +582,23 @@ object DataExporter {
     }
 
     fun encodeBackup(backup: BackupFile): String = json.encodeToString(BackupFile.serializer(), backup)
+
+    /**
+     * 把备份**流式**写入文件（§二-23）。
+     *
+     * `encodeBackup` + `writeText` 会先物化出整份 JSON 字符串（等于数据体积 ×2 的
+     * 额外峰值内存），记录量大时导出卡顿、恢复前的安全快照甚至可能在恢复链路中 OOM。
+     * [kotlinx.serialization.encodeToStream] 走流式编码器逐元素写出，
+     * 编码配置（prettyPrint 等）与 [encodeBackup] 完全一致，产物逐字节相同。
+     * 备份对象本身仍在内存里（读取侧的读事务需要一致快照），省掉的是 JSON 字符串这份复制。
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun writeBackupStreaming(backup: BackupFile, file: File) {
+        file.outputStream().buffered().use { out ->
+            json.encodeToStream(BackupFile.serializer(), backup, out)
+            out.flush()
+        }
+    }
 
     fun decodeBackup(text: String): BackupFile = json.decodeFromString(BackupFile.serializer(), text)
 
@@ -976,7 +1013,7 @@ object DataExporter {
             exportDir(context),
             context.getString(R.string.csv_file_backup) + timestamp() + ".json"
         )
-        file.writeText(encodeBackup(buildBackup(db)), Charsets.UTF_8)
+        writeBackupStreaming(buildBackup(db), file)
         AppLog.i(TAG, "full backup written: ${file.name}")
         file
     }
@@ -994,7 +1031,7 @@ object DataExporter {
                 exportDir(context),
                 context.getString(R.string.csv_file_snapshot) + timestamp() + ".json"
             )
-            file.writeText(encodeBackup(buildBackup(db)), Charsets.UTF_8)
+            writeBackupStreaming(buildBackup(db), file)
             AppLog.i(TAG, "safety snapshot written: ${file.name}")
             file
         }

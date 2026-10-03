@@ -49,6 +49,15 @@ val Typography = Typography(
         lineHeight = 18.sp,
         letterSpacing = 0.25.sp
     ),
+    // bodySmall / labelMedium：补齐 M3 槽位表（L-8），数值即 M3 默认值。
+    // 目前无调用方（大量小字仍硬编码 sp，见 UIUX V-03），先落槽位再逐处收敛。
+    bodySmall = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.4.sp
+    ),
     titleSmall = TextStyle(
         // ⚠️ 显式覆盖，尽管数值与 M3 默认值相同（M7-9）。
         //
@@ -65,6 +74,13 @@ val Typography = Typography(
         fontSize = 14.sp,
         lineHeight = 20.sp,
         letterSpacing = 0.1.sp
+    ),
+    labelMedium = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Medium,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.5.sp
     ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.Default,

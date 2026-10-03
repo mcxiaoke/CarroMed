@@ -46,13 +46,6 @@
     <string name="today_cd_skipped">已跳过</string>
     <string name="today_skipped_card_title">%1$s · %2$s</string>
     <string name="today_skipped_detail">已跳过 · 未扣减余量</string>
-    <string name="today_weekday_1">一</string>
-    <string name="today_weekday_2">二</string>
-    <string name="today_weekday_3">三</string>
-    <string name="today_weekday_4">四</string>
-    <string name="today_weekday_5">五</string>
-    <string name="today_weekday_6">六</string>
-    <string name="today_weekday_7">日</string>
     <string name="today_cd_date">日期 %1$d月%2$d日 周%3$s</string>
     <string name="today_cd_today_suffix">，今天</string>
     <string name="today_cd_future_suffix">，未来用药预览</string>

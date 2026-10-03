@@ -13,6 +13,7 @@ import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.time.CurrentDateHolder
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
+import com.mcxiaoke.carromed.ui.component.WeekLabels
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -29,8 +30,6 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.format.TextStyle
-import java.util.Locale
 
 data class DayAdherence(
     val date: LocalDate,
@@ -405,13 +404,11 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
         (6 downTo 0).map { today.minusDays(it.toLong()) }
 
     /**
-     * 星期标签走 `java.time` 本地化格式化而不是字符串资源：
+     * 星期标签走 WeekLabels 唯一实现（L-9，内部是 `java.time` 本地化格式化）：
      * 中文环境给出「周一」…「周日」，其他语言自动跟随系统（"Mon"…）。
-     * 用 [TextStyle.SHORT]：与旧版两字宽度一致，矩阵列宽只有 36dp，
-     * 英文环境 FULL 的 "Monday" 会撑破布局。
+     * SHORT 两字宽度与矩阵列宽 36dp 匹配，英文环境 FULL 的 "Monday" 会撑破布局。
      */
-    private fun dayLabelOf(d: LocalDate): String =
-        d.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    private fun dayLabelOf(d: LocalDate): String = WeekLabels.short(d.dayOfWeek)
 
     fun selectTab(tab: Int) {
         _selectedTab.value = tab

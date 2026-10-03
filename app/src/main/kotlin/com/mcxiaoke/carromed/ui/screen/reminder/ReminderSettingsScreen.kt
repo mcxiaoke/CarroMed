@@ -80,8 +80,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.PolicyType
 import com.mcxiaoke.carromed.ui.component.MedVocab
+import com.mcxiaoke.carromed.ui.component.WeekLabels
 import com.mcxiaoke.carromed.ui.screen.edit.MedicationFormOptions
 import com.mcxiaoke.carromed.ui.screen.edit.ReadOnlyDateField
+import java.time.DayOfWeek
 import java.util.Locale
 
 /**
@@ -260,15 +262,7 @@ fun ReminderSettingsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                val labels = listOf(
-                                    stringResource(R.string.rem_weekday_1),
-                                    stringResource(R.string.rem_weekday_2),
-                                    stringResource(R.string.rem_weekday_3),
-                                    stringResource(R.string.rem_weekday_4),
-                                    stringResource(R.string.rem_weekday_5),
-                                    stringResource(R.string.rem_weekday_6),
-                                    stringResource(R.string.rem_weekday_7)
-                                )
+                                val labels = (1..7).map { WeekLabels.short(DayOfWeek.of(it)) }
                                 (1..7).forEach { day ->
                                     FilterChip(
                                         selected = day in uiState.daysOfWeek,

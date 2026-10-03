@@ -45,12 +45,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
+import com.mcxiaoke.carromed.ui.component.WeekLabels
 import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.SuccessGreenContainer
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
 import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -129,8 +131,9 @@ fun DoseHistoryCalendarSheet(
 
             Spacer(Modifier.height(16.dp))
 
-            // 2. 星期表头 (周一至周日)
-            val weekDays = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+            // 2. 星期表头 (周一至周日)：唯一实现 WeekLabels（L-9），
+            // 替换硬编码中文——原实现在英文系统下仍显示中文。
+            val weekDays = (1..7).map { WeekLabels.short(DayOfWeek.of(it)) }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceAround

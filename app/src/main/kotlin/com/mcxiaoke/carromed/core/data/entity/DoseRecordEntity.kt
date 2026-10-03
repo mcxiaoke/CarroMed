@@ -22,7 +22,10 @@ import com.mcxiaoke.carromed.core.data.model.RecordStatus
         )
     ],
     indices = [
-        Index(value = ["medication_id"]),
+        // 复合索引 (medication_id, actual_ts)：keyset 分页（单药历史按
+        // medication_id 过滤 + actual_ts 排序）此前只吃主键序扫描（L-17）。
+        // 最左前缀覆盖外键 medication_id，替代原单列索引，不新增冗余。
+        Index(value = ["medication_id", "actual_ts"]),
         Index(value = ["slot_id"]),
         Index(value = ["actual_ts"])
     ]

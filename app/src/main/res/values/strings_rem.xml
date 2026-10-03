@@ -36,13 +36,6 @@
     <string name="rem_interval_every_other_day">隔天一次</string>
     <string name="rem_interval_days">每隔 %1$d 天一次</string>
     <string name="rem_pick_weekdays">选择每周固定服药日</string>
-    <string name="rem_weekday_1">周一</string>
-    <string name="rem_weekday_2">周二</string>
-    <string name="rem_weekday_3">周三</string>
-    <string name="rem_weekday_4">周四</string>
-    <string name="rem_weekday_5">周五</string>
-    <string name="rem_weekday_6">周六</string>
-    <string name="rem_weekday_7">周日</string>
     <string name="rem_cycle_desc">周期性服药（例如服 21 天，停 7 天）</string>
     <string name="rem_cycle_on_label">连续服药</string>
     <string name="rem_cycle_on_hint">服 %1$d 天</string>

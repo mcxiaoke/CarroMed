@@ -336,6 +336,41 @@ class AppDatabaseRealTest {
         assertThat(indexedColumns).containsAtLeast("medication_id", "created_at")
     }
 
+    /**
+     * L-17：`dose_records` 的 keyset 分页（单药历史 `WHERE medication_id = ? AND actual_ts < ?`）
+     * 此前只有单列 `medication_id` 索引可吃，排序仍走主键序扫描。复合索引
+     * `(medication_id, actual_ts)` 的最左前缀同时覆盖外键，替代原单列索引。
+     *
+     * AGENTS §2 红线的另一半：加索引是 schema 变更，必须有 PRAGMA 断言钉住。
+     */
+    @Test
+    fun `dose_records 有 medication_id_actual_ts 复合索引`() = runTest {
+        data class IndexDef(val name: String, val columns: List<String>)
+        val indexes = db.openHelper.readableDatabase
+            .query("PRAGMA index_list(dose_records)").use { c ->
+                val nameIdx = c.getColumnIndexOrThrow("name")
+                buildList {
+                    while (c.moveToNext()) add(c.getString(nameIdx))
+                }
+            }
+            .map { idxName ->
+                IndexDef(idxName, db.openHelper.readableDatabase
+                    .query("PRAGMA index_info($idxName)").use { c ->
+                        val nameIdx = c.getColumnIndexOrThrow("name")
+                        buildList {
+                            while (c.moveToNext()) add(c.getString(nameIdx))
+                        }
+                    })
+            }
+        // 复合索引列必须**有序**命中（medication_id 在前才能同时服务过滤与排序）
+        assertThat(indexes.map { it.columns })
+            .contains(listOf("medication_id", "actual_ts"))
+        // 外键所需的原单列覆盖不许在变更中悄悄丢掉（最左前缀即等价覆盖）
+        assertThat(indexes.any { it.columns.first() == "medication_id" }).isTrue()
+        assertThat(indexes.any { it.columns.first() == "slot_id" }).isTrue()
+        assertThat(indexes.any { it.columns.first() == "actual_ts" }).isTrue()
+    }
+
     @Test
     fun updateProfile_preservesStatusFlagsAndCreatedAt() = runTest {
         val medId = medDao.insert(

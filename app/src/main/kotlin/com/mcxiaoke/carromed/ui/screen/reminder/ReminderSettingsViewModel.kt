@@ -19,6 +19,7 @@ import com.mcxiaoke.carromed.core.alarm.ReminderSettings
 import com.mcxiaoke.carromed.core.domain.service.MedicationAdminService
 import com.mcxiaoke.carromed.ui.component.DecimalInput
 import com.mcxiaoke.carromed.ui.component.MedVocab
+import com.mcxiaoke.carromed.ui.component.WeekLabels
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -576,18 +577,7 @@ class ReminderSettingsViewModel(
         _uiState.value = _uiState.value.copy(preview = preview)
     }
 
-    private fun dayLabel(d: LocalDate): String {
-        val app = getApplication<Application>()
-        return when (d.dayOfWeek.value) {
-            1 -> app.getString(R.string.rem_weekday_1)
-            2 -> app.getString(R.string.rem_weekday_2)
-            3 -> app.getString(R.string.rem_weekday_3)
-            4 -> app.getString(R.string.rem_weekday_4)
-            5 -> app.getString(R.string.rem_weekday_5)
-            6 -> app.getString(R.string.rem_weekday_6)
-            else -> app.getString(R.string.rem_weekday_7)
-        }
-    }
+    private fun dayLabel(d: LocalDate): String = WeekLabels.short(d.dayOfWeek)
 
     private inline fun mutate(
         clearErrorFor: Int? = null,

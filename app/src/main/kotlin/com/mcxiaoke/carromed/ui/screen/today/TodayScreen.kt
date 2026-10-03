@@ -73,6 +73,7 @@ import com.mcxiaoke.carromed.ui.component.CarroMedTopAppBar
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
+import com.mcxiaoke.carromed.ui.component.WeekLabels
 import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
 import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
@@ -926,22 +927,14 @@ private fun DateSelectorRow(
             // 列表不刷新，点击像没发生。
             val inRange = date >= today.minusDays(TodayViewModel.MIN_HISTORY_DAYS) &&
                 date <= today.plusDays(TodayViewModel.MAX_FUTURE_DAYS)
-            val dayOfWeekChinese = when (date.dayOfWeek.value) {
-                1 -> stringResource(R.string.today_weekday_1)
-                2 -> stringResource(R.string.today_weekday_2)
-                3 -> stringResource(R.string.today_weekday_3)
-                4 -> stringResource(R.string.today_weekday_4)
-                5 -> stringResource(R.string.today_weekday_5)
-                6 -> stringResource(R.string.today_weekday_6)
-                else -> stringResource(R.string.today_weekday_7)
-            }
-            // stringResource 只能在组合期调用，而 semantics 块不是 composable 上下文，
-            // 所以描述串先在这里（组合期）算好，再放进 semantics。
+            // 星期标签唯一实现 WeekLabels（L-9）：中文「一」..「日」，随系统语言走。
+            // buildString 里的 stringResource 仍需组合期调用，所以描述串在这里算好。
+            val weekdayLabel = WeekLabels.narrow(date.dayOfWeek)
             val dateDescription = buildString {
                 append(
                     stringResource(
                         R.string.today_cd_date,
-                        date.monthValue, date.dayOfMonth, dayOfWeekChinese
+                        date.monthValue, date.dayOfMonth, weekdayLabel
                     )
                 )
                 if (isToday) append(stringResource(R.string.today_cd_today_suffix))
@@ -968,7 +961,7 @@ private fun DateSelectorRow(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = dayOfWeekChinese,
+                    text = weekdayLabel,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                     color = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)

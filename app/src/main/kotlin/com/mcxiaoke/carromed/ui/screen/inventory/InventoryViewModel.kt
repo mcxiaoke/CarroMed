@@ -17,6 +17,7 @@ import com.mcxiaoke.carromed.core.data.model.TransactionType
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
 import com.mcxiaoke.carromed.ui.component.DecimalInput
+import com.mcxiaoke.carromed.ui.component.WeekLabels
 import com.mcxiaoke.carromed.ui.component.intervalLabel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +28,6 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
-import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 
 data class InventoryUiState(
@@ -462,11 +462,11 @@ class InventoryViewModel(
             }
             PolicyType.DAYS_OF_WEEK -> {
                 // NARROW 在中文下恰好是单字「一二三…」,英文下是 M/T/W…,随系统语言走
+                // （L-9：经由 WeekLabels 唯一实现）
                 val locale = app.resources.configuration.locales[0]
                 val picked = (daysOfWeek ?: emptyList()).sorted()
                     .joinToString("·") {
-                        DayOfWeek.of(((it - 1) % 7 + 7) % 7 + 1)
-                            .getDisplayName(TextStyle.NARROW, locale)
+                        WeekLabels.narrow(DayOfWeek.of(((it - 1) % 7 + 7) % 7 + 1), locale)
                     }
                 app.getString(R.string.inv_freq_weekly, picked, perDay, timeStr)
             }
