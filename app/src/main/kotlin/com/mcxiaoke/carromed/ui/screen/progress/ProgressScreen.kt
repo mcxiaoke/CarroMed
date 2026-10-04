@@ -278,7 +278,7 @@ private fun MedicationMatrixCard(item: MedMatrixItem, onNavigateToHistory: (Long
                 }
             },
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(

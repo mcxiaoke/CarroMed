@@ -196,7 +196,7 @@ fun InventoryScreen(
                         containerColor = if (uiState.isLowStock && uiState.isTracked) {
                             WarningAmberContainer
                         } else {
-                            MaterialTheme.colorScheme.surface
+                            MaterialTheme.colorScheme.surfaceContainerLow
                         }
                     )
                 ) {
@@ -560,7 +560,9 @@ private fun SettingsCard(title: String, content: @Composable ColumnScope.() -> U
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

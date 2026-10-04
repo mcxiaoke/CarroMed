@@ -269,7 +269,7 @@ private fun HeaderCard(state: DoseEntryUiState) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(
@@ -411,7 +411,7 @@ private fun DoseCard(state: DoseEntryUiState, onDoseChange: (String) -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(stringResource(R.string.rdetail_dose_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
@@ -472,7 +472,7 @@ private fun NoteCard(state: DoseEntryUiState, onNoteChange: (String) -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(stringResource(R.string.rdetail_note_title), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
