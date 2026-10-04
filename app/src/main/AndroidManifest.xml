@@ -67,7 +67,10 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-                <action android:name="android.intent.action.TIME_CHANGED" />
+                <!-- ⚠️ 必须是 TIME_SET：Intent.ACTION_TIME_CHANGED 这个常量的"值"是
+                     "android.intent.action.TIME_SET"，系统从不广播 "…TIME_CHANGED" 字面量。
+                     写成 TIME_CHANGED 会让本 filter 永不匹配，「改时自愈」整条能力静默失效。 -->
+                <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>

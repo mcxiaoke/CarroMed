@@ -215,8 +215,12 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         medDao.observeActiveOverviews(),
         _selectedDate.flatMapLatest { date ->
             val dateStr = date.format(SlotProjectionEngine.DATE_FORMATTER)
-            val dayStartTs = date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val dayEndTs = dayStartTs + 24 * 60 * 60 * 1000L
+            // ⚠️ 日界必须是"次日零点"，不能用 `start + 24h`：该值是
+            // `snooze_until_ts` 的开区间上界，夏令时前进日（23h）会多算 1 小时、
+            // 回退日（25h）会少算 1 小时 → 推迟剂错误混入当天或当天最后一段整段丢失。
+            val zone = ZoneId.systemDefault()
+            val dayStartTs = date.atStartOfDay(zone).toInstant().toEpochMilli()
+            val dayEndTs = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
             slotDao.observeSlotsForDateWithSnoozed(dateStr, dayStartTs, dayEndTs)
                 .catch { t ->
                     // 查询失败降级为空清单（L5）：宁可显示空的一天也不让整个列表静默冻结

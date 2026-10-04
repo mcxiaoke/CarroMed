@@ -21,6 +21,9 @@ object SlotProjectionEngine {
     val DATE_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
     val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
+    /** 周期用药「吃药天数 / 停药天数」各自的上界：远离任何真实疗程，只为防止相加溢出 Int。 */
+    private const val MAX_CYCLE_DAYS = 3650
+
     /**
      * 计算并投影指定时间范围内的服药槽位
      *
@@ -189,8 +192,11 @@ object SlotProjectionEngine {
 
             PolicyType.CYCLE -> {
                 // 周期用药: 用药 cycleOnDays 天，停药 cycleOffDays 天 (如吃 21 天停 7 天)
-                val takeDays = policy.cycleOnDays.coerceAtLeast(1)
-                val pauseDays = policy.cycleOffDays.coerceAtLeast(0)
+                // ⚠️ 上下界都要夹：`cycleOnDays + cycleOffDays` 相加溢出 Int 会让
+                // `totalCycle` 变负，`%` 语义随之崩坏 ⇒ 排班静默错乱。
+                // 上界取 ~10 年，远离任何真实疗程（`intervalDays.coerceIn(1, 30)` 是先例）。
+                val takeDays = policy.cycleOnDays.coerceIn(1, MAX_CYCLE_DAYS)
+                val pauseDays = policy.cycleOffDays.coerceIn(0, MAX_CYCLE_DAYS)
                 val totalCycle = takeDays + pauseDays
                 val daysDiff = ChronoUnit.DAYS.between(policyStartDate, targetDate)
                 if (daysDiff < 0) return false

@@ -97,7 +97,13 @@ class AppConverters {
     fun toStringList(data: String?): List<String> {
         if (data.isNullOrEmpty()) return emptyList()
         if (data.startsWith("[")) {
-            val arr = runCatching { JSONArray(data) }.getOrNull() ?: return emptyList()
+            val arr = runCatching { JSONArray(data) }.getOrNull()
+            if (arr == null) {
+                // 旧写法在这里静默 `return emptyList()`：一次非法 JSON 就**整段丢掉**
+                // 该药的注意事项，且无任何痕迹（对比 `toIntList` 有 AppLog.w）。
+                AppLog.w(TAG, "toStringList dropped malformed JSON array: \"$data\"")
+                return emptyList()
+            }
             return (0 until arr.length()).mapNotNull { arr.optString(it, null) }
         }
         // 旧格式（`|||` 分隔）。`split` 会给尾随分隔符产出空串，必须过滤掉。

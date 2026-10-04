@@ -144,9 +144,12 @@ object CrashLogging {
             append(" debug=${BuildConfig.DEBUG}")
             append(" thread=${thread.name}")
             append('\n')
-            append("== recent log (last ${AppLog.recentLines().size} lines) ==")
+            // 只取一次快照：`recentLines()` 每次都要拿全局锁，取两次既多一次锁竞争，
+            // 又可能两次之间缓冲被另一线程改写（行数与内容不一致）。
+            val recent = AppLog.recentLines()
+            append("== recent log (last ${recent.size} lines) ==")
             append('\n')
-            for (line in AppLog.recentLines()) {
+            for (line in recent) {
                 append(line)
                 append('\n')
             }

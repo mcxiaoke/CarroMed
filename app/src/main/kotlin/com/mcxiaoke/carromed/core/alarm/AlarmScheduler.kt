@@ -225,7 +225,9 @@ object AlarmScheduler {
                 pi
             )
             if (logVerbose) {
-                AppLog.i(TAG, "scheduled uri=$uri triggerAt$triggerAt precision=ALARM_CLOCK")
+                // 与 KDoc 纪律一致（:188）：只要不是 EXACT 就是降级，一律 WARN，
+                // 否则排查"闹钟没响"时在 WARN 里看不到第一档降级。
+                AppLog.w(TAG, "scheduled uri=$uri triggerAt$triggerAt precision=ALARM_CLOCK (degraded)")
             }
             return
         } catch (e: SecurityException) {

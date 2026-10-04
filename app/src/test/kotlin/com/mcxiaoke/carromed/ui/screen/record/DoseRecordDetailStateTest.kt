@@ -236,6 +236,41 @@ class DoseRecordDetailStateTest {
         assertThat(s.canUndo).isTrue()
     }
 
+    // ==================== 计划来源的事实：同样可改（2026-10-04 口径修订） ====================
+
+    /**
+     * ⭐ 计划来源的**已服**记录在 7 天窗口内也可以改时间与剂量。
+     *
+     * 「其实 08:20 才吃、只吃了半片」必须能被如实记录 —— 旧实现只给手动补录开这个口子，
+     * 用户只能绕道「单次服药」去表达，而单次服药与计划本应完全独立。
+     * 领域层 `editDose` 会在改时间时同步槽位的 `actualTakenTs`，两处不会分叉。
+     */
+    @Test
+    fun `计划来源的已服记录 窗口内同样可改剂量与时间`() {
+        val s = stateOf(
+            SlotStatus.COMPLETED,
+            actualTs = tsOn(-1),
+            scheduledDate = LocalDate.now().minusDays(1).toString()
+        )
+        assertThat(s.isManual).isFalse()
+        assertThat(s.canEditDose).isTrue()
+        assertThat(s.canEditTime).isTrue()
+    }
+
+    /** 窗口外仍然只读 —— 与手动补录走**同一条** 7 天窗口，而不是两条纪律 */
+    @Test
+    fun `计划来源的记录 超过 7 天只读`() {
+        val s = stateOf(
+            SlotStatus.COMPLETED,
+            actualTs = tsOn(-8),
+            scheduledDate = LocalDate.now().minusDays(8).toString()
+        )
+        assertThat(s.canEditDose).isFalse()
+        assertThat(s.canEditTime).isFalse()
+        // 备注仍可改：它不改变"吃了多少"，也不改变结论
+        assertThat(s.canEditNote).isTrue()
+    }
+
     // ==================== 未来槽位：三个动作全不渲染 ====================
 
     /**

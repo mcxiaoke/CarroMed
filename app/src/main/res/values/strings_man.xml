@@ -2,7 +2,10 @@
 <resources>
     <string name="man_title">单次服药</string>
     <string name="man_cancel">取消</string>
-    <string name="man_backfill_hint">忘记记录或未带手机？支持补记过去的服药记录，并可同步扣减相应库存。</string>
+    <!-- 「单次服药」= 与排班计划**无关**的一次服用（按需 / 额外加服），可指定过去的时刻。
+         计划内那一次漏记了不算"单次"：请回今日清单点到那一天确认那个时点。
+         这条提示就是把用户引向正确入口，避免他在这里记、又去清单重复确认。 -->
+    <string name="man_backfill_hint">记录一次与排班无关的服用（按需、额外加服），可指定过去的时刻并同步扣减库存。计划内漏记的那一次，请到「今日」清单确认对应时点。</string>
     <string name="man_error_with_icon">⚠️ %1$s</string>
     <string name="man_select_medication">选择药品</string>
     <string name="man_please_select_medication">请选择药品</string>

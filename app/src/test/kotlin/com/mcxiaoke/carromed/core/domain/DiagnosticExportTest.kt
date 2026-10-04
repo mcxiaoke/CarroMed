@@ -65,6 +65,16 @@ class DiagnosticExportTest {
         assertThat(DiagnosticExport.logFileName(day)).isEqualTo(name)
     }
 
+    @Test
+    fun `app log rollover sequence parses`() {
+        // 同日分片共享一个目标名，写入侧要靠这个序号升序拼接，序号错 → 分片内容倒置
+        assertThat(DiagnosticExport.appLogSeq("app-20261002.log")).isEqualTo(0)
+        assertThat(DiagnosticExport.appLogSeq("app-20261002-1.log")).isEqualTo(1)
+        assertThat(DiagnosticExport.appLogSeq("app-20261002-12.log")).isEqualTo(12)
+        // 非运行日志一律视为 0，避免意外把崩溃文件插到中间
+        assertThat(DiagnosticExport.appLogSeq("crash-20261002-221245.txt")).isEqualTo(0)
+    }
+
     // ---------------- 选片：崩溃文件 ----------------
 
     @Test

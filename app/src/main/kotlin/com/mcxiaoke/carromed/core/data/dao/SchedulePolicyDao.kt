@@ -5,7 +5,6 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
-import androidx.room.Update
 import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import kotlinx.coroutines.flow.Flow

@@ -397,7 +397,7 @@ private fun TimeCard(state: DoseEntryUiState, onPickTime: (Long) -> Unit) {
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                text = stringResource(R.string.rdetail_time_manual_hint),
+                text = stringResource(R.string.rdetail_time_edit_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 18.sp
@@ -438,30 +438,21 @@ private fun DoseCard(state: DoseEntryUiState, onDoseChange: (String) -> Unit) {
             } else {
                 val doseMilli = state.record?.doseTaken ?: state.slot?.doseAmount ?: 0
                 Text(state.doseText(doseMilli), style = MaterialTheme.typography.bodyLarge)
-                if (state.isManual && !state.withinEditWindow) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = stringResource(R.string.rdetail_dose_readonly_hint, EDITABLE_WINDOW_DAYS),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else if (!state.isManual) {
-                    Spacer(Modifier.height(6.dp))
-                    val hasConclusion = state.slotStatus == SlotStatus.COMPLETED ||
-                        state.slotStatus == SlotStatus.SKIPPED
-                    Text(
-                        // ⚠️ 待服 / 已逾期形态**没有**「撤销」按钮（还没有结论，无从撤销），
-                        // 所以不能对它说"记错了请用撤销" —— 那是把用户指向一个不存在的入口。
-                        text = if (hasConclusion) {
-                            stringResource(R.string.rdetail_dose_locked_conclusion)
-                        } else {
-                            stringResource(R.string.rdetail_dose_locked_no_conclusion)
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 18.sp
-                    )
-                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    // 分两种情况，判据是"有没有事实"而不是"是不是手动补录"：
+                    // - 已有事实但超出 7 天窗口 ⇒ 只读（剂量/时间/撤销都不再提供）；
+                    // - 尚无事实（待服 / 逾期 / 未来）⇒ 剂量来自「提醒设置」，本页改不了，
+                    //   且此时**没有**「撤销」按钮（还没结论），不能把用户指向不存在的入口。
+                    text = if (state.record != null) {
+                        stringResource(R.string.rdetail_dose_readonly_hint, EDITABLE_WINDOW_DAYS)
+                    } else {
+                        stringResource(R.string.rdetail_dose_locked_no_conclusion)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 18.sp
+                )
             }
         }
     }
@@ -622,8 +613,9 @@ private fun Footnote(state: DoseEntryUiState) {
         state.isReverted ->
             stringResource(R.string.rdetail_footnote_reverted)
 
-        state.isManual && !state.withinEditWindow ->
-            stringResource(R.string.rdetail_footnote_manual_readonly, EDITABLE_WINDOW_DAYS)
+        // 判据是"有事实但超出窗口"，与是不是手动补录无关（2026-10-04：计划来源的事实也可改）
+        state.record != null && !state.withinEditWindow ->
+            stringResource(R.string.rdetail_footnote_readonly, EDITABLE_WINDOW_DAYS)
 
         !state.isManual && state.slotStatus == SlotStatus.COMPLETED && !state.canUndo ->
             stringResource(R.string.rdetail_footnote_completed_no_undo)

@@ -61,18 +61,26 @@
     <string name="backup_err_dup_policy_time">计划 #%1$d 在 %2$s 有 %3$d 条重复时点</string>
     <string name="backup_err_missing_reminder_settings">药品 #%1$d 缺少提醒设置（恢复时会补默认值，建议重新导出备份）</string>
 
-    <!-- checkDuplicates 的行标签（作为一个 %1$s 传入，译文可按语序调整） -->
-    <string name="backup_row_record">服药记录</string>
-    <string name="backup_row_ledger">库存流水</string>
-    <string name="backup_row_policy">服用计划</string>
-    <string name="backup_row_policy_time">服药时点</string>
-    <string name="backup_err_dup_row">%1$s #%2$d 在备份中出现了 %3$d 次</string>
+    <!-- 主键重复：每种行各用一条独立文案。
+         ⚠️ 不再用"行标签 + 通用模板"：`BackupProblem.message` 会把 args 原样交给
+         `getString`，把 `@StringRes` 标签当 `%1$s` 传出去只会打印成资源 ID
+         （用户看到「2131165234 #3 在备份中出现了 2 次」）。 -->
+    <string name="backup_err_dup_record_row">服药记录 #%1$d 在备份中出现了 %2$d 次</string>
+    <string name="backup_err_dup_ledger_row">库存流水 #%1$d 在备份中出现了 %2$d 次</string>
+    <string name="backup_err_dup_policy_row">服用计划 #%1$d 在备份中出现了 %2$d 次</string>
+    <string name="backup_err_dup_policy_time_row">服药时点 #%1$d 在备份中出现了 %2$d 次</string>
 
     <!-- 剂量量程校验（§二-18）：槽位剂量必须 > 0，服药事实剂量必须 ≥ 0（跳过即 0）；
-         ⚠️ 这里**刻意**用两条独立文案而不是"行标签 + 通用模板"：`BackupProblem.message`
-         会把 args 原样交给 `getString`，传资源 ID 只会打印成数字（现有 dup_row 的隐患）。 -->
+         ⚠️ 同样**刻意**用独立文案而不是"行标签 + 通用模板"，理由同上。 -->
     <string name="backup_err_invalid_slot_dose">槽位 #%1$d 的剂量 %2$d 毫单位不在合法量程内（应在 1~%3$d）</string>
     <string name="backup_err_invalid_record_dose">服药记录 #%1$d 的剂量 %2$d 毫单位不在合法量程内（不应为负，且不超过 %3$d）</string>
+    <string name="backup_err_invalid_policy_time_dose">服药时点 #%1$d 的剂量 %2$d 毫单位不在合法量程内（应在 1~%3$d）</string>
+    <string name="backup_err_invalid_default_dose">药品 #%1$d 的默认剂量 %2$d 毫单位不在合法量程内（不应为负，且不超过 %3$d）</string>
+    <string name="backup_err_invalid_min_stock_alert">药品 #%1$d 的库存预警线 %2$d 毫单位不在合法量程内（不应为负，且不超过 %3$d）</string>
+
+    <!-- 零时点 / 零星期计划（§二-17）：该药将永远不会提醒，与产品第一承诺冲突 -->
+    <string name="backup_err_empty_schedule">药品 #%1$d 的服药计划没有任何服药时点（恢复后该药将永远不会提醒）</string>
+    <string name="backup_err_empty_schedule_dow">药品 #%1$d 的「按星期服药」计划一天都没选（恢复后该药将永远不会提醒）</string>
 
     <!-- 查询不到显示名时的占位文件名 -->
     <string name="csv_fallback_selected_file">所选文件</string>

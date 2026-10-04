@@ -139,6 +139,21 @@ object DiagnosticExport {
     fun isAppLogFile(name: String): Boolean =
         name.startsWith("app-") && name.endsWith(".log")
 
+    /**
+     * 运行日志的滚动序号：`app-20261002.log` → 0，`app-20261002-1.log` → 1。
+     *
+     * `LogFileSink` 在单文件超 2 MB 时按序号滚动（`-1`/`-2`…，**序号越大内容越新**）。
+     * 同一天的多个分片刻意映射到**同一个**目标名（见 [logFileName] 的"一天一份"），
+     * 因此写入侧必须按本序号**升序拼接**，否则分片顺序会倒置。
+     */
+    fun appLogSeq(name: String): Int {
+        if (!isAppLogFile(name)) return 0
+        val core = name.removePrefix("app-").removeSuffix(".log")
+        val dash = core.indexOf('-')
+        if (dash < 0) return 0
+        return core.substring(dash + 1).toIntOrNull() ?: 0
+    }
+
     private fun dayOf(timeMs: Long): LocalDate =
         Instant.ofEpochMilli(timeMs).atZone(ZoneId.systemDefault()).toLocalDate()
 

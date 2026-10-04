@@ -236,10 +236,17 @@ data class DoseEntryUiState(
             return actualDay < s.scheduledDate
         }
 
-    /** 槽位来源的记录不许改剂量与时间（UX 方案 §3.3）：只有手动补录能改 */
-    val canEditDose: Boolean get() = isManual && withinEditWindow
+    /**
+     * 事实的时间与剂量**都可改**（2026-10-04 修订：原「只有手动补录能改」作废）。
+     *
+     * 计划与事实是两个东西："其实 08:20 才吃、只吃了半片"必须能被如实记录。
+     * 唯一的限制是 7 天窗口（[withinEditWindow]，与补录窗口同源）。
+     * 领域层 [com.mcxiaoke.carromed.core.domain.service.DoseTrackingService.editDose]
+     * 对槽位来源的记录会**同步**槽位的 `actual_taken_ts`，两处不会分叉。
+     */
+    val canEditDose: Boolean get() = withinEditWindow
 
-    val canEditTime: Boolean get() = isManual && withinEditWindow
+    val canEditTime: Boolean get() = withinEditWindow
 
     /** 是否需要渲染"备注可编辑 + 保存"这一块（有事实才谈得上保存备注） */
     val canEditNote: Boolean get() = record != null && !isReverted

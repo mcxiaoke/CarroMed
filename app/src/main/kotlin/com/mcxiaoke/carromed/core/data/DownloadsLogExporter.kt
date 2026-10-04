@@ -98,12 +98,19 @@ object DownloadsLogExporter {
     fun exportAll(context: Context, logDir: File, nowMs: Long, keepLogDays: Int = 3): List<String> {
         val files = logDir.listFiles()?.toList() ?: return emptyList()
         val written = mutableListOf<String>()
-        for (plan in DiagnosticExport.plan(files, nowMs, keepLogDays)) {
+        // ⚠️ 必须按**目标名分组**后再写：`LogFileSink` 体积滚动出的 `app-YYYYMMDD-N.log`
+        // 与 `app-YYYYMMDD.log` 归到**同一个**目标名（`DiagnosticExport.logFileName` 按天
+        // 命名，刻意保持"一天一份"）。若逐个写，后写的会与先写的同名 → MediaStore 把它
+        // 改名为 `xxx (1).txt` → 随即被 `purgeStaleArtifacts` 当垃圾删掉 →
+        // **前一段日志静默丢失**。按 `appLogSeq` 升序拼接成一次写入可同时保住顺序与内容。
+        for ((targetName, group) in DiagnosticExport.plan(files, nowMs, keepLogDays).groupBy { it.targetName }) {
+            val ordered = group.sortedBy { DiagnosticExport.appLogSeq(it.source.name) }
             // 崩溃文件可能正被崩溃处理器写；读不到就跳过，下次启动再试
-            val content = runCatching { plan.source.readText() }.getOrNull() ?: continue
-            runCatching { write(context, plan.targetName, content) }
-                .onSuccess { written.add(plan.targetName) }
-                .onFailure { Log.w(TAG, "export ${plan.source.name} failed: ${it.message}") }
+            val parts = ordered.mapNotNull { runCatching { it.source.readText() }.getOrNull() }
+            if (parts.isEmpty()) continue
+            runCatching { write(context, targetName, parts.joinToString("")) }
+                .onSuccess { written.add(targetName) }
+                .onFailure { Log.w(TAG, "export $targetName failed: ${it.message}") }
         }
         // 清理已内聚到每次 write() 的 finally（见 writeViaMediaStore）：
         // 必须**写完再清**，写在清之前清掉的只是上一轮遗留，本轮 insert 顺手
@@ -131,7 +138,9 @@ object DownloadsLogExporter {
             MediaStore.Downloads.IS_PENDING
         )
         val selection = "${MediaStore.Downloads.RELATIVE_PATH} LIKE ?"
-        val args = arrayOf("%${DiagnosticExport.EXPORT_SUBDIR}%")
+        // 用**前缀**精确匹配自己名下目录（`Download/CarroMed%`），不要用 `%CarroMed%`：
+        // 子串匹配会命中用户自建的 `Download/MyCarroMedNotes/` 并删掉其中的文件。
+        val args = arrayOf(subdirPrefixArg())
 
         runCatching {
             resolver.query(collection, projection, selection, args, null)?.use { c ->
@@ -256,7 +265,7 @@ object DownloadsLogExporter {
         // selectionArgs 必须全为 String：id 也转成字符串，否则 arrayOf 推出公共父类型而编译失败
         val args = arrayOf(
             displayName,
-            "%${DiagnosticExport.EXPORT_SUBDIR}%",
+            subdirPrefixArg(),
             ContentUris.parseId(keepId).toString()
         )
 
@@ -310,6 +319,17 @@ object DownloadsLogExporter {
     private fun hasLegacyWritePermission(context: Context): Boolean =
         context.checkCallingOrSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    /**
+     * MediaStore `RELATIVE_PATH` 的**前缀**匹配参数：`Download/CarroMed%`。
+     *
+     * 为什么不用 `%CarroMed%`：那是子串匹配，会命中用户自建的
+     * `Download/MyCarroMedNotes/` —— 清理逻辑随即删掉别人的文件（删错文件是数据事故）。
+     * 为什么结尾用通配而不写死斜杠：实测 `RELATIVE_PATH` 存的是 `Download/CarroMed/`
+     * （带尾斜杠），但各家 ROM 格式不一，`=` 与固定结尾都会漏删。
+     */
+    private fun subdirPrefixArg(): String =
+        "${Environment.DIRECTORY_DOWNLOADS}/${DiagnosticExport.EXPORT_SUBDIR}%"
 
     /** 仅供诊断：当前走的是哪条路径（启动日志自证用）。 */
     fun activePathLabel(context: Context): String = when {

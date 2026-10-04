@@ -80,19 +80,24 @@ object AppLog {
 
     private fun dispatch(level: Level, tag: String, message: String, error: Throwable?) {
         val event = Event(System.currentTimeMillis(), level, tag, message, error)
-        synchronized(lock) {
+        // 锁内只做两件事：写环形缓冲、取 sinks 快照。
+        val snapshot = synchronized(lock) {
             // 环形缓冲**无条件记录**，与 sink 是否安装无关——
             // 崩溃钩子靠它兜底，FileSink 挂掉也不能丢掉这段最近历史。
             if (ring.size >= CAPACITY) ring.removeFirst()
             ring.addLast(LogFormat.full(event))
-            val snapshot = sinks.toList()
-            // sink 异常与调用方、与彼此完全隔离（在锁外分发，避免持锁做 IO）
-            for (sink in snapshot) {
-                try {
-                    sink.log(event)
-                } catch (t: Throwable) {
-                    System.err.println("AppLog sink ${sink::class.java.simpleName} failed: $t")
-                }
+            sinks.toList()
+        }
+        // ⚠️ 分发必须在**锁外**（与旧注释一致）：崩溃钩子 `CrashLogging.buildReport`
+        // 会同步调 `recentLines()` 拿同一把锁，若分发在锁内做 logcat Binder IPC，
+        // 崩溃线程会被阻塞在这把锁上 —— 而这发生在 `exportCrashBlocking` 的
+        // 1.5s 有界等待**之前**，那个超时设计对它完全无效（会把崩溃 hang 成 ANR）。
+        // sink 异常与调用方、与彼此完全隔离。
+        for (sink in snapshot) {
+            try {
+                sink.log(event)
+            } catch (t: Throwable) {
+                System.err.println("AppLog sink ${sink::class.java.simpleName} failed: $t")
             }
         }
     }

@@ -134,6 +134,13 @@ class DoseTrackingService(
         batchNumber: String? = null,
         expiryDate: String? = null
     ) {
+        // 兜底（§二-18）：零额流水没有任何信息量，且是"剂量被量化成 0"这类静默损坏的信号。
+        // 这里**不抛异常** —— 存量数据里可能存在 0 剂量槽位，抛异常会把"用户根本无法打卡"
+        // 变成一个比原缺陷更严重的新故障；余额本就无需变更，跳过在语义上是正确的 no-op。
+        if (changeAmount.isZero) {
+            AppLog.w(TAG, "ledger skipped: zero change med=$medicationId record=$recordId tx=$txType")
+            return
+        }
         val balanceAfter = balanceOf(medicationId) + changeAmount.milli
         inventoryDao.insert(
             InventoryTransactionEntity(
@@ -476,8 +483,13 @@ class DoseTrackingService(
             return@withTransaction false
         }
 
-        // 结论未定之前先记下来：回退会清空 actual_taken_ts
-        val restatedTs = slot.actualTakenTs ?: System.currentTimeMillis()
+        // 结论未定之前先记下来：回退会清空 actual_taken_ts。
+        // ⚠️ EXPIRED 槽位的 `actual_taken_ts` **恒为 NULL**（`DoseSlotDao.markExpired`
+        // 明确 `SET actual_taken_ts = NULL`），所以旧写法必然回落到 `now()`：
+        // 一条"昨天 08:00 漏服"被改判为已服后，实际时刻变成此刻，凭空跳进今天，
+        // 污染当日统计与时间线 —— 正是本方法 KDoc「时间不变，只改结论」要防的场景。
+        // 没有既成时刻时取**计划时刻**，语义是"这剂本该在那个时点服下"。
+        val restatedTs = slot.actualTakenTs ?: slot.scheduledTs
 
         // 仅对已产生过结论的槽位执行冲正；EXPIRED 未产生过事实，直接施加新结论
         if (slot.status == SlotStatus.COMPLETED || slot.status == SlotStatus.SKIPPED) {
@@ -599,8 +611,7 @@ class DoseTrackingService(
      *
      * @param newDoseAmount null = 不改剂量；否则必须为正（同 M2-2 的符号防御）。
      * @param newActualTs null = 不改时间；否则必须是**已发生**的时刻。
-     * @return true 表示确实改动了什么；false 表示参数非法、无此记录、已撤销，
-     *         或试图改动槽位来源记录的时间 / 剂量。
+     * @return true 表示确实改动了什么；false 表示参数非法、无此记录、已撤销。
      *
      * ## 剂量变更必须动台账
      *
@@ -614,11 +625,21 @@ class DoseTrackingService(
      * 与撤销同一口径 —— 该记录若当初"没扣库存"（未开追踪 / 补录时关掉联动），
      * 净额就是 0，此时改剂量**不产生流水**，也就不会凭空造账。
      *
-     * ## 槽位来源的记录不许改时间 / 剂量（UX 方案 §3.3）
+     * ## 槽位来源的记录**也可以**改时间 / 剂量（2026-10-04 修订，原 UX 方案 §3.3 作废）
      *
-     * 定时提醒产生的记录，事实时间与槽位的 `scheduled_time`、事实剂量与槽位的
-     * `doseAmount` 本来就是配对的。单独改事实会让两处各说一套 —— 与 C-40 同类。
-     * 正确做法是撤销后重新打卡。
+     * **计划**与**事实**本来就是两个东西：`dose_slots.scheduled_time / dose_amount` 是计划，
+     * `dose_records.actual_ts / dose_taken` 是事实。"其实 08:20 才吃、而且只吃了半片"
+     * 恰恰是两者本该不同的情形 —— 旧实现把槽位来源的记录完全拒改，等于把
+     * 「计划内那次的真实时间/剂量」变成无法表达的事实，用户只能绕道「单次服药」，
+     * 反而制造了新的歧义（单次与计划不独立）。现在允许直接修正事实。
+     *
+     * ⚠️ **改时间必须同步槽位**：今日清单的完成时间读 `slot.actualTakenTs`，
+     * 记录详情页读 `record.actualTs` —— 只改一边会让同一次服药在两处各说一套
+     * （又一个静默分叉）。因此改时间时在同一事务里一并更新
+     * `dose_slots.actual_taken_ts`（[DoseSlotDao.updateActualTakenTs]，限 `COMPLETED`）。
+     *
+     * 剂量**不动槽位**：`slot.doseAmount` 是计划剂量，事实剂量允许与之不同
+     * （清单卡片展示计划，记录详情展示事实）。
      */
     suspend fun editDose(
         recordId: Long,
@@ -653,16 +674,7 @@ class DoseTrackingService(
             "服药时间不能早于 $MANUAL_DOSE_BACKFILL_DAYS 天前"
         }
 
-        val fromSlot = record.slotId != null
-        // 槽位来源的记录：时间与剂量都拒改（理由见 KDoc）
-        if (fromSlot && newActualTs != null && newActualTs != record.actualTs) {
-            AppLog.w(TAG, "editDose rejected record=$recordId reason=slot-source-time-immutable")
-            return@withTransaction false
-        }
-        if (fromSlot && newDoseAmount != null && Dose.of(newDoseAmount).milli != record.doseTaken) {
-            AppLog.w(TAG, "editDose rejected record=$recordId reason=slot-source-dose-immutable")
-            return@withTransaction false
-        }
+        // 槽位来源的记录也允许改事实（见 KDoc）：SlotActionPolicy 上面两道守卫已删。
 
         var changed = false
         var doseChangeDesc = ""
@@ -671,6 +683,15 @@ class DoseTrackingService(
 
         // ---- 时间：纯事实修正，不动台账 ----
         if (newActualTs != null && newActualTs != record.actualTs) {
+            // ⚠️ 槽位来源的记录必须**同步槽位**的实际服药时刻（见 KDoc）：
+            // 今日清单读 `slot.actualTakenTs`、记录详情读 `record.actualTs`，
+            // 只改一边会让同一次服药在两处各说一套。受影响行数为 0
+            //（槽位不存在 / 已不是 COMPLETED）⇒ 放弃本次修改，避免制造分叉。
+            val slotId = record.slotId
+            if (slotId != null && slotDao.updateActualTakenTs(slotId, newActualTs) == 0) {
+                AppLog.w(TAG, "editDose rejected record=$recordId reason=slot-actual-ts-miss slot=$slotId")
+                return@withTransaction false
+            }
             if (recordDao.updateActualTs(recordId, newActualTs) == 0) {
                 AppLog.w(TAG, "editDose rejected record=$recordId reason=update-ts-miss")
                 return@withTransaction false
@@ -736,11 +757,32 @@ class DoseTrackingService(
         changed
     }
 
-    // ==================== 5. 补充录入 / 临时按需服药 ====================
+    // ==================== 5. 单次服用（计划外 / 额外） ====================
 
     /**
+     * 记录一次**与排班计划无关**的服用：按需服药、额外加服、计划外的多吃几片。
+     *
+     * ## 单次与计划**完全独立**（产品口径）
+     *
+     * 本方法产生的服药事实 `slot_id` **恒为 null** —— 它不认领、不结清、也不改变
+     * 任何槽位。计划内那一次的记录属于槽位本身：打卡走 [takeDose]，
+     * 忘了打卡就从今日清单切到那一天点确认（`SlotActionPolicy` 放行过去槽位），
+     * 之后想修正真实时间/剂量走 [editDose]。
+     *
+     * ## 为什么不再"按时间自动结清同日槽位"
+     *
+     * 旧实现（2026-10-01 引入）会在同日开放槽位里按时间最近认领一条并静默置为已服。
+     * 那是拿**时间**去代理**用户意图**，两个方向都会静默出错：
+     *
+     * - 该绑没绑 → 槽位仍开放、闹钟可能再响，用户再点确认 ⇒ 第二条事实 + 第二次扣库存；
+     * - 不该绑却绑了 → 12:00 的额外加服被记成"20:00 那次已服"，**该响的不响**。
+     *
+     * 更根本的是它违反本项目「影响用户数据的判断必须可见」的纪律：那次绑定
+     * 从头到尾没有任何界面提示。现在改为由用户显式表态（今日清单点确认 /
+     * 进记录详情页改时间剂量），领域层不再猜。
+     *
      * @param deductStock 是否联动扣减库存台账。
-     *   补录历史服药时用户常需要"只记事实、不动库存"，开关关闭时仅写服药事实。
+     *   计划外服药时用户常需要"只记事实、不动库存"，开关关闭时仅写服药事实。
      *   服药是不可否认的事实，因此 **绝不因为库存不足而阻止记账**。
      */
     suspend fun logManualDose(
@@ -779,21 +821,11 @@ class DoseTrackingService(
         val medication = medDao.getMedicationById(medicationId)
             ?: throw IllegalArgumentException("Medication not found: $medicationId")
 
-        val actualDateStr = actualDate.format(SlotProjectionEngine.DATE_FORMATTER)
-        val candidateSlots = slotDao.getSlotsForDate(actualDateStr).filter {
-            it.medicationId == medicationId &&
-                (it.status == SlotStatus.PENDING || it.status == SlotStatus.SNOOZED || it.status == SlotStatus.EXPIRED)
-        }
-        val matchedSlot = candidateSlots.minByOrNull { Math.abs(it.scheduledTs - actualTs) }
-        val targetSlotId = matchedSlot?.id
-
-        if (matchedSlot != null) {
-            slotDao.markCompletedIfOpen(matchedSlot.id, actualTs, todayStr())
-        }
-
+        // 单次服用与计划**完全独立**：`slot_id` 恒为 null，不认领、不结清任何槽位
+        //（见方法 KDoc「为什么不再按时间自动结清同日槽位」）。
         val effectiveRetro = isRetrospective || (actualDate < todayProvider())
         val record = DoseRecordEntity(
-            slotId = targetSlotId,
+            slotId = null,
             medicationId = medicationId,
             actualTs = actualTs,
             doseTaken = doseMilli,
@@ -838,12 +870,12 @@ class DoseTrackingService(
         actualStock: Float,
         note: String? = null
     ): Boolean = db.withTransaction {
-        // 实测库存可以是 0（用完了），但**不能是负数**（M2-2）。
-        // 负的"实物"在物理上不存在，而它与账面的差额会被写成一条调增流水，
-        // 于是凭空给账面加药 —— 与负剂量同一类危害。
-        // 注意这里**不**要求 `> 0`：0 是合法的"刚好用完"。
-        require(actualStock >= 0f && actualStock.isFinite()) {
-            "实测库存不能为负数，当前 $actualStock"
+        // 实测库存可以是 0（用完了），但既**不能为负**（M2-2：负"实物"不存在，
+        // 它与账面的差额会被写成一条调增流水，等于凭空加药），也**不能越界**（§二-18）：
+        // 越界会被 `Dose.of` 静默钳到上界 —— "盘点 5000"记成 1000、库存凭空少 80%，
+        // 而 `SUM(change_amount) == balance_after` 照样成立、没有任何测试会红。
+        require(Dose.isWithinStockRange(actualStock)) {
+            "实测库存必须在 0 到 ${Dose.MAX_MILLI / 1000} 之间，当前 $actualStock"
         }
         val medication = medDao.getMedicationById(medicationId) ?: run {
             AppLog.w(TAG, "calibrateStock rejected med=$medicationId reason=med-missing")
@@ -895,7 +927,14 @@ class DoseTrackingService(
 
         if (enabled) {
             val current = balanceOf(medicationId)
-            val target = initialStock?.let { Dose.of(it) } ?: Dose(current)
+            // 建档初值同口径：放行 0（账面为 0 的首次建档），但挡住越界
+            //（越界会被 `Dose.of` 静默钳到上界，用户声明的数量被静默篡改）。
+            val target = initialStock?.let {
+                require(Dose.isWithinStockRange(it)) {
+                    "初始库存必须在 0 到 ${Dose.MAX_MILLI / 1000} 之间，当前 $it"
+                }
+                Dose.of(it)
+            } ?: Dose(current)
             if (target.milli > 0 && current == 0) {
                 // 从零建档：一条流水即可，账面随之成立。
                 // ⚠️ 条件必须是 `== 0` 而不是 `<= 0`：账面为负是 D-9 明文允许的状态
@@ -944,8 +983,10 @@ class DoseTrackingService(
         // "入库"量必须为正（M2-2）。负数入库 = 记一笔 REFILL 却让账面**减少** ——
         // 台账上写着"采购入库补货"，金额是负的，事后没人能看出发生过什么。
         // 0 同样拒绝：一条零额流水没有任何信息量。
-        require(addedAmount > 0f && addedAmount.isFinite()) {
-            "入库数量必须大于 0，当前 $addedAmount"
+        // 与剂量量程同源（§二-18）：只判 `> 0f` 会放过 `0.0004f`（量化成 0 的零额流水）
+        // 与 `5000f`（静默钳到上界 → 入库量被静默篡改）。
+        require(Dose.isWithinRange(addedAmount)) {
+            "入库数量必须大于 0 且不超过 ${Dose.MAX_MILLI / 1000}，当前 $addedAmount"
         }
         if (medDao.getMedicationById(medicationId) == null) {
             AppLog.w(TAG, "refillStock rejected med=$medicationId reason=med-missing")
@@ -1154,7 +1195,9 @@ class DoseTrackingService(
     private fun fmtQty(value: Float): String =
         if (value == 0f) "0"
         else if (value % 1f == 0f) value.toInt().toString()
-        else String.format(Locale.getDefault(), "%.2f", value)
+        // ⚠️ 必须 `Locale.ROOT`：本函数的输出会**持久化进 inventory_transactions.note**，
+        // 用 `Locale.getDefault()` 时 de-DE 下会写成 "1,50"，CSV 导出解析随之错位。
+        else String.format(Locale.ROOT, "%.2f", value)
 
     // ⚠️ M8-1 曾删除过一个同名的 `private fun fmtQty`（零调用方 + 与
     // `com.mcxiaoke.carromed.ui.component.Quantity.fmt` 重复）。B5 把它请了回来，

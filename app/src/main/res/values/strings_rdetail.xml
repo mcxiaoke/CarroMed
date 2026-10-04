@@ -27,13 +27,15 @@
     <!-- 服药时间卡 -->
     <string name="rdetail_time_title">服药时间</string>
     <string name="rdetail_edit">修改</string>
-    <string name="rdetail_time_manual_hint">这是一条手动添加的记录，时间可以自由修改，但不能选到未来。</string>
+    <string name="rdetail_time_edit_hint">这是实际服药时间，可以修改，但不能选到未来。</string>
 
     <!-- 服用剂量卡 -->
     <string name="rdetail_dose_title">服用剂量</string>
     <string name="rdetail_dose_edit_hint">修改剂量将自动同步调整对应的库存余量。</string>
     <string name="rdetail_dose_readonly_hint">超过 %1$d 天的记录只读，备注仍可修改。</string>
-    <string name="rdetail_dose_locked_conclusion">计划服药的剂量与时间须与「提醒设置」保持一致。如有实际差异可在备注中说明，误操作可点击「撤销」。</string>
+    <!-- ⚠️ 原 rdetail_dose_locked_conclusion（「计划服药的剂量与时间须与提醒设置保持一致」）
+         已随 2026-10-04 的口径修订删除：事实的时间与剂量现在**就是**允许与计划不同，
+         且可直接在本页修改。只剩"尚无事实"这一种情形需要说明剂量来自计划。 -->
     <string name="rdetail_dose_locked_no_conclusion">剂量来自「提醒设置」，不能在这里单独修改。实际服用情况可记录在备注中。</string>
 
     <!-- 备注卡 -->
@@ -70,7 +72,7 @@
     <!-- 页脚说明 -->
     <string name="rdetail_footnote_future">这是未来的服药时间，到达当天方可确认、推迟或跳过。当前可预览计划剂量与余量。</string>
     <string name="rdetail_footnote_reverted">该记录已撤销，不再计入依从率与余量消耗统计。历史变更记录将保留以备查阅。</string>
-    <string name="rdetail_footnote_manual_readonly">超过 %1$d 天的记录只读：剂量、时间与撤销入口都不再提供，但备注仍可修改。</string>
+    <string name="rdetail_footnote_readonly">超过 %1$d 天的记录只读：剂量、时间与撤销入口都不再提供，但备注仍可修改。</string>
     <string name="rdetail_footnote_completed_no_undo">仅支持撤销当日的服药记录。更早的记录已计入历史统计，可在「已服」与「跳过」之间切换状态。</string>
     <string name="rdetail_footnote_skipped_no_undo">仅支持撤销当日的记录。该记录已计入统计，可在「已服」与「跳过」之间切换状态。</string>
     <string name="rdetail_footnote_expired">该记录已超过计划时间且尚未确认。补记依然有效：确认后按实际服用记录，跳过则不扣减余量。</string>

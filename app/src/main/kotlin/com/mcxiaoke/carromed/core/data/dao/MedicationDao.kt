@@ -6,7 +6,6 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
-import androidx.room.Update
 import com.mcxiaoke.carromed.core.data.entity.MedicationEntity
 import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.model.MedicationOverview
@@ -230,7 +229,7 @@ interface MedicationDao {
         noticeShort: String,
         expiryDate: String,
         updatedAt: Long
-    )
+    ): Int
 
     // ❗ `updateReminderBehavior` 与 `updatePauseStatus` 已删除。
     //

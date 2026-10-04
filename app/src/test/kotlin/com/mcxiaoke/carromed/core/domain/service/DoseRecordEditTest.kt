@@ -73,7 +73,7 @@ class DoseRecordEditTest {
             .atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
 
     /**
-     * 造一个来自排班的记录（`slot_id != null`），用于验证"槽位来源不可改剂量"。
+     * 造一个来自排班的记录（`slot_id != null`），用于验证"计划来源的事实可改"与"槽位同步"。
      *
      * 槽位必须以 `PENDING` 插入再由 [DoseTrackingService.takeDose] 置为完成：
      * 直接插 `COMPLETED` 会被 `markCompletedIfOpen` 的幂等锚点挡掉，
@@ -210,20 +210,36 @@ class DoseRecordEditTest {
     }
 
     @Test
-    fun `槽位来源的记录 改剂量会被拒绝`() = runTest {
-        // 槽位来源的记录改剂量会让 dose_records 与 dose_slots 的剂量分叉，
-        // 见 UX 方案 §3.3。UI 不提供该入口，服务层也必须挡住。
+    fun `槽位来源的记录 可以改剂量且计划剂量不被带着走`() = runTest {
+        // 2026-10-04 口径修订：`dose_slots.dose_amount` 是**计划**剂量，
+        // `dose_records.dose_taken` 是**事实**剂量 —— "其实只吃了半片"必须能被如实记录。
+        // 旧实现（UX 方案 §3.3）直接拒绝，用户只能绕道「单次服用」，反而制造了新的歧义。
         val rid = slotRecord(doseMilli = 1000)
-        assertThat(tracking.editDose(rid, newDoseAmount = 3f)).isFalse()
-        assertThat(db.doseRecordDao().getRecordById(rid)!!.doseTaken).isEqualTo(1000)
+        db.assertLedgerBalance(medId, 29f)              // 30 - 1
+
+        assertThat(tracking.editDose(rid, newDoseAmount = 0.5f)).isTrue()
+
+        val record = db.doseRecordDao().getRecordById(rid)!!
+        assertThat(record.doseTaken).isEqualTo(500)
+        // ★ 计划剂量不随事实修改而变
+        assertThat(db.doseSlotDao().getSlotById(record.slotId!!)!!.doseAmount).isEqualTo(1000)
+        // 台账补差额流水：30 - 0.5 = 29.5
+        db.assertLedgerBalance(medId, 29.5f)
     }
 
     @Test
-    fun `槽位来源的记录 改时间会被拒绝`() = runTest {
+    fun `槽位来源的记录 改时间会同步槽位的实际时刻`() = runTest {
         val rid = slotRecord()
-        val originalTs = db.doseRecordDao().getRecordById(rid)!!.actualTs
-        assertThat(tracking.editDose(rid, newActualTs = originalTs - 3_600_000L)).isFalse()
-        assertThat(db.doseRecordDao().getRecordById(rid)!!.actualTs).isEqualTo(originalTs)
+        val record = db.doseRecordDao().getRecordById(rid)!!
+        val slotId = record.slotId!!
+        val moved = record.actualTs - 3_600_000L
+
+        assertThat(tracking.editDose(rid, newActualTs = moved)).isTrue()
+
+        assertThat(db.doseRecordDao().getRecordById(rid)!!.actualTs).isEqualTo(moved)
+        // ★ 今日清单读 `slot.actualTakenTs`、记录详情读 `record.actualTs` ——
+        // 只改一边会让同一次服药在两处各说一套，所以必须同步。
+        assertThat(db.doseSlotDao().getSlotById(slotId)!!.actualTakenTs).isEqualTo(moved)
     }
 
     // ==================== 改时间 ====================

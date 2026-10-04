@@ -82,14 +82,37 @@ value class Dose(val milli: Int) {
         /**
          * 原始输入（单位）是否是一个**合法的单次剂量**。
          *
-         * 判据只有这一份：服务层的四个写入口（时点剂量 / 打卡 / 补录 / 改剂量）
-         * 全部调它，避免"某一条漏了上界"这类静默分叉。
+         * 判据只有这一份：服务层的写入口（时点剂量 / 打卡 / 补录 / 改剂量 / 库存盘点 /
+         * 补货 / 建档）全部调它，避免"某一条漏了上界"这类静默分叉。
          *
-         * 上界取 `until`（开区间）：量化后被钳到 [MAX_MILLI] 说明**原始输入越界**
-         * （正常值不可能恰好等于上界），因此与"≤ 0 / 非有限"一样视为非法。
+         * ⚠️ 判据必须作用在**量化后的毫单位**上，不能拿 `of(value)` 的结果判 ——
+         * `of` 会把越界值**钳制**到 [MAX_MILLI]，于是 `2000` 被钳成 `MAX_MILLI` 而误判合法。
+         * 这里直接用 `Math.round(value * 1000f)`：该实现在溢出处**饱和**到 `Int.MAX_VALUE`
+         * （不回绕为负），因此 `milli in 1..MAX_MILLI` 一次挡住四类非法输入 ——
+         * 量化归零（如 `0.0004`）、非正、超上界、溢出。
+         *
+         * 上界取**闭区间**：`1000` 是合法上界（与各入口提示文案「不超过 1000」一致），
+         * 旧实现用 `until` 把它误判为非法。
          */
-        fun isWithinRange(value: Float): Boolean =
-            value.isFinite() && of(value).milli in 1 until MAX_MILLI
+        fun isWithinRange(value: Float): Boolean {
+            if (!value.isFinite()) return false
+            val milli = Math.round(value * 1000f)
+            return milli in 1..MAX_MILLI
+        }
+
+        /**
+         * 库存场景的量程判据：与 [isWithinRange] 同源，但**放行 0**。
+         *
+         * 「盘点 / 建档到 0」是合法状态（药用完了），因此不能直接用 [isWithinRange]。
+         * 但上界必须与剂量同口径 —— 越界会被 `of` 静默钳到 [MAX_MILLI]，
+         * 于是"盘点 5000"被记成 1000，库存凭空少 80% 且台账守恒照样成立、无任何报错。
+         * 单独判 `>= 0f` 又拦不住这个越界，所以要两者合起来。
+         */
+        fun isWithinStockRange(value: Float): Boolean {
+            if (!value.isFinite() || value < 0f) return false
+            val milli = Math.round(value * 1000f)
+            return milli in 0..MAX_MILLI
+        }
     }
 }
 

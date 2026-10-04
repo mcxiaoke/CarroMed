@@ -138,21 +138,26 @@ class MedicationAdminService(private val db: AppDatabase) {
             val existingAlias = medDao.getMedicationById(draft.medId)?.alias
             val resolvedAlias = draft.alias?.trim()?.ifBlank { "" } ?: existingAlias
 
-            medDao.updateProfile(
-                id = draft.medId,
-                name = name,
-                alias = resolvedAlias,
-                category = draft.category,
-                form = draft.form,
-                unit = draft.unit,
-                colorHex = draft.colorHex,
-                defaultDose = Dose.of(draft.defaultDose).milli,
-                description = draft.description.trim(),
-                precautions = draft.precautions.map { it.trim() }.filter { it.isNotEmpty() },
-                noticeShort = draft.noticeShort.trim(),
-                expiryDate = draft.expiryDate.trim(),
-                updatedAt = System.currentTimeMillis()
-            )
+            // ⚠️ 必须检查受影响行数（M8-1 同款纪律）：编辑页开着、别处把这个药删了、
+            // 再点保存 —— UPDATE 命中 0 行却照样返回 `medId`，UI 显示"已保存"，
+            // 用户以为改名成功。与 `saveReminderBehavior` / `setPausedUntil` 同一守卫。
+            check(
+                medDao.updateProfile(
+                    id = draft.medId,
+                    name = name,
+                    alias = resolvedAlias,
+                    category = draft.category,
+                    form = draft.form,
+                    unit = draft.unit,
+                    colorHex = draft.colorHex,
+                    defaultDose = Dose.of(draft.defaultDose).milli,
+                    description = draft.description.trim(),
+                    precautions = draft.precautions.map { it.trim() }.filter { it.isNotEmpty() },
+                    noticeShort = draft.noticeShort.trim(),
+                    expiryDate = draft.expiryDate.trim(),
+                    updatedAt = System.currentTimeMillis()
+                ) == 1
+            ) { "保存药品档案失败：medications 无 id=${draft.medId} 的行（可能已被删除）" }
             // G7：档案编辑是 I9 不变量（不碰 reminder 四列与状态位）的关键路径，
             // 出问题时这条线是第一现场。alias 用 patch 语义，日志记实际生效值的存在性
             // 日志只记 medId 不记药名（orsbf P2-18）：日志文件随诊断导出外发，
@@ -247,6 +252,22 @@ class MedicationAdminService(private val db: AppDatabase) {
             val timeKeys = draft.times.map { it.time.trim() }
             require(timeKeys.size == timeKeys.distinct().size) {
                 "同一计划内存在重复的服药时点：${timeKeys.distinct()}"
+            }
+
+            // ⭐ 计划不能是「空时点」（PRN 按需用药除外），按星期服药不能「一天都没选」。
+            //
+            // 这是「零时点」数据损坏路径的唯一入口守卫：下面三条校验对**空集合全部空转通过**
+            // （`0 == 0`、`firstOrNull` 返回 null、`all` 对空列表恒 true），于是空时点计划
+            // 一路写进库 —— 投影层 `times.isEmpty() ⇒ emptyList()`，这味药**永远不会有任何
+            // 槽位、任何提醒**，而 UI 显示"保存成功"、对账日志只打 `projected=0`，
+            // 全程零报错，直接违反产品第一承诺「提醒可靠」。
+            // 服务层是**所有**调用方（表单 / 备份导入 / 未来 Widget、手表）的公共下游，
+            // 判据要落在这里而不是只靠表单。
+            require(draft.policyType == PolicyType.PRN || draft.times.isNotEmpty()) {
+                "服药计划至少要有一个服药时点"
+            }
+            require(draft.policyType != PolicyType.DAYS_OF_WEEK || draft.daysOfWeek.isNotEmpty()) {
+                "按星期服药至少要选择一天"
             }
 
             // ⭐ 时点必须是合法 `HH:mm`（M7-9，第三层防线，与剂量校验并列）。

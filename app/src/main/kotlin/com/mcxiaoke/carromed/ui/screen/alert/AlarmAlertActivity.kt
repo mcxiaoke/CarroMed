@@ -112,7 +112,9 @@ class AlarmAlertActivity : ComponentActivity() {
                     WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
         }
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // ⚠️ 刻意不加 FLAG_KEEP_SCREEN_ON：它会无期限压制系统息屏，
+        // 用户不操作时整夜亮屏 + 持 wakelock（明确耗电发热）。
+        // 亮屏需求由上面的 setTurnScreenOn(true) 满足（唤醒一次，之后遵循系统息屏策略）。
 
         val slotId = intent.getLongExtra(EXTRA_SLOT_ID, 0L)
         val medId = intent.getLongExtra(EXTRA_MED_ID, 0L)

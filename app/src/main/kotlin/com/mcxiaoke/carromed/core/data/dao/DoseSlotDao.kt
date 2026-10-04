@@ -4,7 +4,6 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Update
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.data.model.SlotStatusCountRow
@@ -206,6 +205,22 @@ interface DoseSlotDao {
     suspend fun forceStatusForTest(slotId: Long, status: SlotStatus, actualTs: Long? = null)
 
     /**
+     * 修正**已确认**槽位的实际服药时刻。
+     *
+     * 用途单一：用户改「那一次的记录」的时间时，必须把槽位这一列一起挪，
+     * 否则今日清单（读 `slot.actualTakenTs`）与记录详情页（读 `record.actualTs`）
+     * 会对同一次服药各说一套 —— 又一个静默分叉。
+     *
+     * 只接受 `COMPLETED`：只有它才有一条与之配对的事实；其他状态没有事实可改，
+     * 也不该被这条窄路径碰到（与上面那个**无守卫**的 `forceStatusForTest` 刻意区分开：
+     * 那条是测试夹具专用，生产路径不得复用）。
+     *
+     * @return 受影响行数；0 表示槽位不存在或不是 COMPLETED（调用方应放弃本次修改）
+     */
+    @Query("UPDATE dose_slots SET actual_taken_ts = :actualTs WHERE id = :slotId AND status = 'COMPLETED'")
+    suspend fun updateActualTakenTs(slotId: Long, actualTs: Long): Int
+
+    /**
      * 幂等打卡：`PENDING` / `SNOOZED` / `EXPIRED` 的槽位都可被置为 COMPLETED。
      *
      * 返回受影响的行数 —— 0 表示该槽位已被处理过，调用方应放弃后续记账。
@@ -314,8 +329,21 @@ interface DoseSlotDao {
     @Query("UPDATE dose_slots SET last_snooze_notified_ts = :notifiedTs WHERE id = :slotId")
     suspend fun updateLastSnoozeNotifiedTs(slotId: Long, notifiedTs: Long): Int
 
-    /** 更新提醒次数及最后主提醒时间戳 (用于忽略/划掉后的重复提醒) */
-    @Query("UPDATE dose_slots SET reminder_count = :count, last_main_notified_ts = :notifiedTs WHERE id = :slotId")
+    /**
+     * 更新提醒次数及最后主提醒时间戳 (用于忽略/划掉后的重复提醒)。
+     *
+     * ⚠️ 必须带 `status IN ('PENDING','SNOOZED')` 守卫（与 [snoozeSlot] / [revertToPending] 同一纪律）：
+     * 调用方是「先弹通知、再回写计数」，中间用户可能已经点了「已吃」。
+     * 少了这个守卫就成了一次无条件的 UPDATE，会把提醒计数写到一个已经结算的槽位上。
+     */
+    @Query(
+        """
+        UPDATE dose_slots
+        SET reminder_count = :count, last_main_notified_ts = :notifiedTs
+        WHERE id = :slotId
+          AND status IN ('PENDING', 'SNOOZED')
+        """
+    )
     suspend fun updateReminderCountAndLastNotified(slotId: Long, count: Int, notifiedTs: Long): Int
 
     /** 撤销或重新排班时重置提醒计数 */

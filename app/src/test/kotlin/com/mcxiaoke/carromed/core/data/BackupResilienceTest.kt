@@ -198,7 +198,9 @@ class BackupResilienceTest {
             // 恢复是直写实体、绕过服务层守卫，只能在校验层拦。
             BackupProblemKind.INVALID_DOSE to good.copy(
                 doseSlots = listOf(good.doseSlots.first().copy(doseAmount = 0))
-            )
+            ),
+            // §二-17：活跃且非 PRN 的计划没有任何时点 ⇒ 该药永远不提醒，必须拦住
+            BackupProblemKind.EMPTY_SCHEDULE to good.copy(policyTimes = emptyList())
         )
         assertThat(dirty.keys).containsExactlyElementsIn(BackupProblemKind.entries.toSet())
 

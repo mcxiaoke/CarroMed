@@ -366,12 +366,12 @@ class DoseTrackingServiceTest {
     }
 
     @Test
-    fun `手动补录若命中同日未完成槽位则自动结清并关联槽位`() = runTest {
+    fun `单次服用与计划完全独立 不结清也不关联任何槽位`() = runTest {
         val medDao = db.medicationDao()
         val slotDao = db.doseSlotDao()
         val recordDao = db.doseRecordDao()
 
-        val medId = medDao.insert(MedicationEntity(name = "补录关联药", unit = "片"))
+        val medId = medDao.insert(MedicationEntity(name = "计划外加服药", unit = "片"))
         val today = LocalDate.of(2026, 10, 1)
         val todayStr = today.toString()
         val slotTs = today.atTime(9, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
@@ -388,19 +388,20 @@ class DoseTrackingServiceTest {
             )
         )
 
-        // 用户在 09:15 补录该药
+        // 用户在 09:15 记录"额外加服 0.5 片"—— 即便与计划时点只差 15 分钟
         val actualTs = slotTs + 15 * 60_000L
-        val recordId = service.logManualDose(medicationId = medId, actualTs = actualTs, doseAmount = 1.0f)
+        val recordId = service.logManualDose(medicationId = medId, actualTs = actualTs, doseAmount = 0.5f)
         assertThat(recordId).isGreaterThan(0L)
 
-        // 验证槽位已被结清为 COMPLETED
+        // ★ 计划槽位**原样不动**：单次服用不再"按时间认领"同日槽位
+        //（旧实现在这里会把槽位静默置为 COMPLETED，且对用户完全不可见）
         val slot = slotDao.getSlotById(slotId)
-        assertThat(slot?.status).isEqualTo(SlotStatus.COMPLETED)
-        assertThat(slot?.actualTakenTs).isEqualTo(actualTs)
+        assertThat(slot?.status).isEqualTo(SlotStatus.PENDING)
+        assertThat(slot?.actualTakenTs).isNull()
 
-        // 验证服药记录关联了该槽位
+        // ★ 事实不关联任何槽位：计划内那一次仍待用户自行确认
         val record = recordDao.getAllRecords().first { it.medicationId == medId }
-        assertThat(record.slotId).isEqualTo(slotId)
+        assertThat(record.slotId).isNull()
     }
 
     @Test

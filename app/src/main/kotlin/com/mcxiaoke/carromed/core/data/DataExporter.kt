@@ -185,6 +185,16 @@ enum class BackupProblemKind(val blocksRestore: Boolean) {
      * （扣减变加药）都是全程静默的数据损坏，必须在写库前挡下。
      */
     INVALID_DOSE(true),
+
+    /**
+     * 「零时点 / 零星期」计划（§二-17）：一条**活跃**且非 PRN 的服药计划
+     * 没有任何 `policy_times`，或 `DAYS_OF_WEEK` 计划一天都没选。
+     *
+     * 拦住恢复：后果是该药**永远不会有任何槽位、任何提醒**，而恢复流程照常显示成功 ——
+     * 与产品第一承诺「提醒可靠」直接冲突，且完全静默（服务层的
+     * `saveReminderPolicy` 已加同源守卫，但恢复是直写实体、绕过服务层）。
+     */
+    EMPTY_SCHEDULE(true),
 }
 
 /**
@@ -706,6 +716,63 @@ object DataExporter {
                 )
             }
         }
+        // `policy_times.dose_amount` 是**未来所有槽位剂量的来源**，同样绕过服务层直写。
+        // 一份 `doseAmount = -5000` 的备份恢复后，投影会物化出负剂量槽位，之后每次打卡
+        // `change_amount = +5000` —— **扣减变成持续加库存**，而
+        // `SUM(change_amount) == balance_after` 恒等式照样成立，守恒检查拦不住。
+        backup.policyTimes.forEach {
+            if (it.doseAmount !in 1..Dose.MAX_MILLI) {
+                report(
+                    BackupProblemKind.INVALID_DOSE,
+                    R.string.backup_err_invalid_policy_time_dose,
+                    it.id, it.doseAmount, Dose.MAX_MILLI
+                )
+            }
+        }
+        // 药品档案里的剂量相关字段：`default_dose` 会被"按默认剂量打卡"的入口直接吃进台账，
+        // 负值等于给库存加药；`min_stock_alert` 负值会让预警线失去意义。两者都必须非负且有上界。
+        backup.medications.forEach { med ->
+            if (med.defaultDose !in 0..Dose.MAX_MILLI) {
+                report(
+                    BackupProblemKind.INVALID_DOSE,
+                    R.string.backup_err_invalid_default_dose,
+                    med.id, med.defaultDose, Dose.MAX_MILLI
+                )
+            }
+            if (med.minStockAlert !in 0..Dose.MAX_MILLI) {
+                report(
+                    BackupProblemKind.INVALID_DOSE,
+                    R.string.backup_err_invalid_min_stock_alert,
+                    med.id, med.minStockAlert, Dose.MAX_MILLI
+                )
+            }
+        }
+
+        // 「零时点 / 零星期」计划（§二-17）：恢复是直写实体，服务层守卫绕不过去，
+        // 只能在这里拦。后果是该药永远不提醒且恢复显示成功 —— 与产品第一承诺冲突。
+        val policyIdsWithTimes = backup.policyTimes.map { it.policyId }.toSet()
+        backup.schedulePolicies
+            .filter { it.isActive && it.policyType != PolicyType.PRN }
+            .forEach {
+                if (it.id !in policyIdsWithTimes) {
+                    report(
+                        BackupProblemKind.EMPTY_SCHEDULE,
+                        R.string.backup_err_empty_schedule,
+                        it.medicationId
+                    )
+                }
+            }
+        backup.schedulePolicies
+            .filter {
+                it.isActive && it.policyType == PolicyType.DAYS_OF_WEEK && it.daysOfWeek.isEmpty()
+            }
+            .forEach {
+                report(
+                    BackupProblemKind.EMPTY_SCHEDULE,
+                    R.string.backup_err_empty_schedule_dow,
+                    it.medicationId
+                )
+            }
 
         // 药品 id 重复 ⇒ `MedicationDao.insertAll` 是 ABORT：事务中途抛异常、
         // 整个恢复回滚，用户只看到失败 —— 重复必须在校验层拦下并明确报因，
@@ -731,20 +798,24 @@ object DataExporter {
         // ⚠️ 四张表的回填都是 `OnConflictStrategy.REPLACE`，
         // 重复主键会**静默覆盖丢行**。校验层原先只覆盖 `medications` 与 `dose_slots`，
         // 漏了这四张 —— 而它们恰恰是最可能被手工编辑过的表。
+        // ⚠️ 第四参数是**消息资源**而不是"行标签"：旧写法把 `@StringRes` 标签（Int）
+        // 当 `%1$s` 塞进通用模板，用户在二次确认框里看到的是
+        // 「2131165234 #3 在备份中出现了 2 次」—— 资源 ID 被当文本打印。
+        // 与剂量量程那批同款处理：每种行各用一条独立文案。
         fun <T> checkDuplicates(
             rows: List<T>,
             idOf: (T) -> Long,
             kind: BackupProblemKind,
-            @StringRes labelRes: Int
+            @StringRes messageRes: Int
         ) {
             rows.groupBy { idOf(it) }
                 .filterValues { it.size > 1 }
-                .forEach { (rid, dup) -> report(kind, R.string.backup_err_dup_row, labelRes, rid, dup.size) }
+                .forEach { (rid, dup) -> report(kind, messageRes, rid, dup.size) }
         }
-        checkDuplicates(backup.doseRecords, { it.id }, BackupProblemKind.DUPLICATE_RECORD_ID, R.string.backup_row_record)
-        checkDuplicates(backup.inventoryTransactions, { it.id }, BackupProblemKind.DUPLICATE_LEDGER_ID, R.string.backup_row_ledger)
-        checkDuplicates(backup.schedulePolicies, { it.id }, BackupProblemKind.DUPLICATE_POLICY_ID, R.string.backup_row_policy)
-        checkDuplicates(backup.policyTimes, { it.id }, BackupProblemKind.DUPLICATE_POLICY_TIME_ID, R.string.backup_row_policy_time)
+        checkDuplicates(backup.doseRecords, { it.id }, BackupProblemKind.DUPLICATE_RECORD_ID, R.string.backup_err_dup_record_row)
+        checkDuplicates(backup.inventoryTransactions, { it.id }, BackupProblemKind.DUPLICATE_LEDGER_ID, R.string.backup_err_dup_ledger_row)
+        checkDuplicates(backup.schedulePolicies, { it.id }, BackupProblemKind.DUPLICATE_POLICY_ID, R.string.backup_err_dup_policy_row)
+        checkDuplicates(backup.policyTimes, { it.id }, BackupProblemKind.DUPLICATE_POLICY_TIME_ID, R.string.backup_err_dup_policy_time_row)
 
         // ⚠️ 下面三类的**主键不是自增 id**，上面那个通用检查覆盖不到它们（M5-3）。
         //
@@ -1386,7 +1457,13 @@ object DataExporter {
         mime: String,
         title: String = context.getString(R.string.csv_share_title)
     ): Boolean {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        // `getUriForFile` 对未被 `file_paths.xml` 覆盖的路径会直接抛异常。
+        // 必须在 runCatching 内取 Uri，失败时返回 false 交给调用方提示，
+        // 而不是把异常抛到调用方（旧写法在 runCatching 之外）。
+        val uri = runCatching {
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        }.onFailure { AppLog.w(TAG, "shareFile: getUriForFile failed for ${file.name}", it) }
+            .getOrNull() ?: return false
         val send = Intent(Intent.ACTION_SEND).apply {
             type = mime
             putExtra(Intent.EXTRA_STREAM, uri)

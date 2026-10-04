@@ -115,7 +115,9 @@ object StatsEngine {
         withShortRunwayAlert: Boolean = false
     ): Pair<Int, Boolean> {
         val alertEnabled = minStockAlert > 0f
-        if (dailyEstimatedConsumption <= 0f) {
+        // ⚠️ NaN 必须一起挡：`NaN <= 0f` 为 false，NaN 会穿透到 `(stock / NaN).toInt()` = 0，
+        // 于是显示"可用 0 天"**且不触发任何告警** —— 恰是最危险的组合。
+        if (!dailyEstimatedConsumption.isFinite() || dailyEstimatedConsumption <= 0f) {
             // 按需服用 / 没有排班 ⇒ 没有"日消耗"这个概念，剩余天数无意义。
             // ⚠️ 旧实现返回 `Int.MAX_VALUE`（∞）。这个值会一路传到 UI 变成
             // "可用 2147483647 天"，读起来像个 bug 而不是"不适用"。
@@ -200,7 +202,14 @@ object StatsEngine {
      */
     fun groupByUnit(rows: List<Pair<String, Int>>): Map<String, Float> =
         rows.groupBy({ it.first }, { it.second })
-            .mapValues { (_, milliList) -> Dose(milliList.sum()).asFloat }
+            .mapValues { (_, milliList) ->
+                // 先用 Long 求和：`Int.sum()` 超过 2^31-1 会**静默回绕成负数**，
+                // 让"累计用量"显示成负值。求完再钳回 Int 量程（`Dose` 是 Int 毫单位），
+                // 避免 `toInt()` 截断出符号错误；真实用量远达不到这个上界，钳制只是防御。
+                val total = milliList.sumOf { it.toLong() }
+                    .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
+                Dose(total.toInt()).asFloat
+            }
 
     /**
      * 按记录集合汇总实际服药剂量。
@@ -515,7 +524,11 @@ object StatsEngine {
         scheduledDosesPerWeek: Double,
         minStockAlert: Float = 0f
     ): Pair<Int, Boolean> {
-        if (dosesPerScheduledDay <= 0f || scheduledDosesPerWeek <= 0.0) {
+        // 与 [calculateStockRunway] 同源：NaN 不能靠 `<= 0` 挡住（NaN 参与的比较恒 false），
+        // 否则会算出一个 NaN 日消耗并穿透成"可用 0 天且不告警"。
+        if (!dosesPerScheduledDay.isFinite() || dosesPerScheduledDay <= 0f ||
+            !scheduledDosesPerWeek.isFinite() || scheduledDosesPerWeek <= 0.0
+        ) {
             return calculateStockRunway(currentStock, 0f, minStockAlert)
         }
         // 排班日折算：每周排班 N 次 → 日均消耗 = 单次日量 * N / 7
