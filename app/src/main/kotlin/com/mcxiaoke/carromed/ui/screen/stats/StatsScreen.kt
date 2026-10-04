@@ -49,10 +49,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.ui.component.CarroMedTopAppBar
 import com.mcxiaoke.carromed.ui.component.Quantity
-import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
-import com.mcxiaoke.carromed.ui.theme.SuccessGreen
-import com.mcxiaoke.carromed.ui.theme.WarningAmber
-import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 import java.util.Locale
 
 @Composable
@@ -353,7 +349,7 @@ private fun AdherenceBreakdownCard(uiState: StatsUiState) {
                         Modifier
                             .weight(b.completed.toFloat() / decided)
                             .fillMaxSize()
-                            .background(SuccessGreen)
+                            .background(MaterialTheme.colorScheme.primary)
                     )
                 }
                 if (b.skipped > 0) {
@@ -369,7 +365,7 @@ private fun AdherenceBreakdownCard(uiState: StatsUiState) {
                         Modifier
                             .weight(b.missed.toFloat() / decided)
                             .fillMaxSize()
-                            .background(WarningAmber)
+                            .background(MaterialTheme.colorScheme.error)
                     )
                 }
             }
@@ -379,9 +375,9 @@ private fun AdherenceBreakdownCard(uiState: StatsUiState) {
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                LegendDot(SuccessGreen, stringResource(R.string.stats_legend_taken), b.completed, Modifier.weight(1f))
+                LegendDot(MaterialTheme.colorScheme.primary, stringResource(R.string.stats_legend_taken), b.completed, Modifier.weight(1f))
                 LegendDot(MaterialTheme.colorScheme.outline, stringResource(R.string.stats_legend_skipped), b.skipped, Modifier.weight(1f))
-                LegendDot(WarningAmber, stringResource(R.string.stats_legend_missed), b.missed, Modifier.weight(1f))
+                LegendDot(MaterialTheme.colorScheme.error, stringResource(R.string.stats_legend_missed), b.missed, Modifier.weight(1f))
             }
 
             if (b.pending > 0) {

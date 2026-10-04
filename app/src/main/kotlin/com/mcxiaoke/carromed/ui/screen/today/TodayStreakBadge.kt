@@ -27,9 +27,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcxiaoke.carromed.R
-import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
-import com.mcxiaoke.carromed.ui.theme.WarningAmber
-import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 
 /**
  * 顶栏连续服药天数胶囊徽章（StreakBadge）。
@@ -44,9 +41,9 @@ fun TodayStreakBadge(
     modifier: Modifier = Modifier
 ) {
     val isActive = streakDays > 0
-    val containerColor = if (isActive) WarningAmberContainer else MaterialTheme.colorScheme.surfaceVariant
-    val iconColor = if (isActive) WarningAmber else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-    val textColor = if (isActive) OnWarningAmberContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    val containerColor = if (isActive) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant
+    val iconColor = if (isActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+    val textColor = if (isActive) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant
 
     val cdText = stringResource(R.string.today_streak_cd, streakDays)
 

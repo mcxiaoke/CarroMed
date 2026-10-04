@@ -20,6 +20,14 @@
     <string name="set_local_backup_empty">还没有本机备份。请先用上面的「生成备份」。</string>
     <string name="set_close">关闭</string>
 
+    <!-- 0. 外观 -->
+    <string name="set_section_appearance">外观</string>
+    <string name="set_theme_title">主题模式</string>
+    <string name="set_theme_desc">选择 App 的配色方案。选「跟随系统」时会随设备的深色模式自动切换。</string>
+    <string name="set_theme_system">跟随系统</string>
+    <string name="set_theme_light">浅色</string>
+    <string name="set_theme_dark">深色</string>
+
     <!-- 1. 通知与提醒行为 -->
     <string name="set_section_notification">通知与提醒行为</string>
     <string name="set_snooze_title">默认推迟时长</string>

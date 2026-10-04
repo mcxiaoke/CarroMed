@@ -69,10 +69,6 @@ import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.screen.edit.ReadOnlyDateField
-import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
-import com.mcxiaoke.carromed.ui.theme.SuccessGreen
-import com.mcxiaoke.carromed.ui.theme.WarningAmber
-import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -194,7 +190,7 @@ fun InventoryScreen(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = if (uiState.isLowStock && uiState.isTracked) {
-                            WarningAmberContainer
+                            MaterialTheme.colorScheme.errorContainer
                         } else {
                             MaterialTheme.colorScheme.surfaceContainerLow
                         }
@@ -204,7 +200,7 @@ fun InventoryScreen(
                         Text(
                             stringResource(R.string.inv_current_stock),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = if (uiState.isLowStock && uiState.isTracked) OnWarningAmberContainer
+                            color = if (uiState.isLowStock && uiState.isTracked) MaterialTheme.colorScheme.onErrorContainer
                             else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(Modifier.height(4.dp))
@@ -212,7 +208,7 @@ fun InventoryScreen(
                             text = "${Quantity.fmt(uiState.currentStock)} ${med.unit}",
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Bold,
-                            color = if (uiState.isLowStock && uiState.isTracked) WarningAmber
+                            color = if (uiState.isLowStock && uiState.isTracked) MaterialTheme.colorScheme.error
                             else if (uiState.currentStock <= 0f) MaterialTheme.colorScheme.error
                             else MaterialTheme.colorScheme.onSurface
                         )
@@ -260,7 +256,7 @@ fun InventoryScreen(
                                     Icon(
                                         Icons.Default.WarningAmber,
                                         contentDescription = null,
-                                        tint = WarningAmber,
+                                        tint = MaterialTheme.colorScheme.error,
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(Modifier.width(6.dp))
@@ -268,7 +264,7 @@ fun InventoryScreen(
                                         stringResource(R.string.inv_low_runway_warning, uiState.runwayDays),
                                         style = MaterialTheme.typography.bodySmall,
                                         // bodySmall 语义色小字不达 AA（§二-20），用深琥珀前景
-                                        color = OnWarningAmberContainer,
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 }
@@ -452,7 +448,7 @@ private enum class NoticeTone { INFO, WARN, ERROR }
 private fun NoticeBar(text: String, tone: NoticeTone) {
     val (bg, fg) = when (tone) {
         NoticeTone.INFO -> MaterialTheme.colorScheme.secondaryContainer to MaterialTheme.colorScheme.onSecondaryContainer
-        NoticeTone.WARN -> WarningAmberContainer to OnWarningAmberContainer
+        NoticeTone.WARN -> MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
         NoticeTone.ERROR -> MaterialTheme.colorScheme.errorContainer to MaterialTheme.colorScheme.onErrorContainer
     }
     Surface(shape = RoundedCornerShape(10.dp), color = bg) {
@@ -491,7 +487,7 @@ private fun TxRow(
                 Modifier
                     .size(8.dp)
                     .clip(CircleShape)
-                    .background(if (change >= 0) SuccessGreen else MaterialTheme.colorScheme.outline)
+                    .background(if (change >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline)
             )
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
@@ -525,7 +521,7 @@ private fun TxRow(
                     text = (if (change > 0) "+${Quantity.fmt(change)}" else Quantity.fmt(change)) + " $unit",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (change > 0) SuccessGreen else MaterialTheme.colorScheme.onSurface
+                    color = if (change > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     stringResource(R.string.inv_tx_balance, Quantity.fmt(balance)),

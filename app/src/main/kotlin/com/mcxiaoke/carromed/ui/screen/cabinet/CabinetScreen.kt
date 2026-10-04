@@ -69,8 +69,6 @@ import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
 import java.time.LocalDate
-import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
-import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -430,7 +428,7 @@ fun CabinetMedCard(
                 val isLow = StatsEngine.isLowStock(med.isStockTracked, stock, alert)
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = if (isLow) WarningAmberContainer
+                    color = if (isLow) MaterialTheme.colorScheme.errorContainer
                     else MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     val stockText = Quantity.fmt(stock)
@@ -440,7 +438,7 @@ fun CabinetMedCard(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = if (isLow) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isLow) OnWarningAmberContainer
+                        color = if (isLow) MaterialTheme.colorScheme.onErrorContainer
                         else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

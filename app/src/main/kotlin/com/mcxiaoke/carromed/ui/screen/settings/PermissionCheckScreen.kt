@@ -57,8 +57,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.alarm.AlarmScheduler
-import com.mcxiaoke.carromed.ui.theme.SuccessGreen
-import com.mcxiaoke.carromed.ui.theme.WarningAmber
 
 /**
  * 系统特权自检与保活指引
@@ -353,7 +351,7 @@ fun PermissionItemCard(
             // 状态显示又是唯一入口，等于把"不知道"伪装成"知道了"。
             Text(
                 text = status.text,
-                color = if (status.ok) SuccessGreen else WarningAmber,
+                color = if (status.ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp
             )

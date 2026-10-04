@@ -81,20 +81,26 @@ ACTIVITY = f"{PKG}/com.mcxiaoke.carromed.MainActivity"
 ALERT_ACTIVITY = f"{PKG}/com.mcxiaoke.carromed.DevAlertEntry"
 DEV_SEED_ACTION = "com.mcxiaoke.carromed.dev.SEED"
 DEV_CLEAR_ACTION = "com.mcxiaoke.carromed.dev.CLEAR"
+# 切换主题模式（SYSTEM/LIGHT/DARK），详见 DevDataReceiver.ACTION_SET_THEME
+DEV_THEME_ACTION = "com.mcxiaoke.carromed.dev.SET_THEME"
 DEV_RECEIVER = f"{PKG}/com.mcxiaoke.carromed.DevDataReceiver"
 
 
 def set_package(pkg: str) -> None:
-    global PKG, ACTIVITY, ALERT_ACTIVITY, DEV_SEED_ACTION, DEV_CLEAR_ACTION, DEV_RECEIVER
+    global PKG, ACTIVITY, ALERT_ACTIVITY, DEV_SEED_ACTION, DEV_CLEAR_ACTION
+    global DEV_THEME_ACTION, DEV_RECEIVER
     PKG = pkg
     ACTIVITY = f"{PKG}/com.mcxiaoke.carromed.MainActivity"
     ALERT_ACTIVITY = f"{PKG}/com.mcxiaoke.carromed.DevAlertEntry"
     DEV_SEED_ACTION = "com.mcxiaoke.carromed.dev.SEED"
     DEV_CLEAR_ACTION = "com.mcxiaoke.carromed.dev.CLEAR"
+    DEV_THEME_ACTION = "com.mcxiaoke.carromed.dev.SET_THEME"
     DEV_RECEIVER = f"{PKG}/com.mcxiaoke.carromed.DevDataReceiver"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = REPO_ROOT / "temp" / "appscreenshots"
+# 深色模式走查默认落到独立目录：与浅色成图并排对比，且不会互相覆盖
+DEFAULT_OUT_DARK = REPO_ROOT / "temp" / "appscreenshots_dark"
 
 # 底部导航栏文字（同时也是四个一级页面的校验锚点）
 TABS = ("今日", "药箱", "记录", "统计")
@@ -351,13 +357,23 @@ class Driver:
         self._run(["shell", "am", "start", "-W", "-n", ACTIVITY], timeout=120)
         time.sleep(1.8)  # 等 Compose 首帧 + Room 打开
 
-    def dev_broadcast(self, action: str) -> None:
+    def dev_broadcast(self, action: str, extras: dict[str, str] | None = None) -> None:
         # 必须先让进程活着：被 force-stop 的应用收不到广播
         self.launch(cold=False)
-        self._run(
-            ["shell", "am", "broadcast", "-a", action, "-n", DEV_RECEIVER], timeout=60
-        )
+        cmd = ["shell", "am", "broadcast", "-a", action, "-n", DEV_RECEIVER]
+        for k, v in (extras or {}).items():
+            cmd += ["--es", k, v]
+        self._run(cmd, timeout=60)
         time.sleep(1.2)
+
+    def set_theme(self, mode: str) -> None:
+        """切换主题模式（SYSTEM / LIGHT / DARK），走 debug 专属广播。
+
+        为什么不点界面：主题下拉是 `ExposedDropdownMenuBox`，展开项的语义树
+        与输入框同名（都是「跟随系统」/「深色」），按文字定位会取到错的那个节点，
+        失败后又只表现为"主题没切成功" —— 正是走查脚本最怕的那类静默错误。
+        """
+        self.dev_broadcast(DEV_THEME_ACTION, {"theme_mode": mode})
 
     # -- 输入 -------------------------------------------------------------- #
     def tap(self, x: int, y: int, settle: float = 0.9) -> None:
@@ -854,7 +870,17 @@ def main() -> int:
         epilog=__doc__,
     )
     ap.add_argument("--serial", help="目标设备序列号，默认自动挑选在线模拟器")
-    ap.add_argument("--out", default=str(DEFAULT_OUT), help=f"截图输出目录（默认 {DEFAULT_OUT}）")
+    ap.add_argument(
+        "--out",
+        default=None,
+        help=f"截图输出目录（默认 {DEFAULT_OUT}；--theme dark 时默认 {DEFAULT_OUT_DARK}）",
+    )
+    ap.add_argument(
+        "--theme",
+        choices=["system", "light", "dark"],
+        default="system",
+        help="走查前切换主题模式（走 debug 专属广播，不点界面下拉）",
+    )
     ap.add_argument("--only", help="只截指定页，逗号分隔，如 today,stats")
     ap.add_argument("--clear", action="store_true", help="跑之前 pm clear，回到首启空库")
     ap.add_argument("--seed", action="store_true", help="灌入演示数据（需 debug 包）")
@@ -876,6 +902,9 @@ def main() -> int:
             mark = "  （需要至少一个药品，空库时跳过）" if needs_data else ""
             print(f"  {key:<18} {note}{mark}")
         return 0
+
+    if args.out is None:
+        args.out = str(DEFAULT_OUT_DARK if args.theme == "dark" else DEFAULT_OUT)
 
     only = {x.strip() for x in args.only.split(",") if x.strip()} if args.only else set()
     unknown = only - {s.key for s in PROGRAM if s.action == "shot"}
@@ -916,6 +945,11 @@ def main() -> int:
         if args.seed:
             print("灌入演示数据（DevDataReceiver，仅 debug 包可用）")
             driver.dev_broadcast(DEV_SEED_ACTION)
+        if args.theme != "system":
+            # 广播写偏好 → 随后的冷启动会经 ThemePreference.init 读回，
+            # 所以这里必须先切再启动（顺序反了截到的还是上一轮的主题）。
+            print(f"切换主题模式 → {args.theme.upper()}")
+            driver.set_theme(args.theme.upper())
         driver.launch(cold=True)
 
         # 空库探针：今日页首启引导卡的标题只有"一个药品都没有"时才会出现

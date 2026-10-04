@@ -46,12 +46,6 @@ import androidx.compose.ui.unit.sp
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.ui.component.WeekLabels
-import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
-import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
-import com.mcxiaoke.carromed.ui.theme.SuccessGreen
-import com.mcxiaoke.carromed.ui.theme.SuccessGreenContainer
-import com.mcxiaoke.carromed.ui.theme.WarningAmber
-import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -219,18 +213,18 @@ private fun CalendarDayCell(
 
     when (state) {
         StatsEngine.DayAdherenceState.FULLY_TAKEN -> {
-            bgColor = SuccessGreen
-            textColor = Color.White
+            bgColor = MaterialTheme.colorScheme.primary
+            textColor = MaterialTheme.colorScheme.onPrimary
             fontWeight = FontWeight.Bold
         }
         StatsEngine.DayAdherenceState.PARTIAL -> {
-            bgColor = SuccessGreenContainer
-            textColor = OnSuccessGreenContainer
+            bgColor = MaterialTheme.colorScheme.primaryContainer
+            textColor = MaterialTheme.colorScheme.onPrimaryContainer
             fontWeight = FontWeight.Bold
         }
         StatsEngine.DayAdherenceState.MISSED -> {
-            bgColor = WarningAmber
-            textColor = Color.White
+            bgColor = MaterialTheme.colorScheme.error
+            textColor = MaterialTheme.colorScheme.onError
             fontWeight = FontWeight.Bold
         }
         StatsEngine.DayAdherenceState.SKIPPED -> {
@@ -284,9 +278,9 @@ private fun CalendarLegendRow() {
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        LegendDotItem(color = SuccessGreen, text = stringResource(R.string.today_calendar_legend_fully_taken))
-        LegendDotItem(color = SuccessGreenContainer, text = stringResource(R.string.today_calendar_legend_partial), isContainer = true)
-        LegendDotItem(color = WarningAmber, text = stringResource(R.string.today_calendar_legend_missed))
+        LegendDotItem(color = MaterialTheme.colorScheme.primary, text = stringResource(R.string.today_calendar_legend_fully_taken))
+        LegendDotItem(color = MaterialTheme.colorScheme.primaryContainer, text = stringResource(R.string.today_calendar_legend_partial), isContainer = true)
+        LegendDotItem(color = MaterialTheme.colorScheme.error, text = stringResource(R.string.today_calendar_legend_missed))
         LegendDotItem(color = MaterialTheme.colorScheme.surfaceVariant, text = stringResource(R.string.today_calendar_legend_skipped))
     }
 }
@@ -307,7 +301,7 @@ private fun LegendDotItem(
                 .clip(CircleShape)
                 .background(color)
                 .then(
-                    if (isContainer) Modifier.border(1.dp, OnSuccessGreenContainer.copy(alpha = 0.3f), CircleShape)
+                    if (isContainer) Modifier.border(1.dp, MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f), CircleShape)
                     else Modifier
                 )
         )
@@ -338,7 +332,7 @@ private fun StreakSummaryCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isActive) WarningAmberContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            containerColor = if (isActive) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         )
     ) {
         Row(
@@ -351,13 +345,13 @@ private fun StreakSummaryCard(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
-                    .background(if (isActive) WarningAmberContainer else MaterialTheme.colorScheme.surfaceVariant),
+                    .background(if (isActive) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Filled.Star,
                     contentDescription = null,
-                    tint = if (isActive) WarningAmber else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    tint = if (isActive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -371,7 +365,7 @@ private fun StreakSummaryCard(
                     text = stringResource(R.string.today_streak_title, streakDays),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (isActive) OnWarningAmberContainer else MaterialTheme.colorScheme.onSurface
+                    color = if (isActive) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(

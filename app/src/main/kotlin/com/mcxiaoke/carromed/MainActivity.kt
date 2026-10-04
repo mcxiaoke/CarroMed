@@ -12,6 +12,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -35,6 +36,7 @@ import com.mcxiaoke.carromed.core.time.DailyOnceGate
 import com.mcxiaoke.carromed.ui.component.NotificationPermissionBanner
 import com.mcxiaoke.carromed.ui.navigation.AppNavigation
 import com.mcxiaoke.carromed.ui.theme.CarroMedTheme
+import com.mcxiaoke.carromed.ui.theme.ThemePreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -98,6 +100,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
+        // 主题模式必须在 setContent 之前同步读出来，否则冷启动会先按系统主题渲染一帧
+        // 再翻转（`values-night/themes.xml` 当初就是为了消除这个白闪才加的）。
+        ThemePreference.init(applicationContext)
+
         Notifications.ensureChannel(this)
         requestNotificationPermissionIfNeeded()
 
@@ -134,7 +140,9 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            CarroMedTheme {
+            // 主题模式由「设置 → 外观」控制；「跟随系统」时仍走 isSystemInDarkTheme()。
+            val themeMode by ThemePreference.mode.collectAsStateWithLifecycle()
+            CarroMedTheme(darkTheme = themeMode.resolveDark(isSystemInDarkTheme())) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

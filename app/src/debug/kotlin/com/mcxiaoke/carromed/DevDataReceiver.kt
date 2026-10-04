@@ -8,6 +8,8 @@ import com.mcxiaoke.carromed.core.data.DevSampleDataSeeder
 import com.mcxiaoke.carromed.core.data.DownloadsLogExporter
 import com.mcxiaoke.carromed.core.alarm.AppLogging
 import com.mcxiaoke.carromed.core.domain.AppLog
+import com.mcxiaoke.carromed.ui.theme.ThemeMode
+import com.mcxiaoke.carromed.ui.theme.ThemePreference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -67,6 +69,15 @@ class DevDataReceiver : BroadcastReceiver() {
                         )
                     }
 
+                    ACTION_SET_THEME -> {
+                        // 走查用：切换主题模式。界面上也能切（设置 → 外观），
+                        // 但下拉菜单靠语义树点不稳，脚本里用广播切换更可靠。
+                        // 只写偏好、不动业务库；进程级 StateFlow 会让存活的 Activity 立即重组。
+                        val mode = ThemeMode.fromStorage(intent.getStringExtra(EXTRA_THEME_MODE))
+                        ThemePreference.write(appContext, mode)
+                        AppLog.i(TAG, "Dev theme mode -> $mode")
+                    }
+
                     ACTION_CLEAR -> {
                         // 清库前撤掉托盘全部通知（osbf P3-8）：旧提醒还挂着，
                         // 走查截图带僵尸通知；清库后逐槽位撤闹钟已无从做起，
@@ -105,5 +116,9 @@ class DevDataReceiver : BroadcastReceiver() {
         const val ACTION_CLEAR = "com.mcxiaoke.carromed.dev.CLEAR"
         const val ACTION_CRASH = "com.mcxiaoke.carromed.dev.CRASH"
         const val ACTION_EXPORT = "com.mcxiaoke.carromed.dev.EXPORT"
+        const val ACTION_SET_THEME = "com.mcxiaoke.carromed.dev.SET_THEME"
+
+        /** `ACTION_SET_THEME` 的附加入参：SYSTEM / LIGHT / DARK */
+        const val EXTRA_THEME_MODE = "theme_mode"
     }
 }

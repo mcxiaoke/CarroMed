@@ -9,6 +9,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +39,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,9 +53,9 @@ import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.alarm.DoseActionReceiver
 import com.mcxiaoke.carromed.core.alarm.Notifications
 import com.mcxiaoke.carromed.core.alarm.ReminderSettings
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.ui.theme.CarroMedTheme
-import com.mcxiaoke.carromed.ui.theme.SuccessGreen
-import com.mcxiaoke.carromed.ui.theme.WarningAmber
+import com.mcxiaoke.carromed.ui.theme.ThemePreference
 
 /**
  * 锁屏全屏提醒强交互界面 (Full-Screen Intent)
@@ -144,9 +146,13 @@ class AlarmAlertActivity : ComponentActivity() {
         // 亮屏需求由上面的 setTurnScreenOn(true) 满足（唤醒一次，之后遵循系统息屏策略）。
 
         payload.value = alertPayloadOf(intent)
+        // 全屏提醒是独立 Activity，同样要跟随用户在「设置 → 外观」里选的主题，
+        // 否则 App 内是深色、半夜弹出来的提醒却是浅色。
+        ThemePreference.init(applicationContext)
 
         setContent {
-            CarroMedTheme {
+            val themeMode by ThemePreference.mode.collectAsStateWithLifecycle()
+            CarroMedTheme(darkTheme = themeMode.resolveDark(isSystemInDarkTheme())) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -370,7 +376,7 @@ fun AlarmAlertContent(
                     .fillMaxWidth()
                     .height(56.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen)
+                colors = ButtonDefaults.buttonColors()
             ) {
                 Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(22.dp))
                 Spacer(modifier = Modifier.width(8.dp))

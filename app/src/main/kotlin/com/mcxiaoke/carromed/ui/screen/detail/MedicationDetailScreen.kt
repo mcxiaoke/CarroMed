@@ -79,10 +79,6 @@ import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
 import com.mcxiaoke.carromed.ui.component.intervalLabel
-import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
-import com.mcxiaoke.carromed.ui.theme.SuccessGreen
-import com.mcxiaoke.carromed.ui.theme.WarningAmber
-import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 import java.time.LocalDate
 import java.util.Calendar
 import java.text.SimpleDateFormat
@@ -154,7 +150,6 @@ fun MedicationDetailScreen(
             runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
         } ?: MaterialTheme.colorScheme.primary
 
-
         // PRN(按需) 没有定时排班，状态徽标要如实反映，不能沿用"提醒进行中"
         val policyType = uiState.policy?.policyType
         val isPrn = policyType == null || policyType == PolicyType.PRN
@@ -183,7 +178,7 @@ fun MedicationDetailScreen(
         val statusColor = when {
             med.isArchived -> MaterialTheme.colorScheme.onSurfaceVariant
             isPaused || isPrn -> MaterialTheme.colorScheme.tertiary
-            else -> SuccessGreen
+            else -> MaterialTheme.colorScheme.primary
         }
 
         LazyColumn(
@@ -381,21 +376,21 @@ fun MedicationDetailScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = WarningAmberContainer)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                     ) {
                         Column(Modifier.padding(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     Icons.Default.WarningAmber,
                                     contentDescription = null,
-                                    tint = WarningAmber
+                                    tint = MaterialTheme.colorScheme.error
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
                                     stringResource(R.string.mdetail_section_precautions),
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = OnWarningAmberContainer
+                                    color = MaterialTheme.colorScheme.onErrorContainer
                                 )
                             }
                             Spacer(Modifier.height(10.dp))
@@ -540,7 +535,7 @@ fun MedicationDetailScreen(
                                             " ${med.unit}",
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = if (tx.changeAmount > 0) SuccessGreen
+                                        color = if (tx.changeAmount > 0) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.onSurface
                                     )
                                 }
@@ -824,7 +819,7 @@ private fun DetailEntryRow(
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = if (highlight) WarningAmberContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        color = if (highlight) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
             .fillMaxWidth()
             .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
@@ -841,7 +836,7 @@ private fun DetailEntryRow(
                     .size(38.dp)
                     .clip(CircleShape)
                     .background(
-                        if (highlight) WarningAmber.copy(alpha = 0.18f)
+                        if (highlight) MaterialTheme.colorScheme.error.copy(alpha = 0.18f)
                         else MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
                     ),
                 contentAlignment = Alignment.Center
@@ -849,7 +844,7 @@ private fun DetailEntryRow(
                 Icon(
                     icon,
                     contentDescription = null,
-                    tint = if (highlight) WarningAmber else MaterialTheme.colorScheme.primary,
+                    tint = if (highlight) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -859,12 +854,12 @@ private fun DetailEntryRow(
                     title,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (highlight) OnWarningAmberContainer else MaterialTheme.colorScheme.onSurface
+                    color = if (highlight) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (highlight) OnWarningAmberContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (highlight) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 17.sp,
                     maxLines = 2
                 )
@@ -909,7 +904,7 @@ private fun AdherenceCard(
                         stringResource(R.string.mdetail_adherence_rate, rate * 100),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        color = if (rate >= 0.8f) SuccessGreen else WarningAmber
+                        color = if (rate >= 0.8f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                     )
                 } else if (!hasPolicy) {
                     Text(
@@ -968,7 +963,7 @@ private fun RecordStatusChip(status: RecordStatus, isRetrospective: Boolean) {
         RecordStatus.SKIPPED -> stringResource(R.string.mdetail_status_skipped) to MaterialTheme.colorScheme.onSurfaceVariant
         RecordStatus.COMPLETED ->
             if (isRetrospective) stringResource(R.string.mdetail_status_retro) to MaterialTheme.colorScheme.tertiary
-            else stringResource(R.string.mdetail_status_taken) to SuccessGreen
+            else stringResource(R.string.mdetail_status_taken) to MaterialTheme.colorScheme.primary
     }
     Surface(shape = RoundedCornerShape(6.dp), color = color.copy(alpha = 0.14f)) {
         Text(

@@ -59,10 +59,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.ui.component.Quantity
-import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
-import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
-import com.mcxiaoke.carromed.ui.theme.SuccessGreenContainer
-import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -222,8 +218,8 @@ private fun statusChipOf(state: DoseEntryUiState): StatusChip {
         state.slotStatus == SlotStatus.COMPLETED ->
             StatusChip(
                 stringResource(R.string.rdetail_status_completed),
-                SuccessGreenContainer,
-                OnSuccessGreenContainer
+                MaterialTheme.colorScheme.primaryContainer,
+                MaterialTheme.colorScheme.onPrimaryContainer
             )
 
         state.slotStatus == SlotStatus.SKIPPED ->
@@ -243,8 +239,8 @@ private fun statusChipOf(state: DoseEntryUiState): StatusChip {
         state.slotStatus == SlotStatus.EXPIRED ->
             StatusChip(
                 stringResource(R.string.rdetail_status_expired),
-                WarningAmberContainer,
-                OnWarningAmberContainer
+                MaterialTheme.colorScheme.errorContainer,
+                MaterialTheme.colorScheme.onErrorContainer
             )
 
         state.slotStatus == SlotStatus.PENDING ->

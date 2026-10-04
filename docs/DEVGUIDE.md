@@ -246,6 +246,12 @@ python tools\app_screenshots.py --only today,stats,med_inventory
 
 # 同时导出语义树 XML（量化间距用）
 python tools\app_screenshots.py --dump-ui
+
+# 走一遍深色形态（设置 → 外观 → 主题模式 的脚本化入口）
+# 走 debug 专属广播 com.mcxiaoke.carromed.dev.SET_THEME，不点界面下拉；
+# 输出目录默认落到 temp/appscreenshots_dark，与浅色成图并排对比
+python tools\app_screenshots.py --clear --seed --theme dark
+python tools\app_screenshots.py --clear --seed --theme light   # 强制浅色
 ```
 
 产物在 `temp/appscreenshots/`：

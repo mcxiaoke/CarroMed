@@ -11,6 +11,8 @@ import com.mcxiaoke.carromed.core.data.DataExporter
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.entity.AppSettingEntity
 import com.mcxiaoke.carromed.core.domain.AppLog
+import com.mcxiaoke.carromed.ui.theme.ThemeMode
+import com.mcxiaoke.carromed.ui.theme.ThemePreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +21,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 data class SettingsUiState(
+    /** 外观：主题模式（跟随系统 / 浅色 / 深色），存 SharedPreferences，见 `ThemePreference` */
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val snoozeMinutes: Int = 30,
     val nightDnd: Boolean = true,
     val nightDndStart: String = "23:00",
@@ -80,6 +84,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
      */
     private fun loadSettings() {
         viewModelScope.launch(Dispatchers.IO) {
+            // 主题模式不在 app_settings 里（见 ThemePreference 的 KDoc），单独读。
+            val themeMode = ThemePreference.read(getApplication())
             val snooze = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES)?.toIntOrNull() ?: 30
             val dnd = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND)?.toBoolean() ?: true
             val dndStart = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND_START) ?: "23:00"
@@ -91,6 +97,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val repeatMax = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_MAX_COUNT)?.toIntOrNull() ?: 3
 
             _uiState.value = _uiState.value.copy(
+                themeMode = themeMode,
                 snoozeMinutes = snooze,
                 nightDnd = dnd,
                 nightDndStart = dndStart,
@@ -102,6 +109,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 repeatMaxCount = repeatMax
             )
         }
+    }
+
+    /**
+     * 切换主题模式。
+     *
+     * 不走数据库：写 [ThemePreference] 后进程级 StateFlow 立即推送，
+     * `MainActivity` / `AlarmAlertActivity` 订阅它重组，无需重建 Activity。
+     */
+    fun onThemeModeChange(mode: ThemeMode) {
+        AppLog.i(TAG, "themeMode changed: $mode")
+        _uiState.value = _uiState.value.copy(themeMode = mode)
+        ThemePreference.write(getApplication(), mode)
     }
 
     fun onSnoozeMinutesChange(minutes: Int) {

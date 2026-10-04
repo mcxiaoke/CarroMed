@@ -45,8 +45,6 @@ import com.mcxiaoke.carromed.core.data.model.RecordStatus
 import com.mcxiaoke.carromed.ui.component.CarroMedTopAppBar
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
-import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
-import com.mcxiaoke.carromed.ui.theme.SuccessGreenContainer
 
 /**
  * 单个药品的服药历史（UX 方案 §4.2）。

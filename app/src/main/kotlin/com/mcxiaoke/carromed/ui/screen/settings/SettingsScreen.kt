@@ -3,6 +3,7 @@ package com.mcxiaoke.carromed.ui.screen.settings
 import android.app.TimePickerDialog
 import java.util.Locale
 import com.mcxiaoke.carromed.core.alarm.CompletionSoundPlayer
+import com.mcxiaoke.carromed.ui.theme.ThemeMode
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.AlertDialog
@@ -591,7 +593,97 @@ fun SettingsScreen(
                 }
             }
 
-            // 2. 提醒防漏与系统保活
+            // 2. 外观（主题模式）
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.set_section_appearance),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    stringResource(R.string.set_theme_title),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    stringResource(R.string.set_theme_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            var themeExpanded by rememberSaveable { mutableStateOf(false) }
+                            val themeLabel = when (uiState.themeMode) {
+                                ThemeMode.SYSTEM -> stringResource(R.string.set_theme_system)
+                                ThemeMode.LIGHT -> stringResource(R.string.set_theme_light)
+                                ThemeMode.DARK -> stringResource(R.string.set_theme_dark)
+                            }
+
+                            ExposedDropdownMenuBox(
+                                expanded = themeExpanded,
+                                onExpandedChange = { themeExpanded = it },
+                                modifier = Modifier.width(140.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = themeLabel,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    singleLine = true,
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = themeExpanded) },
+                                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = themeExpanded,
+                                    onDismissRequest = { themeExpanded = false }
+                                ) {
+                                    ThemeMode.entries.forEach { mode ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    when (mode) {
+                                                        ThemeMode.SYSTEM -> stringResource(R.string.set_theme_system)
+                                                        ThemeMode.LIGHT -> stringResource(R.string.set_theme_light)
+                                                        ThemeMode.DARK -> stringResource(R.string.set_theme_dark)
+                                                    }
+                                                )
+                                            },
+                                            onClick = {
+                                                viewModel.onThemeModeChange(mode)
+                                                themeExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. 提醒防漏与系统保活
             item {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -631,7 +723,7 @@ fun SettingsScreen(
                 }
             }
 
-            // 3. 数据管理与本地导出
+            // 4. 数据管理与本地导出
             item {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -824,7 +916,7 @@ fun SettingsScreen(
                 }
             }
 
-            // 4. 版本号
+            // 5. 版本号
             item {
                 Box(
                     modifier = Modifier

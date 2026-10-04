@@ -75,11 +75,6 @@ import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
 import com.mcxiaoke.carromed.ui.component.TestTags
 import com.mcxiaoke.carromed.ui.component.WeekLabels
-import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
-import com.mcxiaoke.carromed.ui.theme.OnWarningAmberContainer
-import com.mcxiaoke.carromed.ui.theme.SuccessGreen
-import com.mcxiaoke.carromed.ui.theme.WarningAmber
-import com.mcxiaoke.carromed.ui.theme.WarningAmberContainer
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -238,7 +233,7 @@ fun TodayScreen(
                     val isOverspent = stock < 0f
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = WarningAmberContainer),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Row(
@@ -254,7 +249,7 @@ fun TodayScreen(
                                 Icon(
                                     Icons.Default.WarningAmber,
                                     contentDescription = stringResource(R.string.today_cd_stock_alert),
-                                    tint = WarningAmber
+                                    tint = MaterialTheme.colorScheme.error
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
@@ -271,7 +266,7 @@ fun TodayScreen(
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
-                                    color = OnWarningAmberContainer
+                                    color = MaterialTheme.colorScheme.onErrorContainer
                                 )
                             }
                             TextButton(
@@ -287,9 +282,9 @@ fun TodayScreen(
                                         stringResource(R.string.today_go_refill)
                                     },
                                     fontWeight = FontWeight.Bold,
-                                    // 小字在 WarningAmberContainer 上对比度不足 AA（§二-20），
+                                    // 小字在 MaterialTheme.colorScheme.errorContainer 上对比度不足 AA（§二-20），
                                     // 用容器自配的前景色
-                                    color = OnWarningAmberContainer
+                                    color = MaterialTheme.colorScheme.onErrorContainer
                                 )
                             }
                         }
@@ -628,7 +623,7 @@ private fun PendingDoseCard(
                                 unit
                             ),
                             // labelSmall 语义色小字不达 AA（§二-20），用深琥珀前景
-                            color = OnWarningAmberContainer
+                            color = MaterialTheme.colorScheme.onErrorContainer
                         )
                     }
 
@@ -825,13 +820,13 @@ private fun CompletedDoseCard(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
                     )
                     Spacer(Modifier.width(6.dp))
-                    Surface(shape = RoundedCornerShape(4.dp), color = SuccessGreen.copy(alpha = 0.12f)) {
+                    Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)) {
                         Text(
                             stringResource(R.string.today_badge_taken),
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
                             style = MaterialTheme.typography.labelSmall,
                             // labelSmall 语义色小字不达 AA（§二-20），用容器自配的深绿前景
-                            color = OnSuccessGreenContainer,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -865,13 +860,13 @@ private fun CompletedDoseCard(
                 modifier = Modifier
                     .size(24.dp)
                     .clip(CircleShape)
-                    .background(SuccessGreen.copy(alpha = 0.15f)),
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     Icons.Default.Check,
                     contentDescription = stringResource(R.string.today_cd_completed),
-                    tint = SuccessGreen,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(16.dp)
                 )
             }

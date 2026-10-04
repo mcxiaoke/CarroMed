@@ -60,10 +60,6 @@ import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.ui.component.CarroMedTopAppBar
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.ui.component.Quantity
-import com.mcxiaoke.carromed.ui.theme.OnSuccessGreenContainer
-import com.mcxiaoke.carromed.ui.theme.SuccessGreen
-import com.mcxiaoke.carromed.ui.theme.SuccessGreenContainer
-import com.mcxiaoke.carromed.ui.theme.WarningAmber
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import java.util.Locale
@@ -389,7 +385,7 @@ private fun MultiDayDots(day: DayAdherence, colorHex: String) {
                 Modifier
                     .size(15.dp)
                     .clip(CircleShape)
-                    .background(if (taken) SuccessGreen else base.copy(alpha = 0.18f))
+                    .background(if (taken) MaterialTheme.colorScheme.primary else base.copy(alpha = 0.18f))
             )
             if (i != day.total - 1) Spacer(Modifier.height(3.dp))
         }
@@ -406,12 +402,12 @@ private fun DayDot(day: DayAdherence) {
     val icon: @Composable () -> Unit
     when (day.state) {
         StatsEngine.DayAdherenceState.FULLY_TAKEN -> {
-            bg = SuccessGreen
+            bg = MaterialTheme.colorScheme.primary
             icon = {
                 Icon(
                     Icons.Default.Check,
                     contentDescription = stringResource(R.string.prog_cd_fully_taken),
-                    tint = Color.White,
+                    tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.size(15.dp)
                 )
             }
@@ -419,21 +415,21 @@ private fun DayDot(day: DayAdherence) {
 
         StatsEngine.DayAdherenceState.PARTIAL -> {
             // ⚠️ 配色不是随手挑的（M7-9）。旧实现是
-            // `bg = SuccessGreen.copy(alpha = 0.45f)` + **白字**，
+            // `bg = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)` + **白字**，
             // 合成后底色约 #96D6AE，白字对比度只有 **1.68:1** ——
             // 而"1/2"是**文字**，适用 WCAG 1.4.3 的 4.5:1（大字豁免要 18.66sp，
             // 这里只有 9sp，够不着）。也就是说这一格几乎读不出来，
             // 而它恰恰是"部分完成"这个最需要看清的状态。
             //
-            // 改成"浅底 + 深字"（`SuccessGreenContainer` 配 `OnSuccessGreenContainer`），
+            // 改成"浅底 + 深字"（`MaterialTheme.colorScheme.primaryContainer` 配 `MaterialTheme.colorScheme.onPrimaryContainer`），
             // 实测 **8.30:1**。顺带保留了"部分完成比全部完成浅一档"的视觉分级：
             // 之前靠调 alpha 表达的语义，现在由底色本身承担，
             // 不再依赖"半透明叠白"这种算出来的近似。
-            bg = SuccessGreenContainer
+            bg = MaterialTheme.colorScheme.primaryContainer
             icon = {
                 Text(
                     text = "${day.completed}/${day.total}",
-                    color = OnSuccessGreenContainer,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -441,12 +437,12 @@ private fun DayDot(day: DayAdherence) {
         }
 
         StatsEngine.DayAdherenceState.MISSED -> {
-            bg = WarningAmber
+            bg = MaterialTheme.colorScheme.error
             icon = {
                 Icon(
                     Icons.Default.Close,
                     contentDescription = stringResource(R.string.prog_cd_missed),
-                    tint = Color.White,
+                    tint = MaterialTheme.colorScheme.onError,
                     modifier = Modifier.size(15.dp)
                 )
             }
@@ -610,7 +606,7 @@ private fun TimelineRow(item: TimelineItem, onOpenDose: (Long?, Long) -> Unit) {
 @Composable
 private fun RecordStatusChip(timeLabel: String, status: RecordStatus) {
     val (text, color) = when (status) {
-        RecordStatus.COMPLETED -> stringResource(R.string.prog_status_taken) to SuccessGreen
+        RecordStatus.COMPLETED -> stringResource(R.string.prog_status_taken) to MaterialTheme.colorScheme.primary
         RecordStatus.SKIPPED -> stringResource(R.string.prog_status_skipped) to MaterialTheme.colorScheme.onSurfaceVariant
         RecordStatus.REVERTED -> stringResource(R.string.prog_status_reverted) to MaterialTheme.colorScheme.onSurfaceVariant
     }
