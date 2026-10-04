@@ -77,7 +77,6 @@ class MedHistoryViewModel(application: Application) : AndroidViewModel(applicati
 
     private var historyJob: Job? = null
 
-    private val zone: ZoneId = ZoneId.systemDefault()
     private val timeFmt: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
     /**
@@ -114,7 +113,8 @@ class MedHistoryViewModel(application: Application) : AndroidViewModel(applicati
                     recordId = r.id,
                     slotId = r.slotId,
                     actualTs = r.actualTs,
-                    timeLabel = timeFmt.format(Instant.ofEpochMilli(r.actualTs).atZone(zone)),
+                    // 时区现取（M3-3）：实例字段在构造时定型，改时区后历史时间会分叉
+                    timeLabel = timeFmt.format(Instant.ofEpochMilli(r.actualTs).atZone(ZoneId.systemDefault())),
                     doseMilli = r.doseTaken,
                     status = r.status,
                     isManual = r.slotId == null,
@@ -127,7 +127,7 @@ class MedHistoryViewModel(application: Application) : AndroidViewModel(applicati
             // 按月分组，月内按实际时刻倒序。
             // 分组在 ViewModel 而不在 Composable：O(n) 的确定性计算不该每帧重算。
             val months = items
-                .groupBy { YearMonth.from(Instant.ofEpochMilli(it.actualTs).atZone(zone)) }
+                .groupBy { YearMonth.from(Instant.ofEpochMilli(it.actualTs).atZone(ZoneId.systemDefault())) }
                 .toSortedMap(compareByDescending { it })
                 .map { (ym, list) ->
                     MedHistoryMonth(

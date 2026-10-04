@@ -94,7 +94,6 @@ class StatsStateBuilder(private val db: AppDatabase) {
     private val medDao = db.medicationDao()
     private val recordDao = db.doseRecordDao()
     private val slotDao = db.doseSlotDao()
-    private val zoneId = ZoneId.systemDefault()
 
     /**
      * 统计口径（全 App 统一，与进展页打卡矩阵同源）：
@@ -112,8 +111,9 @@ class StatsStateBuilder(private val db: AppDatabase) {
         val startDate = today.minusDays(period.days - 1L)
             .format(SlotProjectionEngine.DATE_FORMATTER)
 
-        val startTs = LocalDate.parse(startDate).atStartOfDay(zoneId).toInstant().toEpochMilli()
-        val endTs = today.plusDays(1).atStartOfDay(zoneId).toInstant().toEpochMilli() - 1
+        // 时区现取（M3-3）：字段在构造时定型，改时区后统计区间端点会与实际日期分叉
+        val startTs = LocalDate.parse(startDate).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        val endTs = today.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
 
         // 1. 依从率：按计划日期聚合槽位状态（**已归档的药品不进分母**，决策 E）
         val slotRows = slotDao.getSlotStatusCounts(startDate, endDate)

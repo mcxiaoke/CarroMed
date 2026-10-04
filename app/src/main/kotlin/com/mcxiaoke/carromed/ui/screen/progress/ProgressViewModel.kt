@@ -125,7 +125,6 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
          */
         const val FIRST_PAGE_SIZE = 60
 
-        val TIME_ZONE: ZoneId = ZoneId.systemDefault()
         val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
     }
 
@@ -361,7 +360,9 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
     }
 
     private fun DoseRecordEntity.toTimelineItem(medMap: Map<Long, MedicationEntity>): TimelineItem {
-        val zdt = java.time.Instant.ofEpochMilli(actualTs).atZone(TIME_ZONE)
+        // 时区在使用点现取（M3-3）：companion 字段在类加载时定型，进程存活期内
+        // 用户改时区（出行）后流水时间会与系统分叉；systemDefault() 本身极廉价。
+        val zdt = java.time.Instant.ofEpochMilli(actualTs).atZone(ZoneId.systemDefault())
         return TimelineItem(
             record = this,
             medication = medMap[medicationId],
@@ -378,7 +379,7 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
      */
     private fun groupByDay(items: List<TimelineItem>, today: LocalDate): List<TimelineDay> =
         items
-            .groupBy { java.time.Instant.ofEpochMilli(it.record.actualTs).atZone(TIME_ZONE).toLocalDate() }
+            .groupBy { java.time.Instant.ofEpochMilli(it.record.actualTs).atZone(ZoneId.systemDefault()).toLocalDate() }
             .toSortedMap(compareByDescending { it })
             .map { (date, dayItems) ->
                 TimelineDay(

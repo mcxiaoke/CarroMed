@@ -296,7 +296,18 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
         // 与今日页/进展页同一来源，本页不再自建定时器。
         viewModelScope.launch {
             CurrentDateHolder.today.collect { d ->
-                _uiState.update { it.copy(today = d) }
+                _uiState.update { state ->
+                    // 日期翻面时 isActionable 同步重算（3-12）：槽位流不发射的话，
+                    // 只刷新 today 会让"未来槽位到了计划日"仍不渲染操作按钮。
+                    // 手动补录（slot == null）恒为 true，保持原值即可。
+                    val actionable = state.slot?.let {
+                        SlotActionPolicy.isActionableOn(
+                            it.scheduledDate,
+                            d.format(SlotProjectionEngine.DATE_FORMATTER)
+                        )
+                    } ?: state.isActionable
+                    state.copy(today = d, isActionable = actionable)
+                }
             }
         }
         // 推迟档位的默认档来自全局设置（与今日页长按弹窗同一个来源）
@@ -368,9 +379,13 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
         val record = currentRecordFor(slot)
         // 未来判据在**这里**算一次（而不是 getter 里读挂钟）：状态类是纯数据，
         // 测试可以直接构造 isActionable = false / true，不受运行日期影响。
-        val todayStr = LocalDate.now().format(SlotProjectionEngine.DATE_FORMATTER)
-        val actionable = SlotActionPolicy.isActionableOn(slot.scheduledDate, todayStr)
+        // 「今天」读 update 作用域内的 state.today（CurrentDateHolder 灌入，M3-2 / 3-12），
+        // 不直接读挂钟 —— 原子作用域内取值也避免与 collect 回调的翻面刷新竞态。
         _uiState.update { state ->
+            val actionable = SlotActionPolicy.isActionableOn(
+                slot.scheduledDate,
+                state.today.format(SlotProjectionEngine.DATE_FORMATTER)
+            )
             state.copy(
                 isLoading = false,
                 notFound = false,
