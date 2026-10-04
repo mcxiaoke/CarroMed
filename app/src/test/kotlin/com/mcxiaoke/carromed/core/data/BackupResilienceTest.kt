@@ -200,7 +200,11 @@ class BackupResilienceTest {
                 doseSlots = listOf(good.doseSlots.first().copy(doseAmount = 0))
             ),
             // §二-17：活跃且非 PRN 的计划没有任何时点 ⇒ 该药永远不提醒，必须拦住
-            BackupProblemKind.EMPTY_SCHEDULE to good.copy(policyTimes = emptyList())
+            BackupProblemKind.EMPTY_SCHEDULE to good.copy(policyTimes = emptyList()),
+            // 3-10：坏时点串会被投影层回退成 08:00 ⇒ 用户所有时点静默变成早八点
+            BackupProblemKind.MALFORMED_SCHEDULE to good.copy(
+                policyTimes = good.policyTimes.map { it.copy(timeOfDay = "8点") }
+            )
         )
         assertThat(dirty.keys).containsExactlyElementsIn(BackupProblemKind.entries.toSet())
 

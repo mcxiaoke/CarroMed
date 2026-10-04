@@ -21,6 +21,7 @@ import com.mcxiaoke.carromed.core.data.entity.PolicyTimeEntity
 import com.mcxiaoke.carromed.core.data.entity.ReminderSettingsEntity
 import com.mcxiaoke.carromed.core.data.entity.SchedulePolicyEntity
 import com.mcxiaoke.carromed.core.domain.AppLog
+import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
 import com.mcxiaoke.carromed.ui.component.MedVocab
 import com.mcxiaoke.carromed.core.data.model.RecordStatus
@@ -31,6 +32,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.time.LocalTime
 import java.util.Date
 import java.util.Locale
 
@@ -195,6 +198,18 @@ enum class BackupProblemKind(val blocksRestore: Boolean) {
      * `saveReminderPolicy` 已加同源守卫，但恢复是直写实体、绕过服务层）。
      */
     EMPTY_SCHEDULE(true),
+
+    /**
+     * 计划的字段格式/取值非法（[com.mcxiaoke.carromed.core.domain.service.MedicationAdminService]
+     * 的第三层防线在**恢复路径**上的对应物）：
+     * `startDate` / `endDate` 不是合法 ISO 日期、`timeOfDay` 不是 `HH:mm`、
+     * `daysOfWeek` 越出 1..7、`INTERVAL` 的 `intervalDays <= 0`。
+     *
+     * 拦住恢复：恢复是**直写实体**、绕过服务层校验，而这些坏值都不让 JSON 解析失败，
+     * 只会让恢复"看起来成功但数据不对"——坏时点被投影层回退成 08:00
+     *（**用户所有服药时点静默变成早八点**）、坏结束日期让疗程边界整个消失（提醒永不停）。
+     */
+    MALFORMED_SCHEDULE(true),
 }
 
 /**
@@ -773,6 +788,42 @@ object DataExporter {
                     it.medicationId
                 )
             }
+
+        // 计划字段的格式/取值校验（3-10）：恢复是直写实体，坏值不会让 JSON 解析失败，
+        // 只会让恢复"看起来成功但数据不对"：
+        // - 坏 `timeOfDay` 被投影层回退成 08:00 ⇒ **用户所有时点静默变成早八点**；
+        // - 坏 `startDate` 被当成"从今天开始"，坏 `endDate` 让疗程边界消失（提醒永不停）；
+        // - 越界的 `daysOfWeek` 按 `dayOfWeek - 1` 索引星期名，排错天或读出错位文案。
+        // 判据与 `MedicationAdminService.saveReminderPolicy` **同源**（都用投影层的格式化器），
+        // 不再自己写一套"什么算坏串"。
+        val timesByPolicy = backup.policyTimes.groupBy { it.policyId }
+        backup.schedulePolicies.forEach { policy ->
+            val badTime = timesByPolicy[policy.id].orEmpty().firstOrNull {
+                runCatching { LocalTime.parse(it.timeOfDay, SlotProjectionEngine.TIME_FORMATTER) }.isFailure
+            }
+            val detail = when {
+                runCatching { LocalDate.parse(policy.startDate, SlotProjectionEngine.DATE_FORMATTER) }.isFailure ->
+                    "开始日期「${policy.startDate}」"
+                policy.endDate != null &&
+                    runCatching { LocalDate.parse(policy.endDate, SlotProjectionEngine.DATE_FORMATTER) }.isFailure ->
+                    "结束日期「${policy.endDate}」"
+                // 只在 INTERVAL 下判：其余类型的 intervalDays 不参与排班，
+                // 老备份里可能是 0（服务层现在一律 coerceIn(1,30)，历史值不该被追溯判死）。
+                policy.policyType == PolicyType.INTERVAL && policy.intervalDays <= 0 ->
+                    "间隔天数 ${policy.intervalDays}"
+                policy.daysOfWeek.any { it !in 1..7 } -> "星期取值 ${policy.daysOfWeek}"
+                badTime != null -> "服药时点「${badTime.timeOfDay}」"
+                else -> null
+            }
+            if (detail != null) {
+                report(
+                    BackupProblemKind.MALFORMED_SCHEDULE,
+                    R.string.backup_err_malformed_schedule,
+                    policy.medicationId,
+                    detail
+                )
+            }
+        }
 
         // 药品 id 重复 ⇒ `MedicationDao.insertAll` 是 ABORT：事务中途抛异常、
         // 整个恢复回滚，用户只看到失败 —— 重复必须在校验层拦下并明确报因，

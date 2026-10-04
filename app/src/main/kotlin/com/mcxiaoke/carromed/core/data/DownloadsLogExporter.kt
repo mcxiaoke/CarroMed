@@ -93,9 +93,19 @@ object DownloadsLogExporter {
      * 所以重复启动只会覆盖同一份 Downloads 文件，不会攒出 `-2`/`-3` 僵尸。
      * 内部源文件**不删**——App 内的诊断日志入口还要读它们。
      *
+     * @param includeRuntimeLogs 是否一并外投运行期日志（`app-*.log`）。**冷启动的自动补投
+     *   必须传 false**：运行日志里带药名，而 `Download/` 对持有读存储权限的其他应用与
+     *   媒体扫描器可见 —— 用户从未同意"每次冷启动把用药记录拷一份到公共目录"。
+     *   崩溃样本不受影响，照常外投。
      * @return 成功写入的目标文件名（供启动日志自证）
      */
-    fun exportAll(context: Context, logDir: File, nowMs: Long, keepLogDays: Int = 3): List<String> {
+    fun exportAll(
+        context: Context,
+        logDir: File,
+        nowMs: Long,
+        keepLogDays: Int = 3,
+        includeRuntimeLogs: Boolean = true
+    ): List<String> {
         val files = logDir.listFiles()?.toList() ?: return emptyList()
         val written = mutableListOf<String>()
         // ⚠️ 必须按**目标名分组**后再写：`LogFileSink` 体积滚动出的 `app-YYYYMMDD-N.log`
@@ -103,7 +113,8 @@ object DownloadsLogExporter {
         // 命名，刻意保持"一天一份"）。若逐个写，后写的会与先写的同名 → MediaStore 把它
         // 改名为 `xxx (1).txt` → 随即被 `purgeStaleArtifacts` 当垃圾删掉 →
         // **前一段日志静默丢失**。按 `appLogSeq` 升序拼接成一次写入可同时保住顺序与内容。
-        for ((targetName, group) in DiagnosticExport.plan(files, nowMs, keepLogDays).groupBy { it.targetName }) {
+        val plans = DiagnosticExport.plan(files, nowMs, keepLogDays, includeRuntimeLogs)
+        for ((targetName, group) in plans.groupBy { it.targetName }) {
             val ordered = group.sortedBy { DiagnosticExport.appLogSeq(it.source.name) }
             // 崩溃文件可能正被崩溃处理器写；读不到就跳过，下次启动再试
             val parts = ordered.mapNotNull { runCatching { it.source.readText() }.getOrNull() }

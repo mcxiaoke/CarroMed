@@ -91,7 +91,16 @@ object DiagnosticExport {
     fun plan(
         files: List<File>,
         nowMs: Long,
-        keepLogDays: Int = 3
+        keepLogDays: Int = 3,
+        /**
+         * 是否把**运行期日志**（`app-*.log`）也纳入外投。
+         *
+         * 默认为 true（手动导出诊断时用）；**冷启动的自动补投必须传 false**（见
+         * `AppLogging.install`）—— 运行日志里带药名，而 `Download/` 对持有读存储权限
+         * 的其他应用与媒体扫描器可见。崩溃样本（`crash-*.txt`）不受本开关影响：
+         * 它是跨过"清除数据"那道坎的唯一落点，也是这个功能存在的理由。
+         */
+        includeRuntimeLogs: Boolean = true
     ): List<Plan> {
         val logCutoff = nowMs - keepLogDays * DAY_MILLIS
         val plans = mutableListOf<Plan>()
@@ -107,8 +116,9 @@ object DiagnosticExport {
                     Plan(f, crashFileName(crashTimeMs(name) ?: f.lastModified()))
                 )
 
-                // 运行日志：按天限量，避免把整个历史目录倒进 Downloads
-                isAppLogFile(name) && f.lastModified() >= logCutoff -> plans.add(
+                // 运行日志：按天限量，避免把整个历史目录倒进 Downloads；
+                // 且只在允许时才收（冷启动自动补投会关掉它，见参数说明）。
+                includeRuntimeLogs && isAppLogFile(name) && f.lastModified() >= logCutoff -> plans.add(
                     Plan(f, logFileName(dayOf(f.lastModified())))
                 )
             }

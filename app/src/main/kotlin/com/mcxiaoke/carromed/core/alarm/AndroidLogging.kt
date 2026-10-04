@@ -46,9 +46,21 @@ object AppLogging {
             }
             // 崩溃补投：崩溃现场那次外投可能因超时/进程已死而没落盘（见 DownloadsLogExporter），
             // 也可能压根没走到 UncaughtExceptionHandler（native crash / OOM kill）——
-            // 两种情况都靠这次启动扫描把内部日志补进 Downloads。清数据后的用户
+            // 两种情况都靠这次启动扫描把**崩溃样本**补进 Downloads。清数据后的用户
             // 重开 App 仍能拿到上一次的崩溃现场，这是这个功能的核心承诺。
-            val exported = DownloadsLogExporter.exportAll(context.applicationContext, dir, System.currentTimeMillis())
+            //
+            // ⚠️ `includeRuntimeLogs = false`（2026-10-04，CODE-REVIEW P0-1 的最小缓解）：
+            // 运行期日志（`app-*.log`）**不再**每次冷启动自动外投。它记录的是日常运行行文，
+            // 含药名，而 `Download/` 对持有读存储权限的其他应用与媒体扫描器可见 ——
+            // 用户从未同意"每次开 App 把用药记录拷一份到公共目录"（Manifest 自己写着
+            // 「隐私基线：严禁申请 INTERNET」、`allowBackup="false"`，这里不该自我违反）。
+            // 崩溃样本是"用户崩过才生成"，频率与场景都低得多，且是跨过清数据的唯一落点，继续外投。
+            val exported = DownloadsLogExporter.exportAll(
+                context.applicationContext,
+                dir,
+                System.currentTimeMillis(),
+                includeRuntimeLogs = false
+            )
             if (exported.isNotEmpty()) {
                 AppLog.i(
                     TAG,

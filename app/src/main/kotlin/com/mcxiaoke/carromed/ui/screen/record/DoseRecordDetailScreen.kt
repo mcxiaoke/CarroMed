@@ -648,8 +648,18 @@ private fun formatClock(ts: Long): String {
     return String.format(Locale.getDefault(), "%02d:%02d", zdt.hour, zdt.minute)
 }
 
-private fun formatDay(ts: Long): String =
-    Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+/**
+ * 事实日期（时间戳）→「9月30日」。
+ *
+ * ⚠️ 与 [formatDayLabel] **共用同一个资源**：此前这里直接 `LocalDate.toString()`（ISO），
+ * 于是同一行里会出现「计划 10月3日 08:00 · 实际 08:15 · 2026-10-03」两种日期写法，
+ * 用户得自己在脑子里换算。
+ */
+@Composable
+private fun formatDay(ts: Long): String {
+    val date = Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).toLocalDate()
+    return stringResource(R.string.rdetail_date_md, date.monthValue, date.dayOfMonth)
+}
 
 /**
  * 计划日（库里是规范 `yyyy-MM-dd` 串）→「9月30日」。

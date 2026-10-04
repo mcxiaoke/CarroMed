@@ -10,6 +10,9 @@
     <string name="alert_title_normal">准点服药提醒</string>
     <string name="alert_dose_label">单次剂量：%1$s</string>
     <string name="alert_action_take">确认已服</string>
-    <string name="alert_action_snooze">推迟 %1$d 分钟</string>
+    <!-- 推迟：多档并列，面板标题 + 每颗按钮只写时长（"%1$d 分钟"），
+         避免"推迟 推迟 30 分钟"这种标题与按钮重复措辞。 -->
+    <string name="alert_snooze_section">稍后再提醒</string>
+    <string name="alert_snooze_minutes_fmt">%1$d 分钟</string>
     <string name="alert_action_skip">跳过本次</string>
 </resources>

@@ -67,6 +67,7 @@ import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.domain.service.MANUAL_DOSE_BACKFILL_DAYS
 import com.mcxiaoke.carromed.ui.component.Quantity
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * 手动补录服药
@@ -283,7 +284,9 @@ fun ManualDoseScreen(
                         val dt = uiState.actualDateTime
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedTextField(
-                                value = String.format("%02d-%02d-%02d", dt.year, dt.monthValue, dt.dayOfMonth),
+                                // Locale.ROOT：默认 locale 在 ar-EG 等地区会输出阿拉伯-印度数字，
+                                // 日期/时间这类纯数字串必须钉死（Lint DefaultLocale）。
+                                value = String.format(Locale.ROOT, "%02d-%02d-%02d", dt.year, dt.monthValue, dt.dayOfMonth),
                                 onValueChange = {},
                                 readOnly = true,
                                 label = { Text(stringResource(R.string.man_date_label)) },
@@ -316,7 +319,7 @@ fun ManualDoseScreen(
                                 singleLine = true
                             )
                             OutlinedTextField(
-                                value = String.format("%02d:%02d", dt.hour, dt.minute),
+                                value = String.format(Locale.ROOT, "%02d:%02d", dt.hour, dt.minute),
                                 onValueChange = {},
                                 readOnly = true,
                                 label = { Text(stringResource(R.string.man_time_label)) },

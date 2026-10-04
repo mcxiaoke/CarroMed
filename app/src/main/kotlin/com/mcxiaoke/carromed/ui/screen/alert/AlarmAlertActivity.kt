@@ -9,6 +9,8 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Snooze
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -36,7 +37,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.alarm.DoseActionReceiver
 import com.mcxiaoke.carromed.core.alarm.Notifications
+import com.mcxiaoke.carromed.core.alarm.ReminderSettings
 import com.mcxiaoke.carromed.ui.theme.CarroMedTheme
 import com.mcxiaoke.carromed.ui.theme.SuccessGreen
 import com.mcxiaoke.carromed.ui.theme.WarningAmber
@@ -72,6 +73,15 @@ class AlarmAlertActivity : ComponentActivity() {
         const val EXTRA_NOTICE = "extra_notice"
         const val EXTRA_IS_CRITICAL = "extra_is_critical"
         const val EXTRA_SNOOZE_MINUTES = "extra_snooze_minutes"
+
+        /**
+         * 全屏提醒上固定的推迟档位（分钟）。
+         *
+         * 用户要求：在原有单档之上补 60 / 90 / 120。
+         * 调用方还会并上该药品在「提醒设置」里的自定义时长（见 [onCreate]）——
+         * 配了 45 分钟这类值时不能被这套固定档位静默吞掉。
+         */
+        val SNOOZE_CHOICES = listOf(30, 60, 90, 120)
 
         fun createIntent(
             context: Context,
@@ -124,7 +134,13 @@ class AlarmAlertActivity : ComponentActivity() {
         val doseText = intent.getStringExtra(EXTRA_DOSE_TEXT) ?: ""
         val notice = intent.getStringExtra(EXTRA_NOTICE) ?: ""
         val isCritical = intent.getBooleanExtra(EXTRA_IS_CRITICAL, false)
-        val snoozeMinutes = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, 30)
+        // 推迟档位 = 固定四档 ∪ 该药品配置的时长（去重升序）。
+        // 配置值同样绑在这里而不是替换固定档位：用户把默认改成 45 分钟后，
+        // 全屏页仍应给得出他设定的那个数，否则就是"设置被界面吞掉"。
+        val configuredSnooze = intent
+            .getIntExtra(EXTRA_SNOOZE_MINUTES, ReminderSettings.DEFAULT_SNOOZE_MINUTES)
+            .coerceIn(1, 240)
+        val snoozeOptions = (SNOOZE_CHOICES + configuredSnooze).distinct().sorted()
 
         setContent {
             CarroMedTheme {
@@ -138,7 +154,7 @@ class AlarmAlertActivity : ComponentActivity() {
                         doseText = doseText,
                         notice = notice,
                         isCritical = isCritical,
-                        snoozeMinutes = snoozeMinutes,
+                        snoozeOptions = snoozeOptions,
                         onTake = {
                             dispatchAction(
                                 action = Notifications.ACTION_TAKE,
@@ -148,7 +164,7 @@ class AlarmAlertActivity : ComponentActivity() {
                                 slotId = slotId
                             )
                         },
-                        onSnooze = {
+                        onSnooze = { minutes ->
                             dispatchAction(
                                 action = Notifications.ACTION_SNOOZE,
                                 medId = medId,
@@ -156,7 +172,7 @@ class AlarmAlertActivity : ComponentActivity() {
                                 time = scheduledTime,
                                 slotId = slotId
                             ) {
-                                putExtra(Notifications.EXTRA_MINUTES, snoozeMinutes)
+                                putExtra(Notifications.EXTRA_MINUTES, minutes)
                             }
                         },
                         onSkip = {
@@ -200,17 +216,24 @@ fun AlarmAlertContent(
     doseText: String,
     notice: String,
     isCritical: Boolean,
-    snoozeMinutes: Int,
+    /** 推迟档位（分钟），至少 4 档；由调用方按固定档位 ∪ 药品配置去重升序给出 */
+    snoozeOptions: List<Int>,
     onTake: () -> Unit,
-    onSnooze: () -> Unit,
+    onSnooze: (Int) -> Unit,
     onSkip: () -> Unit
 ) {
+    // ⚠️ 可滚动：推迟档位从 1 个变成多档后，小屏（如 360×640dp）会把
+    // 「确认已服」挤出屏幕 —— 那是**主操作不可达**，比多滚一下严重得多。
+    // SpaceBetween 在可滚动容器里没有多余空间可分配，等价于零间距，
+    // 所以这里改用固定间距（spacedBy），并靠 SpaceBetween 的"顶/中/底"结构
+    // 换成自然流式排布：高屏上内容偏上，但所有操作一定可达。
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         // 顶部警示图标与状态标签
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -289,7 +312,14 @@ fun AlarmAlertContent(
             }
         }
 
-        // 底部快捷操作按钮
+        // 底部操作：确认已服（主）→ 推迟档位 → 跳过本次
+        //
+        // 三块职责分明：
+        // - 「确认已服」仍是唯一的主按钮（绿色、56dp、最显眼），语义不变；
+        // - 「跳过本次」从原来 44dp 的灰色小字升级为**等宽等高**的独立按钮 ——
+        //   它和"确认"是同级表态（这一剂不吃了），不该藏在底部当装饰文字；
+        // - 推迟给出多档，按**两列**排布：档位数固定（4~5 个），两列不会随屏宽
+        //   换行错位，也比一行四颗更耐点（中老年用户的手指点不准窄按钮）。
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -308,26 +338,50 @@ fun AlarmAlertContent(
                 Text(stringResource(R.string.alert_action_take), fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
 
-            OutlinedButton(
-                onClick = onSnooze,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(Icons.Default.Snooze, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.alert_action_snooze, snoozeMinutes), fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = stringResource(R.string.alert_snooze_section),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Start
+            )
+
+            snoozeOptions.chunked(2).forEach { rowOptions ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    rowOptions.forEach { minutes ->
+                        OutlinedButton(
+                            onClick = { onSnooze(minutes) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Text(
+                                stringResource(R.string.alert_snooze_minutes_fmt, minutes),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                    // 档位数为奇数时补一个等宽占位，保持左列对齐（不要让最后一颗居中成"半个按钮"）
+                    if (rowOptions.size == 1) Spacer(Modifier.weight(1f))
+                }
             }
 
-            TextButton(
+            OutlinedButton(
                 onClick = onSkip,
-                modifier = Modifier.height(44.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Text(
                     stringResource(R.string.alert_action_skip),
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.outline
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }

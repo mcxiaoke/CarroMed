@@ -6,6 +6,8 @@ import android.media.AudioManager
 import android.media.SoundPool
 import android.media.ToneGenerator
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -23,6 +25,9 @@ import com.mcxiaoke.carromed.core.domain.AppLog
 object CompletionSoundPlayer {
 
     private const val TAG = "CompletionSoundPlayer"
+
+    /** ToneGenerator 兜底短音的长度（毫秒）。 */
+    private const val FALLBACK_TONE_MS = 100
 
     enum class SoundItem(
         val key: String,
@@ -121,12 +126,30 @@ object CompletionSoundPlayer {
             }
         }
 
-        // 兜底：若 SoundPool 尚未加载完成或失败，使用 ToneGenerator 播放一次温和短音
+        // 兜底：若 SoundPool 尚未加载完成或失败，使用 ToneGenerator 播放一次温和短音。
+        //
+        // ⚠️ 必须 release：ToneGenerator 内部持有 AudioTrack，只 startTone 不管它
+        // 就是每次走这条兜底都泄漏一个（用户刚打开 App 立即打卡时 SoundPool 必然还没
+        // load 完，所以这条兜底并不罕见）。
+        // 用 `setOnToneStoppedListener` 在音结束的回调里释放，而不是 startTone 之后
+        // 立刻 release —— 那会把音当场掐掉；起音失败则走 catch 手动释放。
+        // 释放时机不能"startTone 之后立刻 release"——那会把音当场掐掉。
+        // 也不用 `setOnToneStoppedListener`：本机 android-35 的 android.jar 里
+        // **没有** 这个方法（`javap android.media.ToneGenerator` 只有 startTone / release）。
+        // 折中：按音长 + 余量投递一次延迟释放。
+        var tone: ToneGenerator? = null
         try {
-            ToneGenerator(AudioManager.STREAM_NOTIFICATION, 60)
-                .startTone(ToneGenerator.TONE_PROP_BEEP, 100)
+            val t = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 60)
+            tone = t
+            t.startTone(ToneGenerator.TONE_PROP_BEEP, FALLBACK_TONE_MS)
+            Handler(Looper.getMainLooper()).postDelayed(
+                { runCatching { t.release() } },
+                FALLBACK_TONE_MS + 200L
+            )
         } catch (t: Throwable) {
             AppLog.w(TAG, "ToneGenerator fallback failed", t)
+            // 起音失败也必须释放，否则这次尝试的 AudioTrack 就留在那里了
+            runCatching { tone?.release() }
         }
     }
 

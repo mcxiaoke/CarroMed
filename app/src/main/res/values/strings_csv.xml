@@ -82,6 +82,9 @@
     <string name="backup_err_empty_schedule">药品 #%1$d 的服药计划没有任何服药时点（恢复后该药将永远不会提醒）</string>
     <string name="backup_err_empty_schedule_dow">药品 #%1$d 的「按星期服药」计划一天都没选（恢复后该药将永远不会提醒）</string>
 
+    <!-- 计划字段格式/取值非法（3-10）：坏值会被投影层按默认值兜底，恢复后静默排错班 -->
+    <string name="backup_err_malformed_schedule">药品 #%1$d 的服药计划字段非法：%2$s（恢复后会按默认值排班）</string>
+
     <!-- 查询不到显示名时的占位文件名 -->
     <string name="csv_fallback_selected_file">所选文件</string>
 </resources>
