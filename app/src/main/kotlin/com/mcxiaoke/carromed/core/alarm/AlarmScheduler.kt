@@ -276,11 +276,23 @@ object AlarmScheduler {
      * 查询当前档位。**只读探测，不排任何闹钟**。
      *
      * Android 12 以下恒为 [Precision.EXACT]（系统没有精确闹钟授权模型）。
+     *
+     * ⚠️ `canScheduleExactAlarms() == false` 时必须报 [Precision.INEXACT]，
+     * **不能**报 [Precision.ALARM_CLOCK]（3-2 修正）。
+     * 原因：`setAlarmClock()` 与 `setExact*()` 受**同一份**精确闹钟权限约束 ——
+     * 权限被撤时它也抛 `SecurityException`（系统文档明确列出三者），
+     * 于是 [schedule] 的 `setAlarmClock` 分支必然失败、最终落到
+     * `setAndAllowWhileIdle`（+1h 窗口）。此时若报 ALARM_CLOCK（文案"到点必响"），
+     * 自检页就对用户撒了谎 —— 恰恰是本方法存在的意义所在。
+     *
+     * [Precision.ALARM_CLOCK] 仅作为 [schedule] 的**运行期降级通道**保留：
+     * 极端竞态下（探测为真、真正落笔前权限被撤）`setExact*` 抛异常、
+     * 而 `setAlarmClock` 侥幸成功时才可能出现，不是一个"当前可查询的状态"。
      */
     fun currentPrecision(alarmManager: AlarmManager? = null): Precision {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return Precision.EXACT
         val am = alarmManager ?: return Precision.INEXACT
-        return if (am.canScheduleExactAlarms()) Precision.EXACT else Precision.ALARM_CLOCK
+        return if (am.canScheduleExactAlarms()) Precision.EXACT else Precision.INEXACT
     }
 
     /** 便捷重载：给需要 `Context` 的调用方（自检页、Worker） */

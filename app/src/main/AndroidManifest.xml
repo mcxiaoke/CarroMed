@@ -39,7 +39,17 @@
             </intent-filter>
         </activity>
 
-        <!-- 锁屏强提醒全屏交互界面 (Full-Screen Intent) -->
+        <!--
+          锁屏强提醒全屏交互界面 (Full-Screen Intent)。
+
+          ⚠️ launchMode 是 singleTop，且**必须**配 `AlarmAlertActivity.onNewIntent`。
+          为什么不能只靠 launchMode 解决（3-1 实测结论）：
+          `createIntent` 带 `FLAG_ACTIVITY_NEW_TASK` + `taskAffinity=""`，
+          系统会**复用**已有任务与该实例并回调 `onNewIntent` —— 实测把 launchMode 改成
+          `standard` 后连续两次拉起**仍只有 1 个 ActivityRecord**、界面仍显示第一条的药名
+          （改 `0x18000000`（NEW_TASK|MULTIPLE_TASK）才会新建实例，但那会让同批多药堆出多个任务）。
+          所以正确修法是保留 singleTop、在 `onNewIntent` 里整体替换展示内容（不 recreate，避免闪屏）。
+        -->
         <activity
             android:name=".ui.screen.alert.AlarmAlertActivity"
             android:exported="false"

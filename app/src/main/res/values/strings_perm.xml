@@ -34,4 +34,13 @@
     <string name="perm_vendor_desc">主流手机厂商（小米、华为、OPPO、vivo 等）建议在系统设置中允许【后台自启动】与【锁屏通知】，防止熄屏时漏提醒。</string>
     <string name="perm_action_vendor_settings">前往设置</string>
     <string name="perm_open_settings_failed">无法打开系统设置，请手动前往系统设置查找本应用</string>
+
+    <!--
+      通知权限被「永久拒绝」后的低频引导横幅（3-3）。
+      用户勾了「不再询问」后系统不再弹框，`notify()` 静默失败 ⇒ 续期跳过 ⇒
+      全屏提醒也失效，整条提醒链路静默死亡。必须在界面上说清楚并给出自救入口。
+    -->
+    <string name="perm_banner_title">服药提醒当前不会弹出</string>
+    <string name="perm_banner_body">通知权限已被拒绝，提醒无法显示在屏幕上。请到系统设置中重新开启本应用的通知权限。</string>
+    <string name="perm_banner_dismiss">暂不处理</string>
 </resources>

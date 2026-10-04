@@ -26,7 +26,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -206,7 +208,37 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             emit(YearMonth.now() to mutableMapOf<LocalDate, StatsEngine.DayAdherenceState>())
         }
 
-    private val baseUiState: Flow<TodayUiState> = combine(
+    /**
+     * 主状态流（3-4）。
+     *
+     * `.catch` 在发射错误态后会让这条流**完成**；`stateIn` 于是冻结在错误态，
+     * 该页在本次驻留期间永不恢复（`WhileSubscribed(5000)` 只在离开 >5s 再回来时才
+     * 重新订阅冷流）。所以这里把"重建一次主状态流"做成可显式触发的动作：
+     * 每次 [retry] 自增 [retryTrigger]，`flatMapLatest` 丢掉旧流、重新订阅一次。
+     *
+     * 重试时先发一帧 [TodayUiState.isLoading]，让用户看到"确实重试了"，
+     * 而不是按钮点了毫无反应（Room 仍坏时下一帧又落回错误态 —— 这是预期）。
+     */
+    private val retryTrigger = MutableStateFlow(0)
+
+    private val baseUiState: Flow<TodayUiState> = retryTrigger.flatMapLatest { attempt ->
+        flow {
+            if (attempt > 0) emit(loadingUiState())
+            emitAll(buildBaseUiState())
+        }
+    }
+
+    private fun loadingUiState(): TodayUiState {
+        val d = _selectedDate.value
+        return TodayUiState(
+            selectedDate = d,
+            today = CurrentDateHolder.today.value,
+            weekDates = (-3L..3L).map { d.plusDays(it) },
+            isLoading = true
+        )
+    }
+
+    private fun buildBaseUiState(): Flow<TodayUiState> = combine(
         _selectedDate,
         // "今天"参与 combine（M3-2）：跨午夜后即使 `_selectedDate` 被夹回今天，
         // 页面标题、日期选择器、告警文案都需要跟着重算。
@@ -336,6 +368,18 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectCalendarMonth(month: YearMonth) {
         _calendarMonth.value = month
+    }
+
+    /**
+     * 错误卡上的「重试」（3-4）：重新订阅主状态流。
+     *
+     * 主状态流 `.catch` 之后会完成、`stateIn` 冻结在错误态 —— 没有这个入口，
+     * 用户碰到一次瞬时 Room 异常就只能"退出 App 重进"。
+     */
+    fun retry() {
+        val next = retryTrigger.value + 1
+        AppLog.i(TAG, "retry base state flow attempt=$next")
+        retryTrigger.value = next
     }
 
     fun selectDate(date: LocalDate) {

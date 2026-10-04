@@ -240,11 +240,16 @@ adb shell am start -n com.mcxiaoke.carromed/.MainActivity
 ### 测试
 
 ```powershell
-./gradlew testDebugUnitTest
+./gradlew testDebugUnitTest   # 单元测试（真实内存 SQLite + Robolectric）
+./gradlew lintDebug           # Lint 门禁（abortOnError=true，error 即失败）
 ```
 
 526+ 项单元测试，全部基于**真实的内存 SQLite 数据库**（Robolectric），
 不使用 mock 数据源 —— 领域层的数学守恒只有跑真库才验得出来。
+
+Lint 配置见 `app/build.gradle.kts` 的 `lint { }`：`abortOnError = true` 让**新增 error
+直接失败**，`checkReleaseBuilds = true` 让 release 也跑一遍（`lintVital` 只覆盖 fatal 子集）。
+warning 不阻断（当前多为 `UnusedResources` / `GradleDependency`），作为后续收敛项。
 
 ---
 

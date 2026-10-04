@@ -100,6 +100,10 @@ class AlarmPrecisionAndGraceTest {
         // 用户无法判断"到点提醒"这个承诺是否还成立。
         assertThat(context.getString(AlarmScheduler.Precision.INEXACT.labelRes)).contains("延迟")
         assertThat(context.getString(AlarmScheduler.Precision.EXACT.labelRes)).contains("到点")
+        // 3-2 收口：降级档位不得再声称"到点必响"。
+        // ALARM_CLOCK 与 INEXACT 都是降级，写"必响"就是自检页对用户撒谎。
+        assertThat(context.getString(AlarmScheduler.Precision.INEXACT.labelRes)).doesNotContain("到点必响")
+        assertThat(context.getString(AlarmScheduler.Precision.ALARM_CLOCK.labelRes)).doesNotContain("到点必响")
     }
 
     @Test
@@ -126,9 +130,14 @@ class AlarmPrecisionAndGraceTest {
         // 用户看到全绿，认定提醒已配置妥当。
         //
         // 现在档位可查。未授权 ⇒ 必须报降级，让自检页把这件事告诉用户。
+        //
+        // 3-2：必须是 INEXACT 而**不是** ALARM_CLOCK。`setAlarmClock()` 与
+        // `setExact*()` 同受精确闹钟权限约束，权限被撤时同样抛 SecurityException
+        // ⇒ 实际生效的就是 +1h 窗口的 `setAndAllowWhileIdle`。
+        // 报 ALARM_CLOCK（文案"到点必响"）等于自检页继续撒谎。
         ShadowAlarmManager.setCanScheduleExactAlarms(false)
         assertThat(AlarmScheduler.currentPrecision(alarmManager()))
-            .isEqualTo(AlarmScheduler.Precision.ALARM_CLOCK)
+            .isEqualTo(AlarmScheduler.Precision.INEXACT)
     }
 
     // ==================== M1-7 补响与「当日结束」结算 ====================

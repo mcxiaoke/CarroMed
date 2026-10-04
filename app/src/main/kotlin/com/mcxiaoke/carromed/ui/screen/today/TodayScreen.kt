@@ -64,6 +64,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -349,11 +350,23 @@ fun TodayScreen(
                                 .padding(24.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = stringResource(R.string.today_error_load),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = stringResource(R.string.today_error_load),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    textAlign = TextAlign.Center
+                                )
+                                // 3-4：主状态流 `.catch` 之后会完成、`stateIn` 冻结在错误态。
+                                // 没有这个入口，一次瞬时 Room 异常就要用户"退出重进"。
+                                Spacer(Modifier.height(12.dp))
+                                TextButton(onClick = { viewModel.retry() }) {
+                                    Text(
+                                        text = stringResource(R.string.today_error_retry),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 }

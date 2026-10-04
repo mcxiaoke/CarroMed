@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import androidx.annotation.RequiresApi
 import com.mcxiaoke.carromed.core.domain.DiagnosticExport
 import java.io.File
 
@@ -207,7 +208,12 @@ object DownloadsLogExporter {
      * 2. **`IS_PENDING` 收尾**：先置 1 写入、flush 后置 0。
      *    置 1 期间文件对用户不可见，进程若在写入中途被杀，不会留下半截文件
      *    冒充完整崩溃报告——排查时半截堆栈比没文件更误导。
+     *
+     * `@RequiresApi(Q)`：`MediaStore.Downloads` 是 API 29 才有的集合。调用方
+     * [write] 已用 `SDK_INT >= Q` 分派 —— 标注是把这个不变量交给编译器/Lint 守，
+     * 而不是只写在注释里（此前 Lint `NewApi` 三处报错正因判据散在调用方）。
      */
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun writeViaMediaStore(context: Context, name: String, content: String): Boolean {
         val resolver = context.contentResolver
         val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -265,7 +271,10 @@ object DownloadsLogExporter {
      *
      * `RELATIVE_PATH` 用 `LIKE` 而非 `=`：实测该字段存的是 `Download/CarroMed/`
      * （带尾斜杠），各家 ROM 格式不一，`=` 会漏删。
+     *
+     * `@RequiresApi(Q)`：同 [writeViaMediaStore]，调用方已按 API 分派。
      */
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun deleteSiblings(context: Context, displayName: String, keepId: Uri) {
         val resolver = context.contentResolver
         val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
@@ -349,7 +358,8 @@ object DownloadsLogExporter {
         else -> "fallback/app-external (清数据即失)"
     }
 
-    /** 保留给测试与调试：MediaStore 的目标 collection Uri。 */
+    /** 保留给测试与调试：MediaStore 的目标 collection Uri（API 29+ 才有该集合）。 */
+    @RequiresApi(Build.VERSION_CODES.Q)
     internal fun downloadsCollection(): Uri =
         MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
 }

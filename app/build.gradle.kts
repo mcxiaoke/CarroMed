@@ -92,6 +92,35 @@ android {
             isIncludeAndroidResources = true
         }
     }
+
+    /**
+     * Lint 配置 —— 把「IDE 里顺手看看」变成可执行的工程门禁。
+     *
+     * 背景：此前没有任何 lint 配置，而 `./gradlew lint` 用默认值会直接失败
+     * （6 个 error：2 × `MissingPermission`、3 × `NewApi`、1 × `ByteOrderMark`）。
+     * 一个恒红的检查等于没有检查 —— 所以先把这批 error 逐条修实/标注，
+     * 再在这里把口径固定下来：
+     *
+     * - `abortOnError = true`：**新增** error 直接让构建失败（这才是"门禁"）。
+     * - `checkReleaseBuilds = true`：release 构建也跑一遍。默认的 `lintVital` 只覆盖
+     *   fatal 子集，`MissingPermission`（会让 notify 静默失效那类）并不在其中。
+     * - `warningsAsErrors = false`：当前 79 条 warning 多为 `UnusedResources` /
+     *   `GradleDependency`（依赖有新版本）；一次性开红只会促使别人绕过 lint，
+     *   这些作为后续收敛项逐条处理，不阻断。
+     * - `checkDependencies = false`：第三方依赖内部的问题不由本仓库负责，
+     *   否则一次依赖升级就会莫名其妙把构建变红。
+     *
+     * 报告：`app/build/reports/lint-results-<variant>.html`（`textReport` 另存一份纯文本，
+     * 便于 CI 日志与脚本消费）。
+     */
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
+        warningsAsErrors = false
+        checkDependencies = false
+        htmlReport = true
+        textReport = true
+    }
 }
 
 /**

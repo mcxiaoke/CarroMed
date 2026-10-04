@@ -269,8 +269,14 @@ object DataExporter {
 
     private const val TAG = "DataExporter"
 
-    /** UTF-8 BOM（`\uFEFF`）。CSV 导出带它（Excel/WPS 直接打开无乱码），**读取**时必须剥掉。 */
-    private const val BOM = "﻿"
+    /**
+     * UTF-8 BOM（`\uFEFF`）。CSV 导出带它（Excel/WPS 直接打开无乱码），**读取**时必须剥掉。
+     *
+     * ⚠️ 必须写成**转义序列**而不是把 U+FEFF 字符直接敲进字符串字面量：
+     * 后者会让源码文件里出现一个"文件中间的 BOM 字符"，Lint `ByteOrderMark` 会判为
+     * error（而且它会干扰任何按字符扫描源码的工具链）。两者运行时**完全等价**。
+     */
+    private const val BOM = "\uFEFF"
     private const val BACKUP_APP_TAG = "CarroMed"
 
     /**

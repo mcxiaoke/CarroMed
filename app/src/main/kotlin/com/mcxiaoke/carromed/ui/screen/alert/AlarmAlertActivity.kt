@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,6 +61,17 @@ import com.mcxiaoke.carromed.ui.theme.WarningAmber
  * 当设备处于锁屏或静置状态且闹钟触发时，以全屏高优先级 Activity 形式亮屏弹出。
  * 提供大触控面积的「确认已服」、「推迟」、「跳过」操作，避免普通 Heads-up 通知
  * 在锁屏下被弱化折叠或误划。
+ *
+ * ## 展示内容由 [payload] 驱动，而不是 `onCreate` 里读一次的局部常量（3-1）
+ *
+ * 本页是 `singleTop` + `FLAG_ACTIVITY_NEW_TASK` + `taskAffinity=""`：第二条提醒到达时
+ * 系统**复用**同一个实例并回调 [onNewIntent]（实测连续两次拉起仍是 1 个 ActivityRecord，
+ * 把 launchMode 改成 `standard` 也一样 —— NEW_TASK 的任务复用优先于 launchMode）。
+ * 旧实现只在 `onCreate` 读一次 extras，于是第二条提醒弹出的仍是第一条的药名，
+ * 「确认已服」会落库到**第一条**的槽位 —— 提醒串改。
+ *
+ * 现在全部内容收进 [payload] 这份 Compose 状态，[onNewIntent] 整体替换它即可，
+ * **不调用 `recreate()`**（整屏重建会闪一下，而内容本就是状态驱动的）。
  */
 class AlarmAlertActivity : ComponentActivity() {
 
@@ -78,7 +90,7 @@ class AlarmAlertActivity : ComponentActivity() {
          * 全屏提醒上固定的推迟档位（分钟）。
          *
          * 用户要求：在原有单档之上补 60 / 90 / 120。
-         * 调用方还会并上该药品在「提醒设置」里的自定义时长（见 [onCreate]）——
+         * 调用方还会并上该药品在「提醒设置」里的自定义时长（见 [alertPayloadOf]）——
          * 配了 45 分钟这类值时不能被这套固定档位静默吞掉。
          */
         val SNOOZE_CHOICES = listOf(30, 60, 90, 120)
@@ -108,6 +120,11 @@ class AlarmAlertActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * 当前要展示的提醒内容。`null` 只在 `onCreate` 赋值之前存在一瞬。
+     */
+    private val payload = mutableStateOf<AlertPayload?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -126,21 +143,7 @@ class AlarmAlertActivity : ComponentActivity() {
         // 用户不操作时整夜亮屏 + 持 wakelock（明确耗电发热）。
         // 亮屏需求由上面的 setTurnScreenOn(true) 满足（唤醒一次，之后遵循系统息屏策略）。
 
-        val slotId = intent.getLongExtra(EXTRA_SLOT_ID, 0L)
-        val medId = intent.getLongExtra(EXTRA_MED_ID, 0L)
-        val scheduledDate = intent.getStringExtra(EXTRA_SCHEDULED_DATE) ?: ""
-        val scheduledTime = intent.getStringExtra(EXTRA_SCHEDULED_TIME) ?: ""
-        val medName = intent.getStringExtra(EXTRA_MED_NAME) ?: ""
-        val doseText = intent.getStringExtra(EXTRA_DOSE_TEXT) ?: ""
-        val notice = intent.getStringExtra(EXTRA_NOTICE) ?: ""
-        val isCritical = intent.getBooleanExtra(EXTRA_IS_CRITICAL, false)
-        // 推迟档位 = 固定四档 ∪ 该药品配置的时长（去重升序）。
-        // 配置值同样绑在这里而不是替换固定档位：用户把默认改成 45 分钟后，
-        // 全屏页仍应给得出他设定的那个数，否则就是"设置被界面吞掉"。
-        val configuredSnooze = intent
-            .getIntExtra(EXTRA_SNOOZE_MINUTES, ReminderSettings.DEFAULT_SNOOZE_MINUTES)
-            .coerceIn(1, 240)
-        val snoozeOptions = (SNOOZE_CHOICES + configuredSnooze).distinct().sorted()
+        payload.value = alertPayloadOf(intent)
 
         setContent {
             CarroMedTheme {
@@ -148,65 +151,101 @@ class AlarmAlertActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AlarmAlertContent(
-                        medName = medName,
-                        scheduledTime = scheduledTime,
-                        doseText = doseText,
-                        notice = notice,
-                        isCritical = isCritical,
-                        snoozeOptions = snoozeOptions,
-                        onTake = {
-                            dispatchAction(
-                                action = Notifications.ACTION_TAKE,
-                                medId = medId,
-                                date = scheduledDate,
-                                time = scheduledTime,
-                                slotId = slotId
-                            )
-                        },
-                        onSnooze = { minutes ->
-                            dispatchAction(
-                                action = Notifications.ACTION_SNOOZE,
-                                medId = medId,
-                                date = scheduledDate,
-                                time = scheduledTime,
-                                slotId = slotId
-                            ) {
-                                putExtra(Notifications.EXTRA_MINUTES, minutes)
-                            }
-                        },
-                        onSkip = {
-                            dispatchAction(
-                                action = Notifications.ACTION_SKIP,
-                                medId = medId,
-                                date = scheduledDate,
-                                time = scheduledTime,
-                                slotId = slotId
-                            )
-                        }
-                    )
+                    // 读 payload.value 即建立组合依赖：onNewIntent 替换它 → 自动重组到新药品。
+                    payload.value?.let { alert ->
+                        AlarmAlertContent(
+                            medName = alert.medName,
+                            scheduledTime = alert.scheduledTime,
+                            doseText = alert.doseText,
+                            notice = alert.notice,
+                            isCritical = alert.isCritical,
+                            snoozeOptions = alert.snoozeOptions,
+                            onTake = { dispatchAction(Notifications.ACTION_TAKE, alert) },
+                            onSnooze = { minutes ->
+                                dispatchAction(Notifications.ACTION_SNOOZE, alert) {
+                                    putExtra(Notifications.EXTRA_MINUTES, minutes)
+                                }
+                            },
+                            onSkip = { dispatchAction(Notifications.ACTION_SKIP, alert) }
+                        )
+                    }
                 }
             }
         }
     }
 
+    /**
+     * 第二条全屏提醒到达时的入口（3-1）。
+     *
+     * 必须 `setIntent()`：`getIntent()` 不会自动更新，仍是**原始** Intent。
+     * 然后整体替换 [payload] —— 界面随即显示第二条的药品与剂量，
+     * 三个操作按钮也都绑定到第二条的 `medId / date / time / slotId`。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        payload.value = alertPayloadOf(intent)
+    }
+
     private fun dispatchAction(
         action: String,
-        medId: Long,
-        date: String,
-        time: String,
-        slotId: Long,
+        alert: AlertPayload,
         extras: Intent.() -> Unit = {}
     ) {
-        val uri = Uri.parse("carromed://action/$medId/$date/$time/dose")
+        val uri = Uri.parse("carromed://action/${alert.medId}/${alert.scheduledDate}/${alert.scheduledTime}/dose")
         val intent = Intent(this, DoseActionReceiver::class.java)
             .setAction(action)
             .setData(uri)
             .apply(extras)
         sendBroadcast(intent)
-        Notifications.cancelDoseNotification(this, slotId)
+        Notifications.cancelDoseNotification(this, alert.slotId)
         finishAndRemoveTask()
     }
+}
+
+/**
+ * 一次全屏提醒要展示与回传的全部内容。
+ *
+ * 抽成不可变快照而不是一堆局部变量，是为了让"第二条提醒"能整体替换 ——
+ * 局部变量只能靠 `recreate()` 才能更新。
+ */
+private data class AlertPayload(
+    val slotId: Long,
+    val medId: Long,
+    val scheduledDate: String,
+    val scheduledTime: String,
+    val medName: String,
+    val doseText: String,
+    val notice: String,
+    val isCritical: Boolean,
+    val snoozeOptions: List<Int>
+)
+
+/**
+ * 从 Intent 解析出 [AlertPayload]。
+ *
+ * 推迟档位 = 固定四档 ∪ 该药品配置的时长（去重升序）。
+ * 配置值并进来而不是替换固定档位：用户把默认改成 45 分钟后，
+ * 全屏页仍应给得出他设定的那个数，否则就是"设置被界面吞掉"。
+ */
+private fun alertPayloadOf(intent: Intent): AlertPayload {
+    val configuredSnooze = intent
+        .getIntExtra(
+            AlarmAlertActivity.EXTRA_SNOOZE_MINUTES,
+            ReminderSettings.DEFAULT_SNOOZE_MINUTES
+        )
+        .coerceIn(1, 240)
+    return AlertPayload(
+        slotId = intent.getLongExtra(AlarmAlertActivity.EXTRA_SLOT_ID, 0L),
+        medId = intent.getLongExtra(AlarmAlertActivity.EXTRA_MED_ID, 0L),
+        scheduledDate = intent.getStringExtra(AlarmAlertActivity.EXTRA_SCHEDULED_DATE) ?: "",
+        scheduledTime = intent.getStringExtra(AlarmAlertActivity.EXTRA_SCHEDULED_TIME) ?: "",
+        medName = intent.getStringExtra(AlarmAlertActivity.EXTRA_MED_NAME) ?: "",
+        doseText = intent.getStringExtra(AlarmAlertActivity.EXTRA_DOSE_TEXT) ?: "",
+        notice = intent.getStringExtra(AlarmAlertActivity.EXTRA_NOTICE) ?: "",
+        isCritical = intent.getBooleanExtra(AlarmAlertActivity.EXTRA_IS_CRITICAL, false),
+        snoozeOptions = (AlarmAlertActivity.SNOOZE_CHOICES + configuredSnooze).distinct().sorted()
+    )
 }
 
 @Composable

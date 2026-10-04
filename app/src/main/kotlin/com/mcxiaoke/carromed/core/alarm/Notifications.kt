@@ -1,16 +1,19 @@
 package com.mcxiaoke.carromed.core.alarm
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.mcxiaoke.carromed.MainActivity
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.entity.DoseSlotEntity
@@ -220,6 +223,16 @@ object Notifications {
         // 恒为 false，于是每条漏掉的服药以 30 秒为周期反复唤醒设备直到补响窗口结束。
         // 把"没送出去"如实返回给调用方，链路才有正确的失败信号。
         val nm = NotificationManagerCompat.from(context)
+        // POST_NOTIFICATIONS（API 33+）的**显式**检查：语义上 `areNotificationsEnabled()`
+        // 已覆盖，但 Lint `MissingPermission` 只认 checkSelfPermission / SecurityException 捕获。
+        // 顺带挡住"应用级开关已开、运行时权限刚被撤"这个真实竞态窗口。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            AppLog.e("Notifications", "notify skipped for slot=${slot.id}: POST_NOTIFICATIONS denied")
+            return false
+        }
         if (!nm.areNotificationsEnabled()) {
             AppLog.e("Notifications", "notify skipped for slot=${slot.id}: notifications disabled")
             return false
@@ -391,7 +404,26 @@ object Notifications {
         }
         ensureChannel(context)
         val nm = NotificationManagerCompat.from(context)
+        // 与 showDoseNotification 同口径的显式权限检查（Lint MissingPermission）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            AppLog.e("Notifications", "overdue summary skipped: POST_NOTIFICATIONS denied")
+            return false
+        }
         if (!nm.areNotificationsEnabled()) return false
+
+        // 渠道级关闭（3-7）：本通知固定走 SILENT 渠道，该渠道被用户关成
+        // IMPORTANCE_NONE 时 `notify()` 是**静默空操作且不抛异常**，
+        // 若不显式判断，本方法会谎报"已经发出"（返回 true），
+        // 调用方据此以为聚合提醒已挂上托盘。与 `showDoseNotification` 的渠道判断同口径。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            nm.getNotificationChannel(CHANNEL_DOSE_REMINDER_SILENT)?.importance == NotificationManager.IMPORTANCE_NONE
+        ) {
+            AppLog.e("Notifications", "overdue summary skipped: channel $CHANNEL_DOSE_REMINDER_SILENT disabled")
+            return false
+        }
 
         val contentIntent = PendingIntent.getActivity(
             context,
@@ -427,11 +459,19 @@ object Notifications {
     }
 
     /**
-     * 通知出口当前是否可达：应用级通知权限已授予，且提醒主渠道未被用户全部关闭。
+     * 通知出口当前是否可达：应用级通知权限已授予，且提醒渠道**未被全部关闭**。
      *
      * 供补响判据**前置**（orsbf P0-5）：出口不可达时 `notify()` 是静默空操作，
      * "托盘里有没有"恒为 false，补响会以 30 秒为周期空转唤醒直到补响窗口结束。
      * 出口不可达时直接跳过补响排程 —— 修复出口（开权限）之前，反复唤醒只是耗电。
+     *
+     * ## 为什么必须把聚合渠道（`CHANNEL_DOSE_REMINDER_SILENT`）一并算进来（3-7）
+     *
+     * 旧实现只查两个 HIGH 渠道。而"今日超期未服"的聚合通知走的正是
+     * [CHANNEL_DOSE_REMINDER_SILENT]，夜间提醒（静音时段）也走它 ——
+     * 只要这个渠道还开着，出口就是**可达**的：只关掉两个 HIGH 渠道时旧实现会误判为
+     * 不可达，把本该照常排的补响与聚合提醒整段跳过（用户什么提醒都收不到）。
+     * 判据应当是"**所有**提醒渠道都被关成 IMPORTANCE_NONE 才算不可达"。
      */
     fun areNotificationsReachable(context: Context): Boolean {
         val nm = NotificationManagerCompat.from(context)
@@ -440,7 +480,8 @@ object Notifications {
             val none = NotificationManager.IMPORTANCE_NONE
             val v3Off = nm.getNotificationChannel(CHANNEL_DOSE_REMINDER_V3)?.importance == none
             val criticalOff = nm.getNotificationChannel(CHANNEL_DOSE_REMINDER_CRITICAL_V3)?.importance == none
-            if (v3Off && criticalOff) return false
+            val silentOff = nm.getNotificationChannel(CHANNEL_DOSE_REMINDER_SILENT)?.importance == none
+            if (v3Off && criticalOff && silentOff) return false
         }
         return true
     }
