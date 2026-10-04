@@ -7,6 +7,7 @@ import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.domain.engine.SlotProjectionEngine
 import com.mcxiaoke.carromed.core.domain.service.DoseTrackingService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -82,6 +83,25 @@ import java.time.ZoneId
 object AlarmReconciler {
 
     private const val TAG = "AlarmReconciler"
+
+    /**
+     * 对账专用的 `runCatching`（3-9）：[CancellationException]（含子类）**一律重抛**，
+     * 其余异常照旧包成 failure。
+     *
+     * 对账运行在 Worker 协程里，取消语义必须穿透：裸 `runCatching` 吞掉
+     * 取消异常后，已取消的协程会继续跑完剩余步骤，停在「结算完 EXPIRED
+     * 但闹钟没重排」的静默中间态；叠加 `ReconcileWorker` 的
+     * `ExistingWorkPolicy.KEEP`，卡住的这一轮还会把**所有**后续续期挡在门外。
+     * 重抛后 Worker 立即让位，WorkManager 按自身策略重试。
+     */
+    private inline fun <T> runCatchingOrCancel(block: () -> T): Result<T> =
+        try {
+            Result.success(block())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Result.failure(e)
+        }
 
     /**
      * 对账全局互斥锁 (P0-2)。
@@ -185,7 +205,7 @@ object AlarmReconciler {
      * 整个调用点都在 Robolectric/模拟器上跑，失败不应影响对账本身，故吞异常。
      */
     private fun cancelNotificationOf(context: Context, slotId: Long) {
-        runCatching { Notifications.cancelDoseNotification(context, slotId) }
+        runCatchingOrCancel { Notifications.cancelDoseNotification(context, slotId) }
             .onFailure { AppLog.w(TAG, "cancel notification failed slot=$slotId", it) }
     }
 
@@ -282,7 +302,7 @@ object AlarmReconciler {
          * 投影层（`SlotProjectionEngine`）用的是同一个判据，两边必须一致。
          */
         fun isPausedOn(slot: DoseSlotEntity): Boolean {
-            val date = runCatching {
+            val date = runCatchingOrCancel {
                 LocalDate.parse(slot.scheduledDate, SlotProjectionEngine.DATE_FORMATTER)
             }.getOrNull() ?: return false
             return overviewByMed[slot.medicationId]?.isPausedOn(date) == true
@@ -290,7 +310,7 @@ object AlarmReconciler {
 
         val tracking = DoseTrackingService(db)
         for (med in schedulableMeds) {
-            runCatching {
+            runCatchingOrCancel {
                 tracking.reconcileSchedule(
                     medicationId = med.id,
                     fromDate = today,
@@ -312,7 +332,7 @@ object AlarmReconciler {
         // EXPIRED，不会出现在这里。
         val archivedMeds = db.medicationDao().getAllMedications().filter { it.isArchived }
         for (med in archivedMeds) {
-            runCatching {
+            runCatchingOrCancel {
                 tracking.reconcileSchedule(
                     medicationId = med.id,
                     fromDate = today.minusDays(7),
@@ -340,7 +360,7 @@ object AlarmReconciler {
                 slot.medicationId in activeIds &&
                 !isPausedOn(slot)
             if (!shouldKeep) {
-                runCatching { id.cancelAll(context) }
+                runCatchingOrCancel { id.cancelAll(context) }
                     .onFailure { AppLog.e(TAG, "cancel failed slot=${id.slotId}", it) }
                 // 暂停 / 归档 / 改计划会走"删槽位"，删掉的那一刻托盘上那条提醒
                 // 就已经过期了（槽位不存在了，用户按「确认已吃」只会得到
@@ -384,7 +404,7 @@ object AlarmReconciler {
             if (slot.status == SlotStatus.SNOOZED) {
                 if (snoozeAt != null) {
                     if (snoozeAt > now) {
-                        runCatching { AlarmScheduler.schedule(context, slot, snoozeAt, AlarmScheduler.Kind.SNOOZE, logVerbose = false) }
+                        runCatchingOrCancel { AlarmScheduler.schedule(context, slot, snoozeAt, AlarmScheduler.Kind.SNOOZE, logVerbose = false) }
                             .onSuccess { scheduled++ }
                             .onFailure {
                                 scheduleFailures++
@@ -399,7 +419,7 @@ object AlarmReconciler {
                         // 错开 5 秒 (P2-2)：避免多个补响同时到达在毫秒级重叠
                         val catchupAt = now + GRACE_CATCHUP_DELAY_MS + catchupOffset
                         catchupOffset += 5000L
-                        runCatching {
+                        runCatchingOrCancel {
                             AlarmScheduler.schedule(
                                 context, slot, catchupAt, AlarmScheduler.Kind.SNOOZE
                             )
@@ -420,7 +440,7 @@ object AlarmReconciler {
             if (advance > 0) {
                 val advanceAt = mainAt - advance * 60_000L
                 if (advanceAt > now) {
-                    runCatching { AlarmScheduler.schedule(context, slot, advanceAt, AlarmScheduler.Kind.ADVANCE, logVerbose = false) }
+                    runCatchingOrCancel { AlarmScheduler.schedule(context, slot, advanceAt, AlarmScheduler.Kind.ADVANCE, logVerbose = false) }
                         .onFailure {
                             scheduleFailures++
                             AppLog.e(TAG, "advance schedule failed slot=${slot.id}", it)
@@ -428,7 +448,7 @@ object AlarmReconciler {
                 }
             }
             if (mainAt > now) {
-                runCatching { AlarmScheduler.schedule(context, slot, mainAt, AlarmScheduler.Kind.MAIN, logVerbose = false) }
+                runCatchingOrCancel { AlarmScheduler.schedule(context, slot, mainAt, AlarmScheduler.Kind.MAIN, logVerbose = false) }
                     .onSuccess { scheduled++ }
                     .onFailure {
                         scheduleFailures++
@@ -442,7 +462,7 @@ object AlarmReconciler {
                 // 补响一次（决策 C / M1-7 / P1-1）：未曾提醒过且在补响窗口内，错开 5 秒 (P2-2)
                 val catchupAt = now + GRACE_CATCHUP_DELAY_MS + catchupOffset
                 catchupOffset += 5000L
-                runCatching {
+                runCatchingOrCancel {
                     AlarmScheduler.schedule(context, slot, catchupAt, AlarmScheduler.Kind.MAIN)
                 }
                     .onSuccess {
@@ -457,7 +477,7 @@ object AlarmReconciler {
                 // 需求 5：重复提醒对账。已提醒过但用户未表态 (PENDING)，且在最大重试次数内
                 val nextRepeatAt = slot.lastMainNotifiedTs + repeatInterval * 60_000L
                 if (nextRepeatAt > now) {
-                    runCatching {
+                    runCatchingOrCancel {
                         AlarmScheduler.schedule(context, slot, nextRepeatAt, AlarmScheduler.Kind.REPEAT, logVerbose = false)
                     }
                         .onSuccess { scheduled++ }
@@ -471,7 +491,7 @@ object AlarmReconciler {
                 ) {
                     val catchupAt = now + GRACE_CATCHUP_DELAY_MS + catchupOffset
                     catchupOffset += 5000L
-                    runCatching {
+                    runCatchingOrCancel {
                         AlarmScheduler.schedule(context, slot, catchupAt, AlarmScheduler.Kind.REPEAT)
                     }
                         .onSuccess {
