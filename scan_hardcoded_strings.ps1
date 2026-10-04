@@ -33,5 +33,8 @@ foreach ($f in $files) {
 [void]$out.AppendLine('')
 [void]$out.AppendLine(('TOTAL literals: ' + $total))
 [void]$out.AppendLine(('TOTAL unique:   ' + ($totalUnique | Sort-Object -Unique).Count))
-$out.ToString() | Out-File "$root\hardcoded_strings_report.txt" -Encoding UTF8
+# 报告落到 temp/：项目根目录只放正式产物，临时/中间产物一律进 temp（见 SOUL §3）
+$reportDir = Join-Path $root 'temp'
+if (-not (Test-Path $reportDir)) { New-Item -ItemType Directory -Path $reportDir | Out-Null }
+$out.ToString() | Out-File (Join-Path $reportDir 'hardcoded_strings_report.txt') -Encoding UTF8
 Write-Output "done, total=$total"
