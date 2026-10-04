@@ -14,14 +14,14 @@
     <string name="today_stock_low">%1$s 仅剩 %2$s %3$s（低于预警线 %4$s）</string>
     <string name="today_go_inventory">去校准 &gt;</string>
     <string name="today_go_refill">去添药 &gt;</string>
-    <string name="today_pending_title">待服药 (%1$d)</string>
+    <string name="today_pending_title">未完成 (%1$d)</string>
     <string name="today_pending_hint_actionable">点按可推迟或跳过</string>
     <string name="today_pending_hint_future">未来用药预览 · 到达当天方可记录</string>
     <string name="today_empty_all_done">这一天没有待服任务 🎉</string>
     <string name="today_error_load">数据加载失败，请返回后重新进入；若反复出现，请在设置页导出日志反馈</string>
     <string name="today_empty_no_schedule">这一天没有提醒</string>
-    <string name="today_completed_title">今日已服 (%1$d)</string>
-    <string name="today_completed_title_date">%1$d月%2$d日已服 (%3$d)</string>
+    <string name="today_completed_title">已完成 (%1$d)</string>
+    <string name="today_completed_title_date">%1$d月%2$d日已完成 (%3$d)</string>
     <string name="today_completed_hint">点按可撤销或更改状态</string>
     <string name="today_skipped_section">已跳过 (%1$d)</string>
     <string name="today_default_unit">片</string>

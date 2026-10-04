@@ -36,7 +36,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -173,13 +173,19 @@ fun TodayScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            FloatingActionButton(
                 onClick = onNavigateToManualDose,
-                icon = { Icon(Icons.Default.Add, contentDescription = stringResource(R.string.today_cd_manual_log)) },
-                text = { Text(stringResource(R.string.today_manual_log), fontWeight = FontWeight.Bold) },
+                modifier = Modifier.size(64.dp),
+                shape = RoundedCornerShape(20.dp),
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary
-            )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = stringResource(R.string.today_cd_manual_log),
+                    modifier = Modifier.size(32.dp)
+                )
+            }
         }
     ) { innerPadding ->
         LazyColumn(
@@ -636,7 +642,7 @@ private fun PendingDoseCard(
                             .border(
                                 width = 2.dp,
                                 color = if (isOverdue) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                                else MaterialTheme.colorScheme.primary,
                                 shape = CircleShape
                             )
                     )
