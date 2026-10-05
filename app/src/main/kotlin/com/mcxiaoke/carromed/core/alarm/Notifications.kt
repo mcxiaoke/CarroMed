@@ -273,13 +273,6 @@ object Notifications {
         }
 
         val notifId = notificationIdOf(slot.id)
-        val contentIntent = PendingIntent.getActivity(
-            context,
-            notifId,
-            Intent(context, MainActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
         val snooze = behavior.snoozeMinutes.coerceIn(1, 240)
 
         val canUseFullScreen = if (Build.VERSION.SDK_INT >= 34) {
@@ -289,6 +282,33 @@ object Notifications {
             true
         }
         val isEligibleForFullScreen = !silent && (overview.isCriticalReminder || kind == AlarmScheduler.Kind.MAIN || kind == AlarmScheduler.Kind.REPEAT)
+
+        val contentIntent = if (isEligibleForFullScreen && canUseFullScreen) {
+            PendingIntent.getActivity(
+                context,
+                notifId,
+                com.mcxiaoke.carromed.ui.screen.alert.AlarmAlertActivity.createIntent(
+                    context = context,
+                    slotId = slot.id,
+                    medId = med.id,
+                    scheduledDate = slot.scheduledDate,
+                    scheduledTime = slot.scheduledTime,
+                    medName = med.name,
+                    doseText = doseText,
+                    notice = med.noticeShort,
+                    isCritical = overview.isCriticalReminder,
+                    snoozeMinutes = snooze
+                ),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else {
+            PendingIntent.getActivity(
+                context,
+                notifId,
+                Intent(context, MainActivity::class.java).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
 
         val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             ?: android.provider.Settings.System.DEFAULT_NOTIFICATION_URI
@@ -336,28 +356,7 @@ object Notifications {
             )
 
         if (isEligibleForFullScreen && canUseFullScreen) {
-            // ⚠️ 只在真正要挂全屏意图时构造（3-14）：`PendingIntent.getActivity` 的注册
-            // 发生在**构造那一刻**，不是 `setFullScreenIntent` 那一刻。此前无条件构造，
-            // 于是在「静默渠道 / 非重要提醒且非主/补响 / Android 14 无 FSI 授权」这几种
-            // 用不到的情形里，都会往系统里留一条永远没人用的悬挂记录。
-            val fullScreenPendingIntent = PendingIntent.getActivity(
-                context,
-                notifId,
-                com.mcxiaoke.carromed.ui.screen.alert.AlarmAlertActivity.createIntent(
-                    context = context,
-                    slotId = slot.id,
-                    medId = med.id,
-                    scheduledDate = slot.scheduledDate,
-                    scheduledTime = slot.scheduledTime,
-                    medName = med.name,
-                    doseText = doseText,
-                    notice = med.noticeShort,
-                    isCritical = overview.isCriticalReminder,
-                    snoozeMinutes = snooze
-                ),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            builder.setFullScreenIntent(fullScreenPendingIntent, true)
+            builder.setFullScreenIntent(contentIntent, true)
         }
         val notification = builder.build()
 

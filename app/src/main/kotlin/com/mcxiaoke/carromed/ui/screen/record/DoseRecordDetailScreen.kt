@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mcxiaoke.carromed.R
+import com.mcxiaoke.carromed.core.alarm.CompletionSoundPlayer
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
 import com.mcxiaoke.carromed.ui.component.Quantity
 import java.time.Instant
@@ -178,7 +179,7 @@ private fun DetailContent(
         item { NoteCard(state, viewModel::onNoteChange) }
 
         if (state.hasAnyAction) {
-            item { ActionArea(state, viewModel) }
+            item { ActionArea(state, viewModel, context) }
         }
 
         if (state.canEditNote) {
@@ -507,11 +508,23 @@ private fun NoteCard(state: DoseEntryUiState, onNoteChange: (String) -> Unit) {
  * 置灰会让人以为"再等等就能用"，而"撤销一条昨天的记录"永远不会变可用。
  */
 @Composable
-private fun ActionArea(state: DoseEntryUiState, viewModel: DoseRecordDetailViewModel) {
+private fun ActionArea(
+    state: DoseEntryUiState,
+    viewModel: DoseRecordDetailViewModel,
+    context: Context
+) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (state.canConfirm) {
             Button(
-                onClick = { viewModel.confirm() },
+                onClick = {
+                    CompletionSoundPlayer.play(
+                        context = context,
+                        soundKey = state.completionSound,
+                        soundEnabled = state.completionSound != "none",
+                        hapticEnabled = state.completionHaptic
+                    )
+                    viewModel.confirm()
+                },
                 enabled = !state.isSaving,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),

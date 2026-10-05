@@ -41,7 +41,7 @@ object CompletionSoundPlayer {
 
         companion object {
             fun fromKey(key: String): SoundItem =
-                entries.firstOrNull { it.key == key } ?: DING
+                entries.firstOrNull { it.key == key } ?: CHIME
         }
     }
 
@@ -91,7 +91,7 @@ object CompletionSoundPlayer {
      */
     fun play(
         context: Context,
-        soundKey: String = "ding",
+        soundKey: String = "chime",
         soundEnabled: Boolean = true,
         hapticEnabled: Boolean = true
     ) {

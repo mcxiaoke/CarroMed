@@ -42,8 +42,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,8 +54,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -114,8 +120,13 @@ fun TodayScreen(
     // 也没 toast，用户只能理解为"App 卡了"。哑渠道比没有渠道更糟，
     // 因为它让失败与"成功但界面没刷新"变得不可区分。
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    var undoJob by remember { mutableStateOf<Job?>(null) }
+    val undoLabel = stringResource(R.string.today_undo)
+
     LaunchedEffect(Unit) {
         viewModel.events.collect { message ->
+            undoJob?.cancel()
             snackbarHostState.currentSnackbarData?.dismiss()
             snackbarHostState.showSnackbar(message)
         }
@@ -412,6 +423,25 @@ fun TodayScreen(
                                 hapticEnabled = uiState.completionHaptic
                             )
                             viewModel.takeDose(item.slot.id)
+                            val medName = item.medication?.name ?: context.getString(R.string.today_fallback_medication)
+                            val message = context.getString(R.string.today_dose_confirmed, medName)
+                            val slotId = item.slot.id
+                            undoJob?.cancel()
+                            undoJob = coroutineScope.launch {
+                                snackbarHostState.currentSnackbarData?.dismiss()
+                                val result = withTimeoutOrNull(5000L) {
+                                    snackbarHostState.showSnackbar(
+                                        message = message,
+                                        actionLabel = undoLabel,
+                                        duration = SnackbarDuration.Indefinite
+                                    )
+                                }
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    viewModel.undoDose(slotId)
+                                } else {
+                                    snackbarHostState.currentSnackbarData?.dismiss()
+                                }
+                            }
                         },
                         onClick = { onOpenDose(item.slot.id) }
                     )

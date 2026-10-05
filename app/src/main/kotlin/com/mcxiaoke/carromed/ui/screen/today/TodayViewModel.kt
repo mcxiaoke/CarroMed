@@ -86,7 +86,7 @@ data class TodayUiState(
     val skippedItems: List<DoseSlotItem> = emptyList(),
     val completedItems: List<DoseSlotItem> = emptyList(),
     val globalSnoozeMinutes: Int = 30,
-    val completionSound: String = "ding",
+    val completionSound: String = com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_COMPLETION_SOUND,
     val completionHaptic: Boolean = true,
     /** 药箱里是否已有任何在服药品。用于区分"全新用户"与"这一天恰好没排班" */
     val hasAnyMedication: Boolean = false,
@@ -323,7 +323,8 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
             completedItems = completed.sortedByDescending { it.slot.actualTakenTs ?: it.slot.scheduledTs },
             globalSnoozeMinutes = settingsMap[com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_SNOOZE_MINUTES]?.toIntOrNull()
                 ?: com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_SNOOZE_MINUTES,
-            completionSound = settingsMap[com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_SOUND] ?: "ding",
+            completionSound = settingsMap[com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_SOUND]
+                ?: com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_COMPLETION_SOUND,
             completionHaptic = settingsMap[com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_HAPTIC]?.toBoolean() ?: true,
             hasAnyMedication = overviews.isNotEmpty(),
             isLoading = false
@@ -413,6 +414,24 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
                             DoseActionResult.FUTURE_SLOT -> emitEvent(app.getString(R.string.today_err_future_slot))
                             DoseActionResult.ALREADY_HANDLED ->
                                 emitEvent(app.getString(R.string.today_err_already_handled))
+                        }
+                    },
+                    onFailure = { emitEvent(app.getString(R.string.today_err_op_failed)) }
+                )
+        }
+    }
+
+    fun undoDose(slotId: Long) {
+        viewModelScope.launch {
+            AppLog.i(TAG, "undoDose start slot=$slotId")
+            val app = getApplication<Application>()
+            runCatching { actions.undo(slotId) }
+                .onFailure { AppLog.e(TAG, "undoDose failed slot=$slotId", it) }
+                .fold(
+                    onSuccess = { ok ->
+                        AppLog.i(TAG, "undoDose done slot=$slotId ok=$ok")
+                        if (!ok) {
+                            emitEvent(app.getString(R.string.today_err_op_failed))
                         }
                     },
                     onFailure = { emitEvent(app.getString(R.string.today_err_op_failed)) }

@@ -136,6 +136,8 @@ data class DoseEntryUiState(
     val today: LocalDate = LocalDate.now(),
     val pendingActualTs: Long? = null,
     val globalSnoozeMinutes: Int = 30,
+    val completionSound: String = ReminderSettings.DEFAULT_COMPLETION_SOUND,
+    val completionHaptic: Boolean = true,
     val isSaving: Boolean = false,
     val error: String? = null,
     val done: Boolean = false
@@ -317,6 +319,18 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
                 _uiState.update { it.copy(globalSnoozeMinutes = minutes) }
             }
         }
+        viewModelScope.launch {
+            db.appSettingDao().observeValue(ReminderSettings.KEY_COMPLETION_SOUND).collect { sound ->
+                val s = sound ?: ReminderSettings.DEFAULT_COMPLETION_SOUND
+                _uiState.update { it.copy(completionSound = s) }
+            }
+        }
+        viewModelScope.launch {
+            db.appSettingDao().observeValue(ReminderSettings.KEY_COMPLETION_HAPTIC).collect { haptic ->
+                val h = haptic?.toBoolean() ?: true
+                _uiState.update { it.copy(completionHaptic = h) }
+            }
+        }
     }
 
     fun load(slotId: Long?, recordId: Long?) {
@@ -344,6 +358,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
 
     /** 手动补录记录（`slot_id == null`）：一次性读取，剂量与备注只在首次载入时填 */
     private suspend fun loadManualRecord() {
+        if (_uiState.value.isSaving || _uiState.value.done) return
         val app = getApplication<Application>()
         val rid = recordId ?: run {
             _uiState.update { it.copy(isLoading = false, notFound = true) }
@@ -373,6 +388,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
     }
 
     private suspend fun refreshFromSlot(slot: DoseSlotEntity) {
+        if (_uiState.value.isSaving || _uiState.value.done) return
         val app = getApplication<Application>()
         val overview = medDao.getOverviewById(slot.medicationId)
         val med = overview?.medication
@@ -572,6 +588,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
                                 error = app.getString(R.string.rdetail_error_state_changed)
                             )
                         }
+                        slotId?.let { sid -> slotDao.getSlotById(sid)?.let { refreshFromSlot(it) } }
                     }
                 }
                 .onFailure { t ->
@@ -585,6 +602,7 @@ class DoseRecordDetailViewModel(application: Application) : AndroidViewModel(app
                             error = app.getString(failRes)
                         )
                     }
+                    slotId?.let { sid -> slotDao.getSlotById(sid)?.let { refreshFromSlot(it) } }
                 }
         }
     }

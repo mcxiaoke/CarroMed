@@ -145,4 +145,45 @@ class DoseRecordDetailViewModelTest {
         assertThat(todayState.isActionable).isTrue()
         assertThat(todayState.slot!!.id).isEqualTo(todaySlotId)
     }
+
+    @Test
+    fun `完成提示音默认值为 chime`() = runBlocking {
+        val vm = DoseRecordDetailViewModel(app)
+        assertThat(vm.uiState.value.completionSound).isEqualTo("chime")
+    }
+
+    @Test
+    fun `undo 执行成功后 done 状态置为 true`() = runBlocking {
+        val medId = seedMed("测试药")
+        val db = AppDatabase.getInstance(app)
+        val today = LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+        val slotId = db.doseSlotDao().insert(
+            DoseSlotEntity(
+                medicationId = medId,
+                policyId = 1L,
+                scheduledDate = today,
+                scheduledTime = "08:00",
+                scheduledTs = System.currentTimeMillis(),
+                doseAmount = 1000,
+                status = SlotStatus.COMPLETED
+            )
+        )
+        db.doseRecordDao().insert(
+            DoseRecordEntity(
+                slotId = slotId,
+                medicationId = medId,
+                actualTs = System.currentTimeMillis(),
+                doseTaken = 1000,
+                status = com.mcxiaoke.carromed.core.data.model.RecordStatus.COMPLETED
+            )
+        )
+
+        val vm = DoseRecordDetailViewModel(app)
+        vm.load(slotId = slotId, recordId = null)
+        withTimeout(10_000) { vm.uiState.first { it.slot?.id == slotId && it.record != null && !it.isLoading } }
+
+        vm.undo()
+        withTimeout(10_000) { vm.uiState.first { it.done } }
+        assertThat(vm.uiState.value.done).isTrue()
+    }
 }

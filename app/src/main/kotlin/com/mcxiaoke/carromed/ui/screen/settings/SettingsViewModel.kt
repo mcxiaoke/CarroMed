@@ -27,9 +27,9 @@ data class SettingsUiState(
     val nightDnd: Boolean = true,
     val nightDndStart: String = "23:00",
     val nightDndEnd: String = "07:00",
-    val completionSound: String = "ding",
+    val completionSound: String = com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_COMPLETION_SOUND,
     val completionHaptic: Boolean = true,
-    val repeatReminderEnabled: Boolean = false,
+    val repeatReminderEnabled: Boolean = com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_REPEAT_REMINDER_ENABLED,
     val repeatIntervalMinutes: Int = 30,
     val repeatMaxCount: Int = 3,
     val isExporting: Boolean = false,
@@ -90,9 +90,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val dnd = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND)?.toBoolean() ?: true
             val dndStart = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND_START) ?: "23:00"
             val dndEnd = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_NIGHT_DND_END) ?: "07:00"
-            val sound = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_SOUND) ?: "ding"
+            val sound = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_SOUND) ?: com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_COMPLETION_SOUND
             val haptic = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_COMPLETION_HAPTIC)?.toBoolean() ?: true
-            val repeatEnabled = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: false
+            val repeatEnabled = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_REPEAT_REMINDER_ENABLED
             val repeatInterval = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_INTERVAL)?.toIntOrNull() ?: 30
             val repeatMax = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_MAX_COUNT)?.toIntOrNull() ?: 3
 

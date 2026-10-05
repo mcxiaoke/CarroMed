@@ -528,7 +528,7 @@ fun SettingsScreen(
                             )
                             var soundExpanded by rememberSaveable { mutableStateOf(false) }
                             val currentSoundLabel = soundOptions.firstOrNull { it.first == uiState.completionSound }?.second
-                                ?: stringResource(R.string.set_sound_ding)
+                                ?: stringResource(R.string.set_sound_chime)
 
                             ExposedDropdownMenuBox(
                                 expanded = soundExpanded,
