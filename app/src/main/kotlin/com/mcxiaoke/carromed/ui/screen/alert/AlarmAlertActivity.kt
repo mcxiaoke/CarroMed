@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Check
@@ -36,11 +38,13 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,13 +53,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
 import com.mcxiaoke.carromed.R
+import com.mcxiaoke.carromed.core.alarm.CompletionSoundPlayer
 import com.mcxiaoke.carromed.core.alarm.DoseActionReceiver
 import com.mcxiaoke.carromed.core.alarm.Notifications
 import com.mcxiaoke.carromed.core.alarm.ReminderSettings
+import com.mcxiaoke.carromed.core.data.AppDatabase
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.mcxiaoke.carromed.ui.component.CarroMedTopAppBar
 import com.mcxiaoke.carromed.ui.theme.CarroMedTheme
 import com.mcxiaoke.carromed.ui.theme.ThemePreference
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * 锁屏全屏提醒强交互界面 (Full-Screen Intent)
@@ -127,6 +138,16 @@ class AlarmAlertActivity : ComponentActivity() {
      */
     private val payload = mutableStateOf<AlertPayload?>(null)
 
+    /**
+     * 当前展示的操作反馈（确认已服 / 推迟 / 跳过）。
+     * 非空时在顶层覆盖不透明浮层拦截手势，1 秒后自动关闭。
+     */
+    private val feedbackState = mutableStateOf<AlertFeedback?>(null)
+    private var autoDismissJob: Job? = null
+
+    private var completionSound: String = ReminderSettings.DEFAULT_COMPLETION_SOUND
+    private var completionHaptic: Boolean = true
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -150,30 +171,57 @@ class AlarmAlertActivity : ComponentActivity() {
         // 否则 App 内是深色、半夜弹出来的提醒却是浅色。
         ThemePreference.init(applicationContext)
 
+        lifecycleScope.launch {
+            val db = AppDatabase.getInstance(applicationContext)
+            completionSound = db.appSettingDao().getValue(ReminderSettings.KEY_COMPLETION_SOUND)
+                ?: ReminderSettings.DEFAULT_COMPLETION_SOUND
+            completionHaptic = db.appSettingDao().getValue(ReminderSettings.KEY_COMPLETION_HAPTIC)?.toBoolean()
+                ?: true
+        }
+
         setContent {
             val themeMode by ThemePreference.mode.collectAsStateWithLifecycle()
             CarroMedTheme(darkTheme = themeMode.resolveDark(isSystemInDarkTheme())) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    // 读 payload.value 即建立组合依赖：onNewIntent 替换它 → 自动重组到新药品。
-                    payload.value?.let { alert ->
-                        AlarmAlertContent(
-                            medName = alert.medName,
-                            scheduledTime = alert.scheduledTime,
-                            doseText = alert.doseText,
-                            notice = alert.notice,
-                            isCritical = alert.isCritical,
-                            snoozeOptions = alert.snoozeOptions,
-                            onTake = { dispatchAction(Notifications.ACTION_TAKE, alert) },
-                            onSnooze = { minutes ->
-                                dispatchAction(Notifications.ACTION_SNOOZE, alert) {
-                                    putExtra(Notifications.EXTRA_MINUTES, minutes)
+                Scaffold(
+                    topBar = {
+                        CarroMedTopAppBar(title = stringResource(R.string.alert_screen_title))
+                    },
+                    containerColor = MaterialTheme.colorScheme.background
+                ) { innerPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                    ) {
+                        // 读 payload.value 即建立组合依赖：onNewIntent 替换它 → 自动重组到新药品。
+                        payload.value?.let { alert ->
+                            AlarmAlertContent(
+                                medName = alert.medName,
+                                scheduledTime = alert.scheduledTime,
+                                doseText = alert.doseText,
+                                notice = alert.notice,
+                                isCritical = alert.isCritical,
+                                snoozeOptions = alert.snoozeOptions,
+                                onTake = { dispatchAction(Notifications.ACTION_TAKE, alert) },
+                                onSnooze = { minutes ->
+                                    dispatchAction(Notifications.ACTION_SNOOZE, alert) {
+                                        putExtra(Notifications.EXTRA_MINUTES, minutes)
+                                    }
+                                },
+                                onSkip = { dispatchAction(Notifications.ACTION_SKIP, alert) }
+                            )
+                        }
+
+                        // 顶层不透明全屏反馈浮层（拦截点击，1秒自动关闭，点屏幕也可提前退出）
+                        feedbackState.value?.let { feedback ->
+                            AlertFeedbackOverlay(
+                                feedback = feedback,
+                                onDismiss = {
+                                    autoDismissJob?.cancel()
+                                    finishAndRemoveTask()
                                 }
-                            },
-                            onSkip = { dispatchAction(Notifications.ACTION_SKIP, alert) }
-                        )
+                            )
+                        }
                     }
                 }
             }
@@ -190,7 +238,14 @@ class AlarmAlertActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        autoDismissJob?.cancel()
+        feedbackState.value = null
         payload.value = alertPayloadOf(intent)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        autoDismissJob?.cancel()
     }
 
     private fun dispatchAction(
@@ -198,6 +253,8 @@ class AlarmAlertActivity : ComponentActivity() {
         alert: AlertPayload,
         extras: Intent.() -> Unit = {}
     ) {
+        if (feedbackState.value != null) return // 防连击守卫
+
         val uri = Uri.parse("carromed://action/${alert.medId}/${alert.scheduledDate}/${alert.scheduledTime}/dose")
         val intent = Intent(this, DoseActionReceiver::class.java)
             .setAction(action)
@@ -205,7 +262,35 @@ class AlarmAlertActivity : ComponentActivity() {
             .apply(extras)
         sendBroadcast(intent)
         Notifications.cancelDoseNotification(this, alert.slotId)
-        finishAndRemoveTask()
+
+        when (action) {
+            Notifications.ACTION_TAKE -> {
+                CompletionSoundPlayer.play(
+                    context = this,
+                    soundKey = completionSound,
+                    soundEnabled = completionSound != "none",
+                    hapticEnabled = completionHaptic
+                )
+                feedbackState.value = AlertFeedback.Taken(alert.medName, alert.doseText)
+            }
+            Notifications.ACTION_SNOOZE -> {
+                val minutes = intent.getIntExtra(Notifications.EXTRA_MINUTES, ReminderSettings.DEFAULT_SNOOZE_MINUTES)
+                feedbackState.value = AlertFeedback.Snoozed(alert.medName, minutes)
+            }
+            Notifications.ACTION_SKIP -> {
+                feedbackState.value = AlertFeedback.Skipped(alert.medName)
+            }
+            else -> {
+                finishAndRemoveTask()
+                return
+            }
+        }
+
+        autoDismissJob?.cancel()
+        autoDismissJob = lifecycleScope.launch {
+            delay(1000L)
+            finishAndRemoveTask()
+        }
     }
 }
 
@@ -432,3 +517,119 @@ fun AlarmAlertContent(
         }
     }
 }
+
+/**
+ * 全屏提醒操作反馈状态
+ */
+sealed interface AlertFeedback {
+    data class Taken(val medName: String, val doseText: String) : AlertFeedback
+    data class Snoozed(val medName: String, val minutes: Int) : AlertFeedback
+    data class Skipped(val medName: String) : AlertFeedback
+}
+
+/**
+ * 顶层不透明操作反馈浮层。
+ *
+ * 1. 背景完全不透明（background 颜色），彻底遮挡底层按钮，物理截断 1 秒延时内的二次连击；
+ * 2. 居中展示醒目的图标、反馈标题与药品信息，给用户明确的操作闭环；
+ * 3. 消费全屏点击事件，用户点击屏幕任意处可立即调用 [onDismiss] 提前关闭退出。
+ */
+@Composable
+private fun AlertFeedbackOverlay(
+    feedback: AlertFeedback,
+    onDismiss: () -> Unit
+) {
+    val config = when (feedback) {
+        is AlertFeedback.Taken -> FeedbackConfig(
+            icon = Icons.Default.Check,
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            title = stringResource(R.string.alert_feedback_taken),
+            subtitle = if (feedback.doseText.isNotBlank()) {
+                "${feedback.medName} · ${feedback.doseText}"
+            } else {
+                feedback.medName
+            }
+        )
+        is AlertFeedback.Snoozed -> FeedbackConfig(
+            icon = Icons.Default.Alarm,
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            title = stringResource(R.string.alert_feedback_snoozed, feedback.minutes),
+            subtitle = feedback.medName
+        )
+        is AlertFeedback.Skipped -> FeedbackConfig(
+            icon = Icons.Default.NotificationsActive,
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            title = stringResource(R.string.alert_feedback_skipped),
+            subtitle = feedback.medName
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(config.containerColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = config.icon,
+                    contentDescription = null,
+                    tint = config.contentColor,
+                    modifier = Modifier.size(52.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = config.title,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                textAlign = TextAlign.Center
+            )
+            if (config.subtitle.isNotBlank()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = config.subtitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+            Spacer(modifier = Modifier.height(36.dp))
+            Text(
+                text = stringResource(R.string.alert_feedback_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+private data class FeedbackConfig(
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val containerColor: androidx.compose.ui.graphics.Color,
+    val contentColor: androidx.compose.ui.graphics.Color,
+    val title: String,
+    val subtitle: String
+)
+

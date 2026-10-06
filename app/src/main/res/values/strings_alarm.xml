@@ -16,5 +16,10 @@
          避免"推迟 推迟 30 分钟"这种标题与按钮重复措辞。 -->
     <string name="alert_snooze_section">稍后再提醒</string>
     <string name="alert_snooze_minutes_fmt">%1$d 分钟</string>
+    <string name="alert_screen_title">服药提醒</string>
     <string name="alert_action_skip">跳过本次</string>
+    <string name="alert_feedback_taken">已确认服药</string>
+    <string name="alert_feedback_snoozed">已推迟 %1$d 分钟</string>
+    <string name="alert_feedback_skipped">已跳过本次</string>
+    <string name="alert_feedback_hint">点击屏幕任意处立即关闭</string>
 </resources>
