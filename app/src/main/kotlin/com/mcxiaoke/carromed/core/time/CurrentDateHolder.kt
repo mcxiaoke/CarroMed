@@ -92,6 +92,9 @@ object CurrentDateHolder {
         )
     }
 
+    @Volatile
+    private var isPinnedForTest = false
+
     /**
      * 只有日期真的变了才发射。
      *
@@ -99,18 +102,21 @@ object CurrentDateHolder {
      * 而绝大多数时候"今天"根本没变。
      */
     fun refresh() {
+        if (isPinnedForTest) return
         val now = LocalDate.now()
         if (now != _today.value) _today.value = now
     }
 
-    /** 供测试显式推进"今天" */
+    /** 供测试显式推进"今天"（标记为钉死，避免被 refresh 冲掉） */
     fun setTodayForTest(date: LocalDate) {
+        isPinnedForTest = true
         _today.value = date
     }
 
-    /** 仅测试用：复位到真实今天并清掉 installed 标记 */
+    /** 仅测试用：复位到真实今天并清掉 installed 与测试钉死标记 */
     fun resetForTest() = synchronized(this) {
         installed = false
+        isPinnedForTest = false
         _today.value = LocalDate.now()
     }
 }

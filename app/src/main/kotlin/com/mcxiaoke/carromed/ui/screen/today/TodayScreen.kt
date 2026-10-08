@@ -73,6 +73,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.model.SlotStatus
@@ -110,6 +111,11 @@ fun TodayScreen(
     /** 点开任意一条 item 都进记录详情页（待服 / 已服 / 已跳过 同一个页面） */
     onOpenDose: (Long) -> Unit
 ) {
+    LifecycleResumeEffect(viewModel) {
+        viewModel.onResume()
+        onPauseOrDispose { }
+    }
+
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 

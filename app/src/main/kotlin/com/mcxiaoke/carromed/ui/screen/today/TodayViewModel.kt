@@ -135,16 +135,23 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
      * 两者必须分开：用户可以翻到昨天、前天看历史（那正是本功能），
      * 跨过午夜时不该把他的选择强制拉回今天。
      */
-    private val _selectedDate = MutableStateFlow(LocalDate.now())
+    private val _selectedDate = MutableStateFlow(CurrentDateHolder.today.value)
+    /** 记录上次响应式流观察到的今天，用于前台自然跨天时平滑推进 */
+    private var lastObservedToday: LocalDate = CurrentDateHolder.today.value
+    /** 记录上次在前台（或初始化）时的今天，用于判定后台恢复时是否已跨天 */
+    private var lastResumeDate: LocalDate = CurrentDateHolder.today.value
 
     init {
-        // 跨午夜时把选择**夹回**今天（M3-2）。不是"重置"：若用户正在看历史就保持原样，
-        // 只有选中日期已经**落在未来**（只有跨日才可能发生）时才拉回今天。
-        // 直接重置会把正在看历史的用户莫名其妙地弹回今天。
+        // 跨午夜时把选择跟进到今天（M3-2）：
+        // 若用户原本在看今天（current == lastObservedToday）或日期已落在未来（current > realToday），
+        // 自动推进到新的今天；若用户主动在看历史，则保持该历史日期不被粗暴弹回。
         viewModelScope.launch {
             CurrentDateHolder.today.collect { realToday ->
                 val current = _selectedDate.value
-                if (current > realToday) _selectedDate.value = realToday
+                if (current == lastObservedToday || current > realToday) {
+                    _selectedDate.value = realToday
+                }
+                lastObservedToday = realToday
             }
         }
 
@@ -362,13 +369,33 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = TodayUiState(
-            selectedDate = LocalDate.now(),
-            weekDates = (-3L..3L).map { LocalDate.now().plusDays(it) }
+            selectedDate = CurrentDateHolder.today.value,
+            today = CurrentDateHolder.today.value,
+            weekDates = (-3L..3L).map { CurrentDateHolder.today.value.plusDays(it) }
         )
     )
 
     fun selectCalendarMonth(month: YearMonth) {
         _calendarMonth.value = month
+    }
+
+    /**
+     * 界面回到前台 / 恢复（Resume）时调用（方案 B）。
+     *
+     * 1. 刷新 [CurrentDateHolder]，获取最新日期事实；
+     * 2. 跨天检测：若发现当前真实日期与上次记录的今天不一致（跨天了），将选中的日期自动对准当天的今日；
+     * 3. 避免用户过夜切回前台时停留在昨天的药单上。
+     */
+    fun onResume() {
+        CurrentDateHolder.refresh()
+        val realToday = CurrentDateHolder.today.value
+        val current = _selectedDate.value
+        if (lastResumeDate != realToday || current > realToday) {
+            AppLog.i(TAG, "onResume: date rollover from $lastResumeDate to $realToday, reset selectedDate from $current to $realToday")
+            _selectedDate.value = realToday
+        }
+        lastResumeDate = realToday
+        lastObservedToday = realToday
     }
 
     /**
