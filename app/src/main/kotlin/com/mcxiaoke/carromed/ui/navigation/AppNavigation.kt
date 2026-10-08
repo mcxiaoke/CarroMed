@@ -282,9 +282,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                     viewModel = vm,
                     onNavigateBack = { navController.popBackStack() },
                     onSavedSuccess = { newMedId ->
-                        // ⚠️ 新建后直接进药品详情页（2026-09-29 UX 改造）。
-                        navController.popBackStack()
-                        navController.navigate(ScreenRoute.MedicationDetail(newMedId))
+                        if (medId != null) {
+                            // 编辑既有药品：当前处于 药箱 -> 详情 -> 编辑，保存后只需返回详情即可，详情页会自动通过 Flow 响应更新
+                            navController.popBackStack()
+                        } else {
+                            // 新建后直接进药品详情页（2026-09-29 UX 改造）。
+                            navController.popBackStack()
+                            navController.navigate(ScreenRoute.MedicationDetail(newMedId))
+                        }
                     }
                 )
             }

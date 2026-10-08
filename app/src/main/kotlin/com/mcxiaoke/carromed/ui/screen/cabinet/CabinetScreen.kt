@@ -350,43 +350,40 @@ fun CabinetMedCard(
 
             // 药品名称与频次时段
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = med.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    // 药名独占整行、最多两行（T-6 大字号走查发现）：原先「名字 +
-                    // 类别标签」同行，orsbf P1-3 的让位约束（weight fill=false）在
-                    // 200% 缩放下把药名挤成「钙...」—— 药名是卡片最关键的信息，
-                    // 宁可换行也不能截断。名字独占整行后 P1-3 的约束自然满足
-                    //（标签不再与名字争宽）；标准字号下短名仍是单行，视觉不变。
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = item.frequencyDescription,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f, fill = false)
+                        text = med.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant
-                    ) {
-                        Text(
-                            // 类别存的是稳定 key（B3 key 化），显示时映射成本地化名；
-                            // 未知 key（自由文本/旧数据）原样回显。
-                            text = MedVocab.categoryRes(med.category)?.let { stringResource(it) } ?: med.category,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    if (med.category.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Text(
+                                // 类别存的是稳定 key（B3 key 化），显示时映射成本地化名；
+                                // 未知 key（自由文本/旧数据）原样回显。
+                                text = MedVocab.categoryRes(med.category)?.let { stringResource(it) } ?: med.category,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = item.frequencyDescription,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 // 暂停说明由 ReminderSettingsEntity 统一生成（含"N 天后恢复"），
                 // 不要在 UI 里重写一遍日期比较 —— 两处实现必然漂移。
                 //
@@ -415,6 +412,8 @@ fun CabinetMedCard(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.width(12.dp))
 
             // 右侧库存胶囊徽章与箭头
             if (med.isStockTracked) {

@@ -117,7 +117,7 @@ fun ManualDoseScreen(
             contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item {
+            item(key = "card_manual_tip") {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
@@ -146,7 +146,7 @@ fun ManualDoseScreen(
             }
 
             uiState.error?.let { err ->
-                item {
+                item(key = "banner_manual_error") {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = MaterialTheme.colorScheme.errorContainer
@@ -164,7 +164,7 @@ fun ManualDoseScreen(
             }
 
             // 1. 药品
-            item {
+            item(key = "card_med_picker") {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -254,7 +254,7 @@ fun ManualDoseScreen(
             }
 
             // 2. 服药时刻 (可指定过去时间) —— 此前完全无法修改
-            item {
+            item(key = "card_dose_time") {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -374,7 +374,7 @@ fun ManualDoseScreen(
             }
 
             // 3. 剂量
-            item {
+            item(key = "card_dose_amount") {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -419,7 +419,7 @@ fun ManualDoseScreen(
             }
 
             // 4. 库存开关 —— 此前该开关完全无效
-            item {
+            item(key = "card_stock_deduct") {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -458,7 +458,7 @@ fun ManualDoseScreen(
                 }
             }
 
-            item {
+            item(key = "card_submit") {
                 Button(
                     onClick = { viewModel.save(onNavigateBack) },
                     enabled = !uiState.isSaving && uiState.selectedMedication != null,

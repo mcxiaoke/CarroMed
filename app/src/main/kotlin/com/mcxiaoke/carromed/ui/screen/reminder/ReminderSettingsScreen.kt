@@ -177,7 +177,7 @@ fun ReminderSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             uiState.error?.let { err ->
-                item {
+                item(key = "banner_error") {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = MaterialTheme.colorScheme.errorContainer
@@ -198,7 +198,7 @@ fun ReminderSettingsScreen(
             // （`setPausedUntil("")`），与同文件"暂停归详情页所有"的注释直接矛盾。
             // 暂停（含恢复与期限调整）是排期语义，唯一入口在药品详情页；
             // 本页只如实展示当前状态，避免两个入口互相覆盖。
-            item {
+            item(key = "card_pause_status") {
                 SettingsCard(title = stringResource(R.string.rem_section_pause)) {
                     Text(
                         if (uiState.isPaused) {
@@ -218,7 +218,7 @@ fun ReminderSettingsScreen(
             }
 
             // 2. 频次
-            item {
+            item(key = "card_frequency") {
                 SettingsCard(title = stringResource(R.string.rem_section_frequency)) {
                     val types = listOf(
                         PolicyType.DAILY to stringResource(R.string.rem_type_daily),
@@ -315,7 +315,7 @@ fun ReminderSettingsScreen(
             }
 
             // 3. 疗程
-            item {
+            item(key = "card_duration") {
                 SettingsCard(title = stringResource(R.string.rem_section_duration)) {
                     ReadOnlyDateField(
                         label = stringResource(R.string.rem_start_date),
@@ -360,7 +360,7 @@ fun ReminderSettingsScreen(
 
             // 4. 时点
             if (uiState.policyType != PolicyType.PRN) {
-                item {
+                item(key = "card_times") {
                     SettingsCard(title = stringResource(R.string.rem_section_times)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf(1, 2, 3, 4).forEach { n ->
@@ -461,11 +461,11 @@ fun ReminderSettingsScreen(
                 }
 
                 // 5. 未来 7 天预览
-                item { PreviewCard(uiState) }
+                item(key = "card_preview") { PreviewCard(uiState) }
             }
 
             // 6. 提醒行为
-            item {
+            item(key = "card_behavior") {
                 SettingsCard(title = stringResource(R.string.rem_section_behavior)) {
                     SwitchRow(
                         title = stringResource(R.string.rem_critical_title),
@@ -532,7 +532,7 @@ fun ReminderSettingsScreen(
                 }
             }
 
-            item {
+            item(key = "card_reschedule_note") {
                 Surface(
                     shape = RoundedCornerShape(10.dp),
                     color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
@@ -548,7 +548,7 @@ fun ReminderSettingsScreen(
             }
 
             if (uiState.hasExistingPolicy) {
-                item {
+                item(key = "card_delete_policy") {
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = { showDeleteDialog = true },

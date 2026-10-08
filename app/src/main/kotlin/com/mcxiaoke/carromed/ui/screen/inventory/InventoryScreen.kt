@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,8 +38,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.animation.animateContentSize
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -110,7 +112,22 @@ fun InventoryScreen(
         )
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(uiState.message) {
+        val msg = uiState.message
+        if (msg != null) {
+            snackbarHostState.showSnackbar(msg)
+        }
+    }
+    LaunchedEffect(uiState.error) {
+        val err = uiState.error
+        if (err != null) {
+            snackbarHostState.showSnackbar(err)
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -157,17 +174,7 @@ fun InventoryScreen(
             return@Scaffold
         }
 
-        // 保存按钮在顶栏、校准在下方卡片区，提示条（NoticeBar）固定在列表顶部：
-        // 页面滚动到流水区后操作时提示在视口外（M3）。有新提示时滚回顶部让它可见。
-        val listState = rememberLazyListState()
-        LaunchedEffect(uiState.error, uiState.message) {
-            if (uiState.error != null || uiState.message != null) {
-                // error banner 排在 message 之后（见下方两个条件 item），滚到它的实际下标
-                listState.animateScrollToItem(if (uiState.message != null) 1 else 0)
-            }
-        }
         LazyColumn(
-            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
@@ -176,17 +183,12 @@ fun InventoryScreen(
             contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            uiState.message?.let {
-                item { NoticeBar(text = it, tone = NoticeTone.INFO) }
-            }
-            uiState.error?.let {
-                item { NoticeBar(text = it, tone = NoticeTone.ERROR) }
-            }
-
             // 1. 余量总览
-            item {
+            item(key = "card_stock_overview") {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .animateContentSize(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
                         containerColor = if (uiState.isLowStock && uiState.isTracked) {
@@ -220,54 +222,46 @@ fun InventoryScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
-                        if (uiState.isTracked && uiState.dailyConsumption > 0f) {
-                            Spacer(Modifier.height(14.dp))
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                MiniStat(
-                                    Modifier.weight(1f),
-                                    // ⚠️ 走 [StatsEngine.isRunwayUnlimited] 而不是 `>= 9999`
-                                    // 的魔数比较（M4-1）。领域层已把"不适用"改成显式哨兵，
-                                    // UI 再去猜一个下界，两处定义必然会漂移。
-                                    // 负天数 = 已超支（D-9 允许账面为负），单列分支而不是
-                                    // 渲染成"−2 天"（orsbf P1-4）
-                                    when {
-                                        StatsEngine.isRunwayUnlimited(uiState.runwayDays) -> "—"
-                                        uiState.runwayDays < 0 -> stringResource(R.string.inv_runway_overspent)
-                                        else -> "${uiState.runwayDays}"
-                                    },
-                                    stringResource(R.string.inv_stat_runway_label)
+                        Spacer(Modifier.height(14.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            MiniStat(
+                                Modifier.weight(1f),
+                                when {
+                                    !uiState.isTracked -> "—"
+                                    StatsEngine.isRunwayUnlimited(uiState.runwayDays) -> "—"
+                                    uiState.runwayDays < 0 -> stringResource(R.string.inv_runway_overspent)
+                                    else -> "${uiState.runwayDays}"
+                                },
+                                stringResource(R.string.inv_stat_runway_label)
+                            )
+                            MiniStat(
+                                Modifier.weight(1f),
+                                if (!uiState.isTracked || uiState.dailyConsumption <= 0f) "—"
+                                else Quantity.fmt(uiState.dailyConsumption),
+                                stringResource(R.string.inv_stat_daily_consumption_label)
+                            )
+                            MiniStat(
+                                Modifier.weight(1f),
+                                Quantity.fmt(uiState.minStockAlert),
+                                stringResource(R.string.inv_stat_alert_threshold_label)
+                            )
+                        }
+                        if (uiState.isTracked && uiState.runwayDays in 1..7) {
+                            Spacer(Modifier.height(12.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.WarningAmber,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                MiniStat(
-                                    Modifier.weight(1f),
-                                    // 统一走 Quantity 格式化（此前本页内联 "%.2f"，
-                                    // 与全库其他页面的规则不一致，见 Quantity 的 KDoc）
-                                    Quantity.fmt(uiState.dailyConsumption),
-                                    stringResource(R.string.inv_stat_daily_consumption_label)
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    stringResource(R.string.inv_low_runway_warning, uiState.runwayDays),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontWeight = FontWeight.SemiBold
                                 )
-                                MiniStat(
-                                    Modifier.weight(1f),
-                                    Quantity.fmt(uiState.minStockAlertInput.toFloatOrNull() ?: uiState.minStockAlert),
-                                    stringResource(R.string.inv_stat_alert_threshold_label)
-                                )
-                            }
-                            if (uiState.runwayDays in 1..7) {
-                                Spacer(Modifier.height(12.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        Icons.Default.WarningAmber,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        stringResource(R.string.inv_low_runway_warning, uiState.runwayDays),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        // bodySmall 语义色小字不达 AA（§二-20），用深琥珀前景
-                                        color = MaterialTheme.colorScheme.onErrorContainer,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
                             }
                         }
 
@@ -286,7 +280,7 @@ fun InventoryScreen(
             }
 
             // 2. 有效期
-            item {
+            item(key = "card_expiry") {
                 SettingsCard(stringResource(R.string.inv_expiry_card_title)) {
                     ReadOnlyDateField(
                         label = stringResource(R.string.inv_expiry_date_label),
@@ -317,7 +311,7 @@ fun InventoryScreen(
             }
 
             // 3. 预警线与追踪开关
-            item {
+            item(key = "card_stock_settings") {
                 SettingsCard(stringResource(R.string.inv_low_stock_card_title)) {
                     OutlinedTextField(
                         value = uiState.minStockAlertInput,
@@ -361,7 +355,7 @@ fun InventoryScreen(
             }
 
             // 4. 盘点校准
-            item {
+            item(key = "card_calibrate") {
                 SettingsCard(stringResource(R.string.inv_calibrate_card_title)) {
                     Text(
                         stringResource(R.string.inv_calibrate_description),
@@ -390,7 +384,7 @@ fun InventoryScreen(
             }
 
             // 5. 出入库流水
-            item {
+            item(key = "card_ledger") {
                 SettingsCard(stringResource(R.string.inv_ledger_card_title)) {
                     if (uiState.transactions.isEmpty()) {
                         Text(

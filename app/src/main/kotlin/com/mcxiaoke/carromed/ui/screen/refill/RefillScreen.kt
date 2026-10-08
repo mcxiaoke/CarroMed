@@ -100,7 +100,7 @@ fun RefillScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 1. 药品基础状态卡片
-            item {
+            item(key = "card_med_header") {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -150,7 +150,7 @@ fun RefillScreen(
             }
 
             uiState.error?.let { err ->
-                item {
+                item(key = "banner_error") {
                     androidx.compose.material3.Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = MaterialTheme.colorScheme.errorContainer
@@ -168,7 +168,7 @@ fun RefillScreen(
             }
 
             // 2. 入库数量设定卡片
-            item {
+            item(key = "card_amount") {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -211,7 +211,7 @@ fun RefillScreen(
             }
 
             // 3. 采购与批次信息 (可选)
-            item {
+            item(key = "card_purchase") {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
@@ -260,7 +260,7 @@ fun RefillScreen(
                                     DropdownMenuItem(
                                         text = { Text(ch) },
                                         onClick = {
-                                            viewModel.onChannelChange(ch)
+                                             viewModel.onChannelChange(ch)
                                             channelExpanded = false
                                         }
                                     )
@@ -304,7 +304,7 @@ fun RefillScreen(
             }
 
             // 4. 确认入库上架按钮
-            item {
+            item(key = "button_submit") {
                 Button(
                     onClick = { viewModel.confirmRefill(onSuccess = onNavigateBack) },
                     enabled = !uiState.isSaving,

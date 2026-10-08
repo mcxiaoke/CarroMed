@@ -180,7 +180,7 @@ fun AddEditMedicationScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (uiState.error != null) {
-                item {
+                item(key = "banner_error") {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = MaterialTheme.colorScheme.errorContainer
@@ -198,11 +198,11 @@ fun AddEditMedicationScreen(
             }
 
             if (!isInfoOnly) {
-                item { LowFrictionTipCard() }
+                item(key = "card_low_friction_tip") { LowFrictionTipCard() }
             }
 
             // ============ 1. 药品信息 ============
-            item {
+            item(key = "card_med_info") {
                 SectionCard(
                     index = 1,
                     title = if (uiState.isEdit) stringResource(R.string.medit_section_medication_info)
@@ -318,7 +318,7 @@ fun AddEditMedicationScreen(
             // 注意事项是低频且可选的。段位也因此连号 1→2→3，
             // 中间跳过 2 会让人以为漏了一屏。
             if (!isInfoOnly) {
-                item { InitialStockCard(viewModel, uiState) }
+                item(key = "card_initial_stock") { InitialStockCard(viewModel, uiState) }
             }
 
             // ============ 3. 注意事项与医嘱 (默认折叠) ============
@@ -330,7 +330,7 @@ fun AddEditMedicationScreen(
             //
             // 折叠时显示"已填 N 条"，这样已经填过的用户仍能一眼看到自己填了东西，
             // 不会以为折叠把内容弄丢了。
-            item {
+            item(key = "card_precautions") {
                 val filledCount = uiState.precautions.size
                 val expanded = precautionsExpanded
                 SectionCard(
@@ -508,7 +508,7 @@ fun AddEditMedicationScreen(
             // 时提醒卡片会显式写「尚未设置服药计划」，
             // 而不是让它长得和已配置的一样（见 MedicationDetailScreen）。
             if (isInfoOnly) {
-                item {
+                item(key = "card_info_only_hint") {
                     Surface(
                         shape = RoundedCornerShape(10.dp),
                         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
