@@ -383,14 +383,25 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
      * 界面回到前台 / 恢复（Resume）时调用（方案 B）。
      *
      * 1. 刷新 [CurrentDateHolder]，获取最新日期事实；
-     * 2. 跨天检测：若发现当前真实日期与上次记录的今天不一致（跨天了），将选中的日期自动对准当天的今日；
-     * 3. 避免用户过夜切回前台时停留在昨天的药单上。
+     * 2. 跨天检测：**仅当真实日期确实翻面了**（`lastResumeDate != realToday`）才把选中日对准新的今天，
+     *    避免用户过夜切回前台时停留在昨天的药单上；
+     * 3. **绝不因为"选中日落在未来"而改写用户的选择**。
+     *
+     * ## 为什么不能带 `current > realToday` 这一支
+     *
+     * 用户翻到明天/后天预览排班（产品功能）时该判据**恒为真**，于是每次回到前台
+     * （从别的 App 回来、从系统日期选择器回来、从厂商设置页回来、从全屏提醒页回来）
+     * 都会把整页列表整体替换成今天的清单 —— 表现为"首页乱跳"，
+     * 且手指落点下的卡片已经不是原来那条。
+     *
+     * 判据只能落在**系统事实**（真实日期是否翻面）上，不能落在**用户的选择**上；
+     * 当前状态见 `docs/DIAGNOSIS-AUTO-CLICK-LAYOUT-JUMP-20261009.md` §2.1。
      */
     fun onResume() {
         CurrentDateHolder.refresh()
         val realToday = CurrentDateHolder.today.value
-        val current = _selectedDate.value
-        if (lastResumeDate != realToday || current > realToday) {
+        if (lastResumeDate != realToday) {
+            val current = _selectedDate.value
             AppLog.i(TAG, "onResume: date rollover from $lastResumeDate to $realToday, reset selectedDate from $current to $realToday")
             _selectedDate.value = realToday
         }
