@@ -94,6 +94,7 @@ class DoseEntryActionsAlarmGuardTest {
 
     private fun alarmManager(): AlarmManager = context.getSystemService(AlarmManager::class.java)
 
+    @Suppress("DEPRECATION")
     private fun shadowAlarms(): Set<PendingIntent> {
         val shadow = Shadows.shadowOf(alarmManager()) as ShadowAlarmManager
         return shadow.scheduledAlarms.mapNotNullTo(mutableSetOf()) { it.operation }

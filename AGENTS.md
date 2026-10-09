@@ -16,10 +16,10 @@
 
 | 项 | 值 |
 | :--- | :--- |
-| 语言 / UI | Kotlin 2.0.21 · Jetpack Compose（Material 3）· Navigation Compose |
-| 持久化 | Room 2.6.1（SQLite，WAL 模式） |
+| 语言 / UI | Kotlin 2.2.10 · Jetpack Compose（Material 3）· Navigation Compose |
+| 持久化 | Room 2.7.0（SQLite，WAL 模式） |
 | 调度 | AlarmManager（精确闹钟）+ WorkManager（周期对账兜底） |
-| 环境 | JDK 17 · AGP 8.11.1 · Gradle 8.14 · compileSdk / targetSdk 35 · minSdk 26 |
+| 环境 | JDK 17 · AGP 9.4.1 · Gradle 9.6.0 · compileSdk / targetSdk 35 · minSdk 26 |
 | 测试 | JUnit 5 Platform 上并存 JUnit 4 + Robolectric（真内存库）与 jqwik 属性测试 |
 | 分层 | `core/{alarm,data,domain,time}` + `ui/{component,navigation,screen,theme}` |
 | 状态 | 内部项目，未公开发布 —— **不写数据库迁移代码**，改 schema 直接删库重装；`AppDatabase.version` 恒为 1 |

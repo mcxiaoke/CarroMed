@@ -295,7 +295,7 @@ class StatsViewModelProductionTest {
     // ==================== 空态 ====================
 
     @Test
-    fun `空库不产生任何单位 也不假装有 100% 依从率以外的数字`() = runBlocking {
+    fun `空库不产生任何单位 也不假装有 100百分比 依从率以外的数字`() = runBlocking {
         val state = vm.build(StatsPeriod.WEEK)
         assertThat(state.totalDosesByUnit).isEmpty()
         assertThat(state.totalDoseUnit).isNull()

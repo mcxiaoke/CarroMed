@@ -79,6 +79,7 @@ object Notifications {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
 
         // 存量升级与清理：老渠道在此静默删除，迫使系统使用全新的 V3 渠道配置
+        @Suppress("DEPRECATION")
         runCatching {
             nm.deleteNotificationChannel(CHANNEL_DOSE_REMINDER)
             nm.deleteNotificationChannel(CHANNEL_DOSE_REMINDER_V2)

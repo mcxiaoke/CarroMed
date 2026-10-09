@@ -97,12 +97,7 @@ class StatsDaoAggregationTest {
 
         assertThat(rows).isNotEmpty()
         val all = rows.fold(StatsEngine.DayStatusBreakdown()) { a, r ->
-            a + when (r.status) {
-                SlotStatus.COMPLETED -> StatsEngine.DayStatusBreakdown(completed = r.count)
-                SlotStatus.EXPIRED -> StatsEngine.DayStatusBreakdown(missed = r.count)
-                SlotStatus.PENDING, SlotStatus.SNOOZED -> StatsEngine.DayStatusBreakdown(pending = r.count)
-                SlotStatus.SKIPPED -> StatsEngine.DayStatusBreakdown(skipped = r.count)
-            }
+            a + breakdownOf(r.status, r.count)
         }
         assertThat(all.completed).isEqualTo(2)
         assertThat(all.missed).isEqualTo(1)
@@ -245,4 +240,12 @@ class StatsDaoAggregationTest {
         val year = recordDao.getDoseSumByMedicationInRange(now - 365L * 24 * 3600 * 1000, now)
         assertThat(year[0].totalDose).isEqualTo(6000)
     }
+
+    private fun breakdownOf(status: SlotStatus, count: Int): StatsEngine.DayStatusBreakdown =
+        when (status) {
+            SlotStatus.COMPLETED -> StatsEngine.DayStatusBreakdown(completed = count)
+            SlotStatus.EXPIRED -> StatsEngine.DayStatusBreakdown(missed = count)
+            SlotStatus.PENDING, SlotStatus.SNOOZED -> StatsEngine.DayStatusBreakdown(pending = count)
+            SlotStatus.SKIPPED -> StatsEngine.DayStatusBreakdown(skipped = count)
+        }
 }

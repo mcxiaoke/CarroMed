@@ -209,14 +209,12 @@ class ProgressViewModel(application: Application) : AndroidViewModel(application
         _isLoadingMore,
         _timelineLoadFailed
     ) { values ->
-        @Suppress("UNCHECKED_CAST")
         val tab = values[0] as Int
         val matrix = values[1] as MatrixState
         val today = values[2] as LocalDate
+        @Suppress("UNCHECKED_CAST")
         val records = values[3] as List<TimelineItem>
-        @Suppress("UNCHECKED_CAST")
         val hasMore = values[4] as Boolean
-        @Suppress("UNCHECKED_CAST")
         val loadingMore = values[5] as Boolean
         val loadFailed = values[6] as Boolean
 

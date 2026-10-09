@@ -76,10 +76,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         // 供 BuildConfig.DEBUG 判定构建类型：日志 Logcat 挂载、debug 源集入口、
@@ -118,8 +114,6 @@ android {
         checkReleaseBuilds = true
         warningsAsErrors = false
         checkDependencies = false
-        htmlReport = true
-        textReport = true
     }
 }
 
@@ -132,6 +126,17 @@ android {
  */
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        freeCompilerArgs.addAll(
+            "-Xannotation-default-target=param-property",
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi"
+        )
+    }
 }
 
 /**
@@ -185,8 +190,8 @@ dependencies {
     // 详见 REMINDER-DOMAIN-REDESIGN §6.4。
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
-    // Room 2.6.1 (SQLite ORM & In-Memory Database)
-    val roomVersion = "2.6.1"
+    // Room (SQLite ORM & In-Memory Database)
+    val roomVersion = "2.7.0"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
@@ -209,9 +214,10 @@ dependencies {
     // 选用 jqwik（JVM 原生、成熟、报告可读）而非自造随机生成器。
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
-    testImplementation("net.jqwik:jqwik:1.9.2")
+    testImplementation("net.jqwik:jqwik:1.9.3")
     // 让现存 JUnit 4 + Robolectric 测试继续在 JUnit 5 Platform 上被发现与执行
     testRuntimeOnly("org.junit.vintage:junit-vintage-engine")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 
     // Roborazzi 视觉回归（PLAN-UI-TEST-20260929.md P2）：跑在 Robolectric 里，
     // 直接进现有 testDebugUnitTest 循环，零新增环境。

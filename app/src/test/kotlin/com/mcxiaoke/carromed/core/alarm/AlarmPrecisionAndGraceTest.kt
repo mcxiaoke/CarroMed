@@ -334,6 +334,7 @@ class AlarmPrecisionAndGraceTest {
      * 因为 `PendingIntent` 的 `equals` 就是 Android 真实的判重语义
      * —— 与 `AlarmIdentityTest` 同一套做法。
      */
+    @Suppress("DEPRECATION")
     private fun shadowAlarms(): Set<PendingIntent> {
         val shadow = Shadows.shadowOf(alarmManager()) as ShadowAlarmManager
         return shadow.scheduledAlarms.mapNotNullTo(mutableSetOf()) { it.operation }
