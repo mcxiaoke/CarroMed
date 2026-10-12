@@ -262,8 +262,16 @@ class ReminderSettingsViewModel(
         s.copy(times = s.times + ReminderTimeDraft(nextTime(last), defaultDoseText(s), guessLabel(last)))
     }
 
+    /**
+     * 改某个时点。
+     *
+     * ⚠️ [refreshPreview] 按**本次实际改了哪些字段**决定，而不是无条件为 true：
+     * 剂量不进预览（预览只有时刻 + 标签），所以在剂量框里每敲一个数字，
+     * 重算 7 天投影纯属浪费，还会多发一轮全屏重组（UI-RECOMPOSITION-AUDIT-20261012 §四）。
+     * 时刻 / 标签变了则仍要重算 —— 预览里显示的就是它们。
+     */
     fun updateTime(index: Int, time: String? = null, doseText: String? = null, label: String? = null) =
-        mutate { s ->
+        mutate(refreshPreview = time != null || label != null) { s ->
             if (index !in s.times.indices) return@mutate s
             val c = s.times[index]
             s.copy(
@@ -325,8 +333,9 @@ class ReminderSettingsViewModel(
 
     // ---------------- 提醒行为 ----------------
 
-    fun onCriticalChange(v: Boolean) = mutate { it.copy(isCriticalReminder = v) }
-    fun onSnoozeMinutesChange(v: Int) = mutate { it.copy(snoozeMinutes = v.coerceIn(0, 120)) }
+    // 以下三项都不影响「哪几天排班」，预览无需重算（每次敲数字少一轮全屏重组）。
+    fun onCriticalChange(v: Boolean) = mutate(refreshPreview = false) { it.copy(isCriticalReminder = v) }
+    fun onSnoozeMinutesChange(v: Int) = mutate(refreshPreview = false) { it.copy(snoozeMinutes = v.coerceIn(0, 120)) }
 
     /**
      * 全局推迟时长的真实值。
@@ -339,7 +348,7 @@ class ReminderSettingsViewModel(
             ?.toIntOrNull()
             ?.takeIf { it > 0 }
             ?: ReminderSettings.DEFAULT_SNOOZE_MINUTES
-    fun onAdvanceMinutesChange(v: Int) = mutate { it.copy(advanceMinutes = v.coerceIn(0, 120)) }
+    fun onAdvanceMinutesChange(v: Int) = mutate(refreshPreview = false) { it.copy(advanceMinutes = v.coerceIn(0, 120)) }
 
     // ---------------- 保存 ----------------
 
@@ -579,8 +588,28 @@ class ReminderSettingsViewModel(
 
     private fun dayLabel(d: LocalDate): String = WeekLabels.short(d.dayOfWeek)
 
+    /**
+     * 表单改动的统一入口。
+     *
+     * @param refreshPreview 该改动是否会影响「未来 7 天排班预览」。
+     *   **只对影响排班日期的字段传 true**（频次 / 星期 / 周期 / 起止日期 / 时点增删）。
+     *
+     * ## 为什么要有这个开关（UI-RECOMPOSITION-AUDIT-20261012 §四）
+     *
+     * 旧实现无条件在末尾调 `refreshPreview()`，而 `refreshPreview()` 末尾
+     * 又有一次 `_uiState.value = ...copy(preview = preview)`。于是**任何一次 mutate
+     * 都是两次 StateFlow 发射 = 两轮全屏重组**。
+     *
+     * 剂量输入框（`updateTime(doseText=...)`）走的也是 `mutate`，
+     * 但剂量**不影响哪几天排班** —— 预览里只有时刻和标签，没有剂量。
+     * 每敲一个数字重算 7 天投影（内含 `LocalDate.parse` ×2 与多次 `getString`）
+     * 纯属浪费，还让用户看到两帧中间态。
+     *
+     * 现在把判断下放到调用方：不影响排班的改动**只发一次**状态。
+     */
     private inline fun mutate(
         clearErrorFor: Int? = null,
+        refreshPreview: Boolean = true,
         crossinline block: (ReminderSettingsUiState) -> ReminderSettingsUiState
     ) {
         val cur = _uiState.value
@@ -590,6 +619,11 @@ class ReminderSettingsViewModel(
             cur.error == getApplication<Application>().getString(clearErrorFor)
         ) null else cur.error
         val next = block(cur.copy(error = cleared))
+        if (!refreshPreview) {
+            // 不影响排班：一次发射即可，不必再走一遍 7 天投影。
+            _uiState.value = next
+            return
+        }
         _uiState.value = next
         refreshPreview()
     }

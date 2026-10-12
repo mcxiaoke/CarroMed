@@ -468,7 +468,7 @@ fun ReminderSettingsScreen(
                 }
 
                 // 5. 未来 7 天预览
-                item(key = "card_preview") { PreviewCard(uiState) }
+                item(key = "card_preview") { PreviewCard(uiState.policyType, uiState.preview) }
             }
 
             // 6. 提醒行为
@@ -639,13 +639,28 @@ fun ReminderSettingsScreen(
 }
 
 @Composable
-private fun PreviewCard(uiState: ReminderSettingsUiState) {
+/**
+ * ⚠️ 只收 `policyType` 与 `preview` 两个字段，**不收整个 uiState**
+ * （UI-RECOMPOSITION-AUDIT-20261012 §四）。
+ *
+ * 此前签名是 `PreviewCard(uiState: ReminderSettingsUiState)` —— 22 字段的
+ * state 整体传进来，而这里只用到 `policyType` 和 `preview`。后果是：在**别处**
+ * （比如剂量输入框）改动时，state 对象换新 ⇒ 这张卡片也无条件重组，
+ * 白白重画 7 行。
+ *
+ * 参数只传实际用到的两个，Compose 才能在它们没变时跳过重组。
+ */
+private fun PreviewCard(policyType: PolicyType, preview: List<PreviewDay>) {
     SettingsCard(title = stringResource(R.string.rem_section_preview)) {
-        if (uiState.policyType == PolicyType.PRN) {
+        if (policyType == PolicyType.PRN) {
             HintCard(stringResource(R.string.rem_prn_no_preview))
             return@SettingsCard
         }
-        uiState.preview.forEach { d ->
+        // 「今天」在这里取一次即可：此前每行都调 `LocalDate.now()`，
+        // 7 行 = 7 次挂钟读取，且同一帧内取值还可能不一致。
+        val today = java.time.LocalDate.now()
+        preview.forEach { d ->
+            val isToday = d.date == today
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -655,9 +670,9 @@ private fun PreviewCard(uiState: ReminderSettingsUiState) {
             ) {
                 Column(Modifier.width(76.dp)) {
                     Text(
-                        text = if (d.date == java.time.LocalDate.now()) stringResource(R.string.rem_today_label, d.dayLabel) else "${d.date.monthValue}/${d.date.dayOfMonth} ${d.dayLabel}",
+                        text = if (isToday) stringResource(R.string.rem_today_label, d.dayLabel) else "${d.date.monthValue}/${d.date.dayOfMonth} ${d.dayLabel}",
                         style = MaterialTheme.typography.bodySmall,
-                        fontWeight = if (d.date == java.time.LocalDate.now()) FontWeight.Bold else FontWeight.Normal,
+                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
