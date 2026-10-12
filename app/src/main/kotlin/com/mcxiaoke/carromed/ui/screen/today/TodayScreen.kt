@@ -210,13 +210,16 @@ fun TodayScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
+                // ⚠️ 格式化器用 remember 而非每次重建（UI-RECOMPOSITION-AUDIT-20261012 §3.4）：
+                // `ofPattern` 要解析 pattern 并构建 DateTimeFormatter，
+                // 写在 item lambda 里就是每次重组都付一次。
+                // key 保留 stringResource：语言/配置变化时 pattern 可能变，必须重建。
+                val datePattern = stringResource(R.string.today_date_pattern)
+                val formatter = remember(datePattern) {
+                    DateTimeFormatter.ofPattern(datePattern, Locale.CHINESE)
+                }
                 Text(
-                    text = uiState.selectedDate.format(
-                        DateTimeFormatter.ofPattern(
-                            stringResource(R.string.today_date_pattern),
-                            Locale.CHINESE
-                        )
-                    ),
+                    text = uiState.selectedDate.format(formatter),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

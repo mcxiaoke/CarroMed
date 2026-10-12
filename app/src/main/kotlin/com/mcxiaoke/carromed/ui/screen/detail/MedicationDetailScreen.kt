@@ -86,6 +86,19 @@ import java.util.Date
 import java.util.Locale
 
 /**
+ * 「月-日 时:分」格式化器，提到文件顶层复用。
+ *
+ * ⚠️ 此前两处（服药记录 / 出入库流水）各自在 Composable 体内
+ * `SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())`
+ * （UI-RECOMPOSITION-AUDIT-20261012 §3.4）。每次重组都新建，
+ * 而 `SimpleDateFormat` 构造要走 `DateFormatSymbols` + `Calendar` 初始化，
+ * 是 Compose 代码里最贵的对象之一。
+ *
+ * 线程安全：Compose 重组在主线程单线程执行，不存在并发调用。
+ */
+private val RecordTimeFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+
+/**
  * 药品详情页 —— **只读总览 + 四个分节入口**
  *
  * 对齐 MyTherapy 实机截图的信息架构：药品信息 / 库存 / 提醒设置 三件事各自分开，
@@ -448,7 +461,6 @@ fun MedicationDetailScreen(
                             } else {
                                 uiState.recentRecords.take(5)
                             }
-                            val fmt = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
                             shown.forEach { r ->
                                 Row(
                                     Modifier
@@ -459,7 +471,7 @@ fun MedicationDetailScreen(
                                 ) {
                                     Column(Modifier.weight(1f)) {
                                         Text(
-                                            fmt.format(Date(r.actualTs)),
+                                            RecordTimeFormat.format(Date(r.actualTs)),
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.SemiBold
                                         )
@@ -517,7 +529,6 @@ fun MedicationDetailScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         } else {
-                            val fmt = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
                             uiState.transactions.take(3).forEach { tx ->
                                 Row(
                                     Modifier
@@ -526,7 +537,7 @@ fun MedicationDetailScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
-                                        "${fmt.format(Date(tx.createdAt))} · ${txLabel(tx.txType)}",
+                                        "${RecordTimeFormat.format(Date(tx.createdAt))} · ${txLabel(tx.txType)}",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
