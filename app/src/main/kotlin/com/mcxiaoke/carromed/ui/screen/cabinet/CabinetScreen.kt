@@ -79,6 +79,15 @@ fun CabinetScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    // ⚠️ 「今天」的订阅放在**顶层**而非 `CabinetMedCard` 里
+    // （UI-RECOMPOSITION-AUDIT-20261012 §四）。
+    // 该 Composable 按药品逐个调用 ⇒ 药箱 30 味药就是 30 个订阅者，
+    // 每次「今天」翻转要唤醒 30 个协程并重组 30 张卡片。这里只订阅一次。
+    //
+    // 必须订阅而不是直接 `LocalDate.now()`：暂停徽标要在跨过恢复日时自动消失，
+    // 而 `LocalDate.now()` 拿得到新值却**不会**触发重组（M3-4 的原形）。
+    val today by CurrentDateHolder.today.collectAsStateWithLifecycle(LocalDate.now())
+
     Scaffold(
         topBar = {
             CarroMedTopAppBar(
@@ -299,6 +308,7 @@ fun CabinetScreen(
                 items(displayList, key = { it.medication.id }) { item ->
                     CabinetMedCard(
                         item = item,
+                        today = today,
                         onClick = { onNavigateToMedDetail(item.medication.id) }
                     )
                 }
@@ -310,14 +320,16 @@ fun CabinetScreen(
 @Composable
 fun CabinetMedCard(
     item: MedicationItemUi,
+    /** 「今天」，由 [CabinetScreen] 顶层订阅一次后传入，避免每张卡片一个订阅者 */
+    today: LocalDate,
     onClick: () -> Unit
 ) {
     val med = item.medication
     val stock = item.stock
-    // 暂停徽标是**墙上时钟**驱动的：跨过恢复日而进程仍活着时，
-    // 它必须自动消失（药其实早已恢复提醒）。直接调 `LocalDate.now()` 能拿到新值，
-    // 但**不会**触发重组 —— 那正是 M3-4 这个 bug 的原形。
-    val today by CurrentDateHolder.today.collectAsStateWithLifecycle(LocalDate.now())
+    // ⚠️ 「今天」的订阅已上提到 CabinetScreen（见该处注释）：
+    // 此前写在卡片里 ⇒ N 个药品 = N 个订阅者，每次「今天」翻转唤醒 N 个协程。
+    // 语义不变：仍是 CurrentDateHolder 这个可观察事实（M3-4 的修复不能退化成
+    // 直接调 LocalDate.now()，那样跨恢复日时徽标不会消失）。
     val medColor = med.colorHex.let {
         runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
     } ?: MaterialTheme.colorScheme.primary
