@@ -61,10 +61,21 @@ data class CabinetUiState(
     val loadError: Boolean = false,
     val isLoading: Boolean = true
 ) {
-    val filteredActive: List<MedicationItemUi>
-        get() = activeList.filterBy(keyword).sortedBy(sortOrder)
-    val filteredArchived: List<MedicationItemUi>
-        get() = archivedList.filterBy(keyword)
+    /**
+     * 过滤 + 排序后的列表。
+     *
+     * ⚠️ 此前 `filteredActive` / `filteredArchived` 是 **getter**，
+     * 每访问一次就重跑一遍 `filterBy()` + `sortedBy()`（UI-RECOMPOSITION-AUDIT-20261012 §四）。
+     * 而 `CabinetScreen` 在同一帧里访问了两次（`:221` 取列表、`:257` 判空），
+     * 于是「每敲一个字」= 两遍全量过滤排序。
+     *
+     * 改成 `val`：在**构造时**算一次，之后每次访问都是 O(1) 读字段。
+     * 因为它跟着 data class 走，`equals` 会把过滤结果纳入比较 ——
+     * 关键词变了才产出新对象，没变则复用（Compose 跳过重组的依据）。
+     */
+    val filteredActive: List<MedicationItemUi> = activeList.filterBy(keyword).sortedBy(sortOrder)
+
+    val filteredArchived: List<MedicationItemUi> = archivedList.filterBy(keyword)
 }
 
 private fun List<MedicationItemUi>.filterBy(kw: String): List<MedicationItemUi> {
@@ -109,12 +120,27 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
     private val _keyword = MutableStateFlow("")
     private val _sortOrder = MutableStateFlow(CabinetSortOrder.DEFAULT)
 
+    /**
+     * 搜索关键词**不进 combine**（UI-RECOMPOSITION-AUDIT-20261012 §四）。
+     *
+     * 此前 `_keyword` 是 combine 的源之一，而 transform 块里有两条 DAO 查询
+     *（`getAllActivePolicies` + `getTimesForPolicies`）。于是**每敲一个字**
+     * 就重跑 2 条查询，并把全部 `MedicationItemUi` 重建一遍（每项内含 3~6 次
+     * `getString`）。而搜索是**纯内存过滤**，本来就不该碰数据库。
+     *
+     * 现在关键词在这条链**之后**才合并：数据库那条链只在药品表真的变化时才跑，
+     * 打字只触发内存里的 `filterBy`。
+     *
+     * ⚠️ 下方 combine 的 transform 里读 `_keyword.value` 取"当前关键词"：
+     * combine 的 transform 是 suspend 的、读到的是**该次发射瞬间**的值，
+     * 之后再由 `withKeyword` 的 combine 用最新值覆盖 —— 两条路径都覆盖到，
+     * 不存在"数据库发射把用户刚打的字回滚成旧值"的窗口。
+     */
     val uiState: StateFlow<CabinetUiState> = combine(
         _selectedTab,
-        _keyword,
         _sortOrder,
         medDao.observeAllOverviews()
-    ) { tab, kw, order, allMeds ->
+    ) { tab, order, allMeds ->
         // 计划与时点**批量**取回（zcg #19）：旧实现对每个药品发 2 次 DAO 查询
         // （active 计划 + 该计划时点），每次 combine 发射就是 2N 次查询。
         // 现在总共 2 次，剩下的分组是纯内存操作。分组取首条与逐药 `LIMIT 1`
@@ -126,7 +152,9 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
             .groupBy { it.policyId }
         CabinetUiState(
             selectedTab = tab,
-            keyword = kw,
+            // transform 不再直接读 _keyword（见上方 KDoc）；这里给一个初值，
+            // 真正的关键词由下游 `combine(_keyword)` 用最新值覆盖。
+            keyword = "",
             sortOrder = order,
             activeList = allMeds.filter { !it.medication.isArchived }
                 .map { buildItemUi(it, policiesByMed[it.id], timesByPolicy) },
@@ -147,6 +175,10 @@ class CabinetViewModel(application: Application) : AndroidViewModel(application)
                 loadError = true
             )
         )
+    }.combine(_keyword) { state, kw ->
+        // 关键词走纯内存路径：不触发任何 DAO 查询，只重算过滤结果。
+        // 药品表没变时 state 是同一个对象，只有 copy 出新实例。
+        if (state.keyword == kw) state else state.copy(keyword = kw)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
