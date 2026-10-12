@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -107,12 +108,19 @@ fun ManualDoseScreen(
         LaunchedEffect(uiState.error) {
             if (uiState.error != null) listState.animateScrollToItem(1)
         }
+        // ⚠️ `imePadding` 挂外层 Box 而非 LazyColumn（UI-RECOMPOSITION-AUDIT-20261012 §3.1）：
+        // 挂在列表上时，键盘每弹出一个字符的高度变化都让**整个列表**重新测量+布局，
+        // 把「敲一个数字」放大成「全屏内容上下跳一下」。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .imePadding()
+        ) {
         LazyColumn(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .imePadding()
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -478,6 +486,7 @@ fun ManualDoseScreen(
                     }
                 }
             }
+        }
         }
     }
 }

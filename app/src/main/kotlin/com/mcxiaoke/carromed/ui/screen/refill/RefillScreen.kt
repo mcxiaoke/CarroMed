@@ -4,6 +4,7 @@ import com.mcxiaoke.carromed.core.domain.engine.StatsEngine
 import com.mcxiaoke.carromed.core.domain.model.Dose
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -88,13 +89,19 @@ fun RefillScreen(
             )
         }
     ) { innerPadding ->
+        // ⚠️ `imePadding` 挂外层 Box 而非 LazyColumn（UI-RECOMPOSITION-AUDIT-20261012 §3.1）。
+        // 原目的（orsbf P1-5）：键盘弹出时不把列表末尾的「确认入库上架」按钮顶出屏幕。
+        // 但挂在列表上时，键盘每弹出一个字符的高度变化都让**整个列表**重新测量+布局，
+        // 把「敲一个数字」放大成「全屏内容上下跳一下」—— 这正是用户报告的闪烁。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .imePadding()
+        ) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                // imePadding（orsbf P1-5）：键盘弹出时不把列表末尾的
-                // 「确认入库上架」按钮顶出屏幕；其余五个表单页均已处理
-                .imePadding()
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -324,6 +331,7 @@ fun RefillScreen(
                     }
                 }
             }
+        }
         }
     }
 }

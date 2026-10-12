@@ -75,6 +75,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * 流水行的「月-日 时:分」格式化器，提到文件顶层复用。
+ *
+ * ⚠️ 此前写在 `items {}` 的 item lambda 里（UI-RECOMPOSITION-AUDIT-20261012 §3.4），
+ * 每行每次重组都新建一个。`SimpleDateFormat` 的构造要走 `DateFormatSymbols`
+ * 与 `Calendar` 初始化，是 Compose 代码里最贵的对象之一 —— 流水一多，
+ * **每敲一个键就是 N 次构造**。
+ *
+ * 线程安全：Compose 重组在主线程单线程执行，不存在并发调用。
+ */
+private val TxTimeFormat = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+
 /** 库存管理页 —— 独立于药品信息与提醒设置 */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -88,7 +100,12 @@ fun InventoryScreen(
 
     // 有效期/预警线是草稿字段，不点顶栏「保存」直接返回会静默丢失（M4）：
     // 有未保存修改时拦截返回键，让用户明确选择。
-    val isDirty = remember(uiState) { viewModel.isDirty() }
+    // ⚠️ 此前是 `remember(uiState) { viewModel.isDirty() }`，两个错误叠加：
+    //   ① key 是整个 17 字段 data class，任一字段（含草稿输入）变化都失效重算；
+    //   ② `isDirty()` 内部读 `_uiState.value` —— StateFlow 的值不是 snapshot state，
+    //      Compose 根本追踪不到这份读取，于是这个缓存**从不产生跳过效果**，纯负担。
+    // 现在直接调用：它读的本来就是当前值，缓存没有意义。
+    val isDirty = viewModel.isDirty()
     var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = isDirty && med != null) {
         showDiscardDialog = true
@@ -174,11 +191,22 @@ fun InventoryScreen(
             return@Scaffold
         }
 
-        LazyColumn(
-            modifier = Modifier
+        // ⚠️ `imePadding` 挂在**外层 Box** 而不是 LazyColumn 上
+        // （UI-RECOMPOSITION-AUDIT-20261012 §3.1）。
+        //
+        // 挂在 LazyColumn 上时，键盘每弹出一个字符的高度变化都会让**整个列表**
+        // 重新测量+布局，于是「敲一个数字」被放大成「全屏内容上下跳一下」——
+        // 这正是用户报告的闪烁。放在外层容器上，只有容器 padding 变一次，
+        // LazyColumn 的测量不会被键盘高度反复驱动。
+        Box(
+            Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .imePadding()
+        ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -315,7 +343,11 @@ fun InventoryScreen(
                 SettingsCard(stringResource(R.string.inv_low_stock_card_title)) {
                     OutlinedTextField(
                         value = uiState.minStockAlertInput,
-                        onValueChange = { viewModel.onMinStockAlertChange(it.filter { c -> c.isDigit() || c == '.' }) },
+                        // ⚠️ 不要再在 Screen 层加一层 `filter { isDigit() || '.' }`（UI-RECOMPOSITION-AUDIT-20261012 §3.3）。
+                        // ViewModel 的 `onMinStockAlertChange` 内部已走 `DecimalInput.filter`，
+                        // 而它**额外接受全角 `。` / `．`**。Screen 这层不接受 ⇒
+                        // 全角小数点被静默吞掉，且两套规则从此各改各的、必然漂移。
+                        onValueChange = { viewModel.onMinStockAlertChange(it) },
                         label = { Text(stringResource(R.string.inv_alert_threshold_label, med.unit)) },
                         placeholder = { Text(stringResource(R.string.inv_alert_threshold_placeholder)) },
                         modifier = Modifier.fillMaxWidth(),
@@ -422,7 +454,7 @@ fun InventoryScreen(
             ) { idx ->
                 val tx = uiState.transactions[idx]
                 TxRow(
-                    time = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(tx.createdAt)),
+                    time = TxTimeFormat.format(Date(tx.createdAt)),
                     label = stringResource(viewModel.txLabel(tx.txType)),
                     note = MedVocab.ledgerNoteDisplay(LocalContext.current, tx.noteKey, tx.note),
                     change = Dose(tx.changeAmount).asFloat,
@@ -432,6 +464,7 @@ fun InventoryScreen(
                     expiry = tx.expiryDate
                 )
             }
+        }
         }
     }
 }
