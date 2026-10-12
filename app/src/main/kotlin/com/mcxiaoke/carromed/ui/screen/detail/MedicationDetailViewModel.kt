@@ -100,8 +100,12 @@ class MedicationDetailViewModel(
                 medDao.observeMedicationById(medId),
                 inventoryDao.observeTransactionsForMedication(medId),
                 reminderSettingsDao.observeByMedicationId(medId),
-                slotDao.observeDecidedSlotCount(),
-                recordDao.observeRecordCount(),
+                // ⚠️ 两个全局探针换成**按药品过滤**的变体
+                // （UI-RECOMPOSITION-AUDIT-20261012 §五）。
+                // 全库版会被"别处给任意一味药打卡"唤醒，让本页重跑 8 条查询
+                //（其中 `ensureDefaults` 还是写操作）—— 数据没变，页面自己闪。
+                slotDao.observeDecidedSlotCountForMedication(medId),
+                recordDao.observeRecordCountForMedication(medId),
                 policyDao.observePolicyCountForMedication(medId)
             ) { _ -> }.drop(1).collect {
                 loadData()

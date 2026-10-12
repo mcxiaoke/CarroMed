@@ -493,6 +493,34 @@ interface DoseSlotDao {
     fun observeDecidedSlotCount(): Flow<Int>
 
     /**
+     * **单药品**的已决槽位探针（UI-RECOMPOSITION-AUDIT-20261012 §五）。
+     *
+     * ## 为什么需要它，而不是让各页面共用全库版
+     *
+     * 库存页与详情页此前订阅 [observeDecidedSlotCount]，而那是**全库计数**
+     * （没有 `medication_id` 过滤）。后果是：用户给**任意一味药**打卡，
+     * 库存页就跑一遍 `load()`（4 条查询 + 整体 copy 17 字段状态），
+     * 详情页跑 8 条查询（其中一条还是写操作）。本页数据一个字节都没变，
+     * 整页却重算了一遍 —— 用户看到的是"我没动这个页面，它自己闪了一下"。
+     *
+     * 探针的职责是"**本页关心的东西**变了就叫我"。本页只关心这一味药，
+     * 那探针就该只数这一味药。
+     *
+     * ⚠️ 归档过滤（`m.is_archived = 0`）在此**故意不加**：
+     * 与 [observeRecordCountForMedication] 同口径 —— 用户归档自己正在看的
+     * 这味药时，本页也该收到通知。
+     */
+    @Query(
+        """
+        SELECT COUNT(*)
+        FROM dose_slots
+        WHERE status IN ('COMPLETED', 'SKIPPED', 'EXPIRED')
+          AND medication_id = :medicationId
+        """
+    )
+    fun observeDecidedSlotCountForMedication(medicationId: Long): Flow<Int>
+
+    /**
      * 取出"计划时间已经过去、仍开放"的槽位，供对账器结算为 `EXPIRED`。
      *
      * ## 为什么两类槽位要用**各自**的基准时间

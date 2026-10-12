@@ -99,7 +99,11 @@ class InventoryViewModel(
                 medDao.observeMedicationById(medId),
                 inventoryDao.observeTransactionsForMedication(medId),
                 policyDao.observePolicyCountForMedication(medId),
-                db.doseSlotDao().observeDecidedSlotCount()
+                // ⚠️ 必须用**按药品过滤**的探针（UI-RECOMPOSITION-AUDIT-20261012 §五）。
+                // 全库版 `observeDecidedSlotCount()` 会被"别处给任意一味药打卡"唤醒，
+                // 让本页在数据毫无变化的情况下重跑 4 条查询并整体 copy 状态 ——
+                // 用户看到的就是"我没碰这个页面，它自己闪了一下"。
+                db.doseSlotDao().observeDecidedSlotCountForMedication(medId)
             ) { _, _, _, _ -> }.drop(1).collect {
                 load()
             }
