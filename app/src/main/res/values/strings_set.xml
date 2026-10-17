@@ -105,7 +105,16 @@
     <string name="set_export_failed_generic">导出失败，请重试</string>
     <string name="set_export_log_button">导出日志</string>
 
-    <!-- 4. 版本号 -->
+    <!-- 4. 自动备份 -->
+    <string name="set_auto_backup_title">每日自动备份</string>
+    <string name="set_auto_backup_desc">每天首次打开应用时自动备份，保留最近 10 份</string>
+    <string name="set_auto_backup_dir_title">备份存储目录</string>
+    <string name="set_auto_backup_dir_none">未设置（需选择目录后生效）</string>
+    <string name="set_auto_backup_dir_change">选择目录</string>
+    <string name="set_auto_backup_last_time">上次自动备份：%1$s</string>
+    <string name="set_auto_backup_no_dir_tip">请选择备份存储目录</string>
+
+    <!-- 5. 版本号 -->
     <string name="set_version_format">版本 %1$s</string>
     <string name="set_about_text">版本 %1$s</string>
 </resources>

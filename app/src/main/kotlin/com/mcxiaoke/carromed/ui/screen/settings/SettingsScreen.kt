@@ -85,14 +85,22 @@ fun SettingsScreen(
 
     // 诊断日志导出用（PLAN-LOGGING S4）：Screen 层直连 DataExporter，
     // 不经 ViewModel —— 避免给构造器加参数（§2 坑 5）
+    val context = LocalContext.current
     val logExportScope = rememberCoroutineScope()
-    val logExportContext = LocalContext.current
+    val logExportContext = context
 
-    // 选择 JSON 备份文件 → **只解析不恢复**，产出预览后弹二次确认（P1-14）
+    // 选择 JSON/CBF 备份文件 → **只解析不恢复**，产出预览后弹二次确认（P1-14）
     val backupPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let { viewModel.inspectBackup(it) }
+    }
+
+    // 选择自动备份保存目录（SAF 文件夹选择）
+    val autoBackupFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let { viewModel.onBackupDirectorySelected(it) }
     }
 
     // 覆盖式恢复二次确认。内容必须带**真实数字**：
@@ -790,6 +798,81 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
+                        // 每日自动备份开关
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    stringResource(R.string.set_auto_backup_title),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    stringResource(R.string.set_auto_backup_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = uiState.autoBackupEnabled,
+                                onCheckedChange = { checked ->
+                                    viewModel.onAutoBackupToggle(checked) {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            R.string.set_auto_backup_no_dir_tip,
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                        autoBackupFolderLauncher.launch(null)
+                                    }
+                                }
+                            )
+                        }
+
+                        // 自动备份目录选择
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    stringResource(R.string.set_auto_backup_dir_title),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    uiState.autoBackupDirName ?: stringResource(R.string.set_auto_backup_dir_none),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (uiState.autoBackupDirName != null) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.error
+                                    }
+                                )
+                                if (uiState.autoBackupLastTimeText != null) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        stringResource(R.string.set_auto_backup_last_time, uiState.autoBackupLastTimeText ?: ""),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = { autoBackupFolderLauncher.launch(null) },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text(stringResource(R.string.set_auto_backup_dir_change), fontSize = 12.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -800,7 +883,7 @@ fun SettingsScreen(
                                 Text(stringResource(R.string.set_restore_desc), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             OutlinedButton(
-                                onClick = { backupPickerLauncher.launch(arrayOf("application/json")) },
+                                onClick = { backupPickerLauncher.launch(arrayOf("*/*")) },
                                 enabled = !uiState.isInspectingBackup,
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.heightIn(min = 48.dp) // 触摸目标 ≥48dp（orsbf P1-15）

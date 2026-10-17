@@ -1,12 +1,14 @@
 package com.mcxiaoke.carromed.ui.screen.settings
 
 import android.app.Application
+import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
 import com.mcxiaoke.carromed.core.data.AppDatabase
+import com.mcxiaoke.carromed.core.data.AutoBackupManager
 import com.mcxiaoke.carromed.core.data.DataExporter
 import com.mcxiaoke.carromed.R
 import com.mcxiaoke.carromed.core.data.entity.AppSettingEntity
@@ -19,6 +21,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class SettingsUiState(
     /** 外观：主题模式（跟随系统 / 浅色 / 深色），存 SharedPreferences，见 `ThemePreference` */
@@ -32,6 +37,11 @@ data class SettingsUiState(
     val repeatReminderEnabled: Boolean = com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_REPEAT_REMINDER_ENABLED,
     val repeatIntervalMinutes: Int = 30,
     val repeatMaxCount: Int = 3,
+    val autoBackupEnabled: Boolean = false,
+    val autoBackupDirName: String? = null,
+    val autoBackupTreeUri: String? = null,
+    val autoBackupLastDate: String? = null,
+    val autoBackupLastTimeText: String? = null,
     val isExporting: Boolean = false,
     /** 正在解析所选备份文件（此时尚未碰数据库） */
     val isInspectingBackup: Boolean = false,
@@ -95,6 +105,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val repeatEnabled = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_REPEAT_REMINDER_ENABLED
             val repeatInterval = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_INTERVAL)?.toIntOrNull() ?: 30
             val repeatMax = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_MAX_COUNT)?.toIntOrNull() ?: 3
+            val autoBackupEnabled = settingDao.getValue(AutoBackupManager.KEY_AUTO_BACKUP_ENABLED)?.toBoolean() ?: false
+            val autoBackupDir = settingDao.getValue(AutoBackupManager.KEY_AUTO_BACKUP_DIR_NAME)
+            val autoBackupTreeUri = settingDao.getValue(AutoBackupManager.KEY_AUTO_BACKUP_TREE_URI)
+            val autoBackupLastDate = settingDao.getValue(AutoBackupManager.KEY_AUTO_BACKUP_LAST_DATE)
+            val autoBackupLastTime = settingDao.getValue(AutoBackupManager.KEY_AUTO_BACKUP_LAST_TIME)?.toLongOrNull()
+            val autoBackupLastTimeText = autoBackupLastTime?.let {
+                SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(it))
+            }
 
             _uiState.value = _uiState.value.copy(
                 themeMode = themeMode,
@@ -106,8 +124,57 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 completionHaptic = haptic,
                 repeatReminderEnabled = repeatEnabled,
                 repeatIntervalMinutes = repeatInterval,
-                repeatMaxCount = repeatMax
+                repeatMaxCount = repeatMax,
+                autoBackupEnabled = autoBackupEnabled,
+                autoBackupDirName = autoBackupDir,
+                autoBackupTreeUri = autoBackupTreeUri,
+                autoBackupLastDate = autoBackupLastDate,
+                autoBackupLastTimeText = autoBackupLastTimeText
             )
+        }
+    }
+
+    /**
+     * 切换每日自动备份开关。
+     * 若开启时尚未配置备份目录，回调 [onRequestChooseDir] 提示并唤起系统目录选择器。
+     */
+    fun onAutoBackupToggle(enabled: Boolean, onRequestChooseDir: () -> Unit) {
+        val currentUri = _uiState.value.autoBackupTreeUri
+        if (enabled && currentUri.isNullOrBlank()) {
+            onRequestChooseDir()
+            return
+        }
+        _uiState.value = _uiState.value.copy(autoBackupEnabled = enabled)
+        viewModelScope.launch {
+            settingDao.setSetting(AppSettingEntity(AutoBackupManager.KEY_AUTO_BACKUP_ENABLED, enabled.toString()))
+            AppLog.i(TAG, "autoBackupEnabled changed: $enabled")
+        }
+    }
+
+    /**
+     * 用户完成自动备份目录选择后，持久化 SAF 权限并更新设置。
+     */
+    fun onBackupDirectorySelected(uri: Uri) {
+        val app = getApplication<Application>()
+        runCatching {
+            val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            app.contentResolver.takePersistableUriPermission(uri, takeFlags)
+        }.onFailure { e ->
+            AppLog.w(TAG, "takePersistableUriPermission failed: $uri", e)
+        }
+
+        val dirName = AutoBackupManager.getDirectoryDisplayName(app, uri)
+        _uiState.value = _uiState.value.copy(
+            autoBackupEnabled = true,
+            autoBackupTreeUri = uri.toString(),
+            autoBackupDirName = dirName
+        )
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            settingDao.setSetting(AppSettingEntity(AutoBackupManager.KEY_AUTO_BACKUP_TREE_URI, uri.toString(), now))
+            settingDao.setSetting(AppSettingEntity(AutoBackupManager.KEY_AUTO_BACKUP_DIR_NAME, dirName, now))
+            settingDao.setSetting(AppSettingEntity(AutoBackupManager.KEY_AUTO_BACKUP_ENABLED, "true", now))
+            AppLog.i(TAG, "autoBackup directory configured: $dirName ($uri)")
         }
     }
 
@@ -229,7 +296,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 withContext(Dispatchers.Main) {
                     Toast.makeText(app, app.getString(R.string.set_backup_done, file.name), Toast.LENGTH_LONG).show()
                 }
-                if (!DataExporter.shareFile(app, file, "application/json")) {
+                if (!DataExporter.shareFile(app, file, "application/octet-stream")) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(app, R.string.set_share_failed, Toast.LENGTH_SHORT).show()
                     }

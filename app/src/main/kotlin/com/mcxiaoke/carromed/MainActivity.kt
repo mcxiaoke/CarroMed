@@ -31,6 +31,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.mcxiaoke.carromed.core.alarm.AlarmReconciler
 import com.mcxiaoke.carromed.core.alarm.Notifications
 import com.mcxiaoke.carromed.core.data.AppDatabase
+import com.mcxiaoke.carromed.core.data.AutoBackupManager
 import com.mcxiaoke.carromed.core.domain.AppLog
 import com.mcxiaoke.carromed.core.time.DailyOnceGate
 import com.mcxiaoke.carromed.ui.component.NotificationPermissionBanner
@@ -115,6 +116,9 @@ class MainActivity : ComponentActivity() {
                 launch(Dispatchers.IO) {
                     runCatching {
                         AlarmReconciler.rescheduleAllOnResume(applicationContext, AppDatabase.getInstance(applicationContext))
+                    }
+                    runCatching {
+                        AutoBackupManager.performAutoBackupIfNeeded(applicationContext, AppDatabase.getInstance(applicationContext))
                     }
                 }
             }
