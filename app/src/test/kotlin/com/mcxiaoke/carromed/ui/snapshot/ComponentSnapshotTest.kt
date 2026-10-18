@@ -126,7 +126,7 @@ class ComponentSnapshotTest {
                         notice = "随餐服用，避免空腹",
                         isCritical = false,
                         snoozeOptions = listOf(30, 45, 60, 90, 120),
-                        onTake = {}, onSnooze = {}, onSkip = {}
+                        onTake = {}, onSnooze = {}, onIgnore = {}
                     )
                 }
             }
@@ -147,7 +147,7 @@ class ComponentSnapshotTest {
                         notice = "与西柚汁间隔 2 小时",
                         isCritical = true,
                         snoozeOptions = listOf(30, 60, 90, 120),
-                        onTake = {}, onSnooze = {}, onSkip = {}
+                        onTake = {}, onSnooze = {}, onIgnore = {}
                     )
                 }
             }

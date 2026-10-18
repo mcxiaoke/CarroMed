@@ -282,7 +282,7 @@ object Notifications {
         } else {
             true
         }
-        val isEligibleForFullScreen = !silent && (overview.isCriticalReminder || kind == AlarmScheduler.Kind.MAIN || kind == AlarmScheduler.Kind.REPEAT)
+        val isEligibleForFullScreen = behavior.fullScreenAlert && !silent && (overview.isCriticalReminder || kind == AlarmScheduler.Kind.MAIN || kind == AlarmScheduler.Kind.REPEAT)
 
         val contentIntent = if (isEligibleForFullScreen && canUseFullScreen) {
             PendingIntent.getActivity(

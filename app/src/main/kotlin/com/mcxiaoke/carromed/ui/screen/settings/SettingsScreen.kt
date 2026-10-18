@@ -245,6 +245,32 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
+                        // 锁屏全屏提醒开关
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    stringResource(R.string.set_full_screen_alert_title),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    stringResource(R.string.set_full_screen_alert_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = uiState.fullScreenAlert,
+                                onCheckedChange = { viewModel.onFullScreenAlertChange(it) }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
                         // 默认推迟时长
                         Row(
                             modifier = Modifier.fillMaxWidth(),

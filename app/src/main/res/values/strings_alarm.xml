@@ -18,6 +18,7 @@
     <string name="alert_snooze_minutes_fmt">%1$d 分钟</string>
     <string name="alert_screen_title">服药提醒</string>
     <string name="alert_action_skip">跳过本次</string>
+    <string name="alert_action_ignore">忽略</string>
     <string name="alert_feedback_taken">已确认服药</string>
     <string name="alert_feedback_snoozed">已推迟 %1$d 分钟</string>
     <string name="alert_feedback_skipped">已跳过本次</string>

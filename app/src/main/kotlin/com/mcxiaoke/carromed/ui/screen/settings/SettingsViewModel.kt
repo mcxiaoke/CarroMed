@@ -37,6 +37,7 @@ data class SettingsUiState(
     val repeatReminderEnabled: Boolean = com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_REPEAT_REMINDER_ENABLED,
     val repeatIntervalMinutes: Int = 30,
     val repeatMaxCount: Int = 3,
+    val fullScreenAlert: Boolean = com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_FULL_SCREEN_ALERT,
     val autoBackupEnabled: Boolean = false,
     val autoBackupDirName: String? = null,
     val autoBackupTreeUri: String? = null,
@@ -105,6 +106,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val repeatEnabled = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_REPEAT_REMINDER_ENABLED
             val repeatInterval = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_INTERVAL)?.toIntOrNull() ?: 30
             val repeatMax = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_MAX_COUNT)?.toIntOrNull() ?: 3
+            val fullScreenAlert = settingDao.getValue(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_FULL_SCREEN_ALERT)?.toBoolean()
+                ?: com.mcxiaoke.carromed.core.alarm.ReminderSettings.DEFAULT_FULL_SCREEN_ALERT
             val autoBackupEnabled = settingDao.getValue(AutoBackupManager.KEY_AUTO_BACKUP_ENABLED)?.toBoolean() ?: false
             val autoBackupDir = settingDao.getValue(AutoBackupManager.KEY_AUTO_BACKUP_DIR_NAME)
             val autoBackupTreeUri = settingDao.getValue(AutoBackupManager.KEY_AUTO_BACKUP_TREE_URI)
@@ -125,6 +128,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 repeatReminderEnabled = repeatEnabled,
                 repeatIntervalMinutes = repeatInterval,
                 repeatMaxCount = repeatMax,
+                fullScreenAlert = fullScreenAlert,
                 autoBackupEnabled = autoBackupEnabled,
                 autoBackupDirName = autoBackupDir,
                 autoBackupTreeUri = autoBackupTreeUri,
@@ -252,6 +256,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _uiState.value = _uiState.value.copy(repeatMaxCount = count)
         viewModelScope.launch {
             settingDao.setSetting(AppSettingEntity(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_REPEAT_REMINDER_MAX_COUNT, count.toString()))
+        }
+    }
+
+    fun onFullScreenAlertChange(enabled: Boolean) {
+        AppLog.i(TAG, "fullScreenAlert changed: $enabled")
+        _uiState.value = _uiState.value.copy(fullScreenAlert = enabled)
+        viewModelScope.launch {
+            settingDao.setSetting(AppSettingEntity(com.mcxiaoke.carromed.core.alarm.ReminderSettings.KEY_FULL_SCREEN_ALERT, enabled.toString()))
         }
     }
 

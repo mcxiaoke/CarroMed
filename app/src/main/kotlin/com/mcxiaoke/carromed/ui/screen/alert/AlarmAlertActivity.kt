@@ -208,7 +208,7 @@ class AlarmAlertActivity : ComponentActivity() {
                                         putExtra(Notifications.EXTRA_MINUTES, minutes)
                                     }
                                 },
-                                onSkip = { dispatchAction(Notifications.ACTION_SKIP, alert) }
+                                onIgnore = { dismissAlert(alert) }
                             )
                         }
 
@@ -292,6 +292,18 @@ class AlarmAlertActivity : ComponentActivity() {
             finishAndRemoveTask()
         }
     }
+
+    private fun dismissAlert(alert: AlertPayload) {
+        if (feedbackState.value != null) return // 防连击守卫
+        autoDismissJob?.cancel()
+        Notifications.cancelDoseNotification(this, alert.slotId)
+        val uri = Uri.parse("carromed://action/${alert.medId}/${alert.scheduledDate}/${alert.scheduledTime}/dose")
+        val intent = Intent(this, DoseActionReceiver::class.java)
+            .setAction(Notifications.ACTION_DISMISS)
+            .setData(uri)
+        sendBroadcast(intent)
+        finishAndRemoveTask()
+    }
 }
 
 /**
@@ -350,7 +362,7 @@ fun AlarmAlertContent(
     snoozeOptions: List<Int>,
     onTake: () -> Unit,
     onSnooze: (Int) -> Unit,
-    onSkip: () -> Unit
+    onIgnore: () -> Unit
 ) {
     // ⚠️ 可滚动：推迟档位从 1 个变成多档后，小屏（如 360×640dp）会把
     // 「确认已服」挤出屏幕 —— 那是**主操作不可达**，比多滚一下严重得多。
@@ -502,14 +514,14 @@ fun AlarmAlertContent(
             }
 
             OutlinedButton(
-                onClick = onSkip,
+                onClick = onIgnore,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
                 shape = RoundedCornerShape(14.dp)
             ) {
                 Text(
-                    stringResource(R.string.alert_action_skip),
+                    stringResource(R.string.alert_action_ignore),
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold
                 )

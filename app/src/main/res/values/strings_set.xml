@@ -30,6 +30,8 @@
 
     <!-- 1. 通知与提醒行为 -->
     <string name="set_section_notification">通知与提醒行为</string>
+    <string name="set_full_screen_alert_title">锁屏全屏提醒</string>
+    <string name="set_full_screen_alert_desc">服药时间到时全屏亮屏弹出大按钮提醒界面；关闭后仅收到通知横幅</string>
     <string name="set_snooze_title">默认推迟时长</string>
     <string name="set_snooze_desc">通知栏与今日清单长按菜单的默认推迟分钟数（单个药品可在「提醒设置」中单独覆盖）</string>
     <string name="set_snooze_minutes_fmt">%1$d 分钟</string>

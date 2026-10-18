@@ -33,6 +33,7 @@ object ReminderSettings {
     const val KEY_REPEAT_REMINDER_MAX_COUNT = "repeat_reminder_max_count"
     const val KEY_COMPLETION_SOUND = "completion_sound"
     const val KEY_COMPLETION_HAPTIC = "completion_haptic"
+    const val KEY_FULL_SCREEN_ALERT = "full_screen_alert"
 
     const val DEFAULT_SNOOZE_MINUTES = 30
     const val DEFAULT_NIGHT_DND_START = "23:00"
@@ -41,6 +42,7 @@ object ReminderSettings {
     const val DEFAULT_REPEAT_MAX_COUNT = 3
     const val DEFAULT_REPEAT_REMINDER_ENABLED = false
     const val DEFAULT_COMPLETION_SOUND = "chime"
+    const val DEFAULT_FULL_SCREEN_ALERT = true
 
     private const val NIGHT_DND_START_HOUR = 23
     private const val NIGHT_DND_END_HOUR = 7
@@ -52,7 +54,8 @@ object ReminderSettings {
         val nightDndEnd: String = DEFAULT_NIGHT_DND_END,
         val repeatReminderEnabled: Boolean = DEFAULT_REPEAT_REMINDER_ENABLED,
         val repeatReminderIntervalMinutes: Int = DEFAULT_REPEAT_INTERVAL_MINUTES,
-        val repeatReminderMaxCount: Int = DEFAULT_REPEAT_MAX_COUNT
+        val repeatReminderMaxCount: Int = DEFAULT_REPEAT_MAX_COUNT,
+        val fullScreenAlert: Boolean = DEFAULT_FULL_SCREEN_ALERT
     )
 
     /** 全局行为：按药品优先级解析 (药品专属 > 全局 > 默认) */
@@ -65,6 +68,7 @@ object ReminderSettings {
         val repeatEnabled = dao.getValue(KEY_REPEAT_REMINDER_ENABLED)?.toBoolean() ?: DEFAULT_REPEAT_REMINDER_ENABLED
         val repeatInterval = dao.getValue(KEY_REPEAT_REMINDER_INTERVAL)?.toIntOrNull() ?: DEFAULT_REPEAT_INTERVAL_MINUTES
         val repeatMaxCount = dao.getValue(KEY_REPEAT_REMINDER_MAX_COUNT)?.toIntOrNull() ?: DEFAULT_REPEAT_MAX_COUNT
+        val fullScreenAlert = dao.getValue(KEY_FULL_SCREEN_ALERT)?.toBoolean() ?: DEFAULT_FULL_SCREEN_ALERT
 
         // 专属推迟时长已随 A2 迁到 `reminder_settings` 表（1:1）
         val medSnooze = db.reminderSettingsDao().getByMedicationId(medicationId)?.snoozeMinutes ?: 0
@@ -76,7 +80,8 @@ object ReminderSettings {
             nightDndEnd = nightDndEnd,
             repeatReminderEnabled = repeatEnabled,
             repeatReminderIntervalMinutes = repeatInterval,
-            repeatReminderMaxCount = repeatMaxCount
+            repeatReminderMaxCount = repeatMaxCount,
+            fullScreenAlert = fullScreenAlert
         )
     }
 

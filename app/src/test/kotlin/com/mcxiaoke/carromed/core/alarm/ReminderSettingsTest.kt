@@ -85,6 +85,11 @@ class ReminderSettingsTest {
             // 夜间静音同样必须真的从库里读出来
             db.appSettingDao().setSetting(AppSettingEntity(ReminderSettings.KEY_NIGHT_DND, "false"))
             assertThat(ReminderSettings.resolve(context, db, medId).nightDnd).isFalse()
+
+            // 全屏提醒开关同样必须从库里读出来
+            assertThat(ReminderSettings.resolve(context, db, medId).fullScreenAlert).isTrue()
+            db.appSettingDao().setSetting(AppSettingEntity(ReminderSettings.KEY_FULL_SCREEN_ALERT, "false"))
+            assertThat(ReminderSettings.resolve(context, db, medId).fullScreenAlert).isFalse()
         } finally {
             db.close()
         }
@@ -118,6 +123,8 @@ class ReminderSettingsTest {
         assertThat(d.snoozeMinutes).isEqualTo(30)
         assertThat(d.nightDnd).isTrue()
         assertThat(d.repeatReminderEnabled).isFalse()
+        assertThat(d.fullScreenAlert).isTrue()
         assertThat(ReminderSettings.DEFAULT_SNOOZE_MINUTES).isEqualTo(30)
+        assertThat(ReminderSettings.DEFAULT_FULL_SCREEN_ALERT).isTrue()
     }
 }
