@@ -10,13 +10,13 @@
     <string name="today_cd_settings">系统设置</string>
     <string name="today_cd_stock_alert">库存告警</string>
     <string name="today_date_pattern">yyyy年M月d日 EEEE</string>
-    <string name="today_stock_overspent">%1$s 记录余量为负（%2$s %3$s），请校准库存</string>
+    <string name="today_stock_overspent">%1$s 记录余量为负（%2$s %3$s），请校准余量</string>
     <string name="today_stock_low">%1$s 仅剩 %2$s %3$s（低于预警线 %4$s）</string>
     <string name="today_go_inventory">去校准 &gt;</string>
     <string name="today_go_refill">去添药 &gt;</string>
     <string name="today_pending_title">未完成 (%1$d)</string>
     <string name="today_pending_hint_actionable">点按可推迟或跳过</string>
-    <string name="today_pending_hint_future">未来用药预览 · 到达当天方可记录</string>
+    <string name="today_pending_hint_future">未来用药计划 · 到达当天即可确认</string>
     <string name="today_empty_all_done">这一天没有待服任务 🎉</string>
     <string name="today_error_load">数据加载失败，请点击下方「重试」；若反复出现，请在设置页导出日志反馈</string>
     <string name="today_error_retry">重试</string>
@@ -32,7 +32,7 @@
     <string name="today_stock_overspent_inline">· 记录余量 %1$s %2$s (待校准)</string>
     <string name="today_stock_low_inline">· 剩 %1$s %2$s</string>
     <string name="today_snoozed_until">已推迟至 %1$s</string>
-    <string name="today_expired_unconfirmed">已过服药时间（%1$s %2$s），待确认</string>
+    <string name="today_expired_unconfirmed">已过计划时间（%1$s %2$s）· 待确认</string>
     <string name="today_cd_confirm_dose">确认服药</string>
     <string name="today_future_take_at">%1$s 服用</string>
     <string name="today_first_run_title">药箱还是空的</string>
@@ -63,7 +63,7 @@
     <string name="today_date_md">%1$d月%2$d日</string>
 
     <!-- 连续天数与月度历史打卡 -->
-    <string name="today_streak_cd">连续服药 %1$d 天，点击查看月度记录</string>
+    <string name="today_streak_cd">连续按时服药 %1$d 天，点击查看月度记录</string>
     <string name="today_streak_title">%1$d 连续天数</string>
     <string name="today_streak_badge">%1$d 天</string>
     <string name="today_streak_praise_good">你做得很好！保持良好节奏</string>

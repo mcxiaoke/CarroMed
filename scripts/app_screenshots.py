@@ -136,7 +136,7 @@ PROGRAM: list[Step] = [
 
     # ---- 1a. 未来日 = 只读预览（PLAN-FUTURE-SLOT-20260929）----------------- #
     Step("desc", "未来用药预览", index=0, contains=True, note="切到明天（未来日只读预览）",
-         expect="未来用药预览 · 到达当天方可记录"),
+         expect="未来用药计划 · 到达当天即可确认"),
     Step("shot", key="today_future", note="未来日：待服卡无 ✓，改为「明天 10:30 服用」只读说明"),
     Step("absent_desc", "确认服药", note="未来日**不该**存在任何「确认服药」节点"),
     Step("text", "明天", index=0, contains=True, note="点开未来日的待服卡（只读预览详情）",
@@ -197,6 +197,7 @@ PROGRAM: list[Step] = [
     # ---- 3. 系统设置 ------------------------------------------------------- #
     Step("desc", "系统设置", note="今日页右上角齿轮", expect="设置"),
     Step("shot", key="settings", shots=2, note="推迟时长 / 夜间静音 / 导出备份"),
+    Step("scroll", note="下滑以显示系统保活卡片"),
     Step("text", "后台保活与防漏提醒指引", note="进入系统自检",
          expect="防漏提醒指南", contains=True),
     Step("shot", key="permission_check", shots=2, note="4 项系统特权与保活指引"),

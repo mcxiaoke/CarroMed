@@ -16,8 +16,8 @@
 
     <string name="inv_expiry_card_title">有效期与临期提醒</string>
     <string name="inv_expiry_date_label">药品有效期至</string>
-    <string name="inv_expired_yesterday">昨天已过期，请勿继续服用</string>
-    <string name="inv_expired_days_ago">已过期 %1$d 天，请勿继续服用</string>
+    <string name="inv_expired_yesterday">昨天已过有效期，请勿继续服用</string>
+    <string name="inv_expired_days_ago">已过有效期 %1$d 天，请勿继续服用</string>
     <string name="inv_expires_today">今天到期，请尽快用完或更换</string>
     <string name="inv_expires_in_days">还有 %1$d 天到期，注意用完并及时更换</string>
     <string name="inv_days_to_expiry">距离到期还有 %1$d 天</string>

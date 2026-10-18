@@ -20,7 +20,7 @@
     <string name="rdetail_scheduled_at">计划 %1$s %2$s</string>
     <string name="rdetail_actual_at">实际 %1$s</string>
     <string name="rdetail_dose_prefix">剂量 %1$s</string>
-    <string name="rdetail_stock_overspent">账面 %1$s %2$s（待盘点）</string>
+    <string name="rdetail_stock_overspent">记录余量 %1$s %2$s（待校准）</string>
     <string name="rdetail_stock_remaining">剩余 %1$s %2$s</string>
     <string name="rdetail_snoozed_until">已推迟至 %1$s</string>
 
@@ -42,7 +42,7 @@
     <string name="rdetail_note_title">备注</string>
     <string name="rdetail_note_empty">（无）</string>
     <string name="rdetail_note_placeholder">例如：随餐温水送服</string>
-    <string name="rdetail_note_actionable_hint">备注会随「确认服用」一起保存；只填不确认不会留下记录。</string>
+    <string name="rdetail_note_actionable_hint">备注会随「确认服用」一起保存；未确认服药则不会保留。</string>
     <string name="rdetail_note_future_hint">到达当天方可确认服用，备注将届时一同保存。</string>
 
     <!-- 单位兜底（med.unit 为空时的展示，由 ViewModel 填入状态） -->
@@ -71,7 +71,7 @@
 
     <!-- 页脚说明 -->
     <string name="rdetail_footnote_future">这是未来的服药时间，到达当天方可确认、推迟或跳过。当前可预览计划剂量与余量。</string>
-    <string name="rdetail_footnote_reverted">该记录已撤销，不再计入依从率与余量消耗统计。历史变更记录将保留以备查阅。</string>
+    <string name="rdetail_footnote_reverted">该记录已撤销，不再计入服药依从率与余量消耗统计。历史变更记录将保留以备查阅。</string>
     <string name="rdetail_footnote_readonly">超过 %1$d 天的记录只读：剂量、时间与撤销入口都不再提供，但备注仍可修改。</string>
     <string name="rdetail_footnote_completed_no_undo">仅支持撤销当日的服药记录。更早的记录已计入历史统计，可在「已服」与「跳过」之间切换状态。</string>
     <string name="rdetail_footnote_skipped_no_undo">仅支持撤销当日的记录。该记录已计入统计，可在「已服」与「跳过」之间切换状态。</string>

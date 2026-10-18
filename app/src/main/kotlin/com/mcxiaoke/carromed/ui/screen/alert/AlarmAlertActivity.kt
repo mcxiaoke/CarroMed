@@ -208,7 +208,7 @@ class AlarmAlertActivity : ComponentActivity() {
                                         putExtra(Notifications.EXTRA_MINUTES, minutes)
                                     }
                                 },
-                                onIgnore = { dismissAlert(alert) }
+                                onClose = { dismissAlert(alert) }
                             )
                         }
 
@@ -362,7 +362,8 @@ fun AlarmAlertContent(
     snoozeOptions: List<Int>,
     onTake: () -> Unit,
     onSnooze: (Int) -> Unit,
-    onIgnore: () -> Unit
+    onClose: () -> Unit,
+    onIgnore: () -> Unit = onClose
 ) {
     // ⚠️ 可滚动：推迟档位从 1 个变成多档后，小屏（如 360×640dp）会把
     // 「确认已服」挤出屏幕 —— 那是**主操作不可达**，比多滚一下严重得多。
@@ -514,14 +515,14 @@ fun AlarmAlertContent(
             }
 
             OutlinedButton(
-                onClick = onIgnore,
+                onClick = onClose,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
                 shape = RoundedCornerShape(14.dp)
             ) {
                 Text(
-                    stringResource(R.string.alert_action_ignore),
+                    stringResource(R.string.alert_action_close),
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold
                 )
