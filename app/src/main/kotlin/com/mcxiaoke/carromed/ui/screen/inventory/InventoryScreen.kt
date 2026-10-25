@@ -160,7 +160,12 @@ fun InventoryScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = {
+                        // P1-2（CODE-REVIEW-20261025）：与上方 BackHandler 同一判据。
+                        // BackHandler 只拦系统返回键/手势，顶栏箭头（老年用户最常用的
+                        // 退出路径）若直接 onNavigateBack 会静默丢掉未保存草稿。
+                        if (isDirty && med != null) showDiscardDialog = true else onNavigateBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.inv_back))
                     }
                 },

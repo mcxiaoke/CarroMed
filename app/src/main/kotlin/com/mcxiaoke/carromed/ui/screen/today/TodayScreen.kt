@@ -425,30 +425,36 @@ fun TodayScreen(
                         isActionable = uiState.isActionable,
                         today = uiState.today,
                         onTakeDose = {
-                            CompletionSoundPlayer.play(
-                                context = context,
-                                soundKey = uiState.completionSound,
-                                soundEnabled = uiState.completionSound != "none",
-                                hapticEnabled = uiState.completionHaptic
-                            )
-                            viewModel.takeDose(item.slot.id)
-                            val medName = item.medication?.name ?: context.getString(R.string.today_fallback_medication)
-                            val message = context.getString(R.string.today_dose_confirmed, medName)
-                            val slotId = item.slot.id
-                            undoJob?.cancel()
-                            undoJob = coroutineScope.launch {
-                                snackbarHostState.currentSnackbarData?.dismiss()
-                                val result = withTimeoutOrNull(5000L) {
-                                    snackbarHostState.showSnackbar(
-                                        message = message,
-                                        actionLabel = undoLabel,
-                                        duration = SnackbarDuration.Indefinite
-                                    )
-                                }
-                                if (result == SnackbarResult.ActionPerformed) {
-                                    viewModel.undoDose(slotId)
-                                } else {
+                            // P1-1（CODE-REVIEW-20261025）：VM 层同槽位防抖拒绝的
+                            // 重复点击不播声音、不重启撤销 Snackbar —— 否则第二击
+                            // 的 ALREADY_HANDLED 错误事件会撤掉第一击的撤销窗口，
+                            // 且成功音播两遍。拒绝是静默的（不是失败）。
+                            val accepted = viewModel.takeDose(item.slot.id)
+                            if (accepted) {
+                                CompletionSoundPlayer.play(
+                                    context = context,
+                                    soundKey = uiState.completionSound,
+                                    soundEnabled = uiState.completionSound != "none",
+                                    hapticEnabled = uiState.completionHaptic
+                                )
+                                val medName = item.medication?.name ?: context.getString(R.string.today_fallback_medication)
+                                val message = context.getString(R.string.today_dose_confirmed, medName)
+                                val slotId = item.slot.id
+                                undoJob?.cancel()
+                                undoJob = coroutineScope.launch {
                                     snackbarHostState.currentSnackbarData?.dismiss()
+                                    val result = withTimeoutOrNull(5000L) {
+                                        snackbarHostState.showSnackbar(
+                                            message = message,
+                                            actionLabel = undoLabel,
+                                            duration = SnackbarDuration.Indefinite
+                                        )
+                                    }
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        viewModel.undoDose(slotId)
+                                    } else {
+                                        snackbarHostState.currentSnackbarData?.dismiss()
+                                    }
                                 }
                             }
                         },

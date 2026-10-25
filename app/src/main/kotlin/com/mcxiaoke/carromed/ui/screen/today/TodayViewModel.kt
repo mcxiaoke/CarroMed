@@ -114,6 +114,17 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         const val MIN_HISTORY_DAYS = 14L
         /** 可预览的未来上界：今天+3 天 */
         const val MAX_FUTURE_DAYS = 3L
+
+        /**
+         * 同一槽位两次打卡之间的防抖窗（毫秒）。
+         *
+         * 必须覆盖**两段**竞态窗口：① 服务事务执行期间（in-flight）；
+         * ② 事务已提交、Room 流尚未重新发射、卡片仍停在待服区的窗口
+         * （实测约 100–300ms）。第二段里连点的第二次会命中服务层幂等守卫
+         * （`ALREADY_HANDLED`），其错误事件会撤掉第一次打卡的撤销 Snackbar
+         * —— CODE-REVIEW-20261025 P1-1。
+         */
+        private const val TAKE_DEBOUNCE_MS = 1_500L
     }
 
     private val db = AppDatabase.getInstance(application)
@@ -434,7 +445,41 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         _selectedDate.value = clamped
     }
 
-    fun takeDose(slotId: Long) {
+    /**
+     * slotId -> 上次放行的打卡时刻（[System.currentTimeMillis]）。
+     *
+     * 只在主线程读写（[takeDose] / [undoDose] 均由 UI 事件在主线程触发），无需并发防护。
+     * 刻意**不在打卡完成后移除**：那会把窗口缩回"事务结束 ~ 状态刷新"的竞态段，
+     * 防抖就白做了。条目按槽位 id 记忆，数量受槽位总数约束；撤销成功时移除
+     * （见 [undoDose]），保证"撤销 → 立刻重打"不被误拦。
+     */
+    private val lastTakeAtBySlot = mutableMapOf<Long, Long>()
+
+    /**
+     * 确认服药（带同槽位防抖）。
+     *
+     * ## 为什么在入口同步拒绝而不是等服务层的幂等守卫
+     *
+     * 连点（老年用户的高频习惯）的第二次点击若放行到服务层，会以
+     * `ALREADY_HANDLED` 告终 —— 数据由 SQL 守卫保证不坏，但其错误事件
+     * 会撤掉第一次打卡刚弹出的撤销 Snackbar，并紧接着播第二遍成功音。
+     * 防抖被拒的点击在入口即返回，调用方（[TodayScreen] 的 onTakeDose）
+     * 据此跳过音效与 Snackbar，两遍反馈都不会发生。
+     *
+     * 三种服务结果的既有契约不变（见下方 runCatching 块的注释）：
+     * 防抖放行后若仍拿到 `ALREADY_HANDLED`（如通知栏已先处理），提示照发。
+     *
+     * @return false 表示本次点击因同槽位防抖被忽略（不是打卡失败）；
+     *         true 表示已接受，调用方随后播放音效、展示撤销 Snackbar。
+     */
+    fun takeDose(slotId: Long): Boolean {
+        val now = System.currentTimeMillis()
+        val last = lastTakeAtBySlot[slotId] ?: 0L
+        if (now - last < TAKE_DEBOUNCE_MS) {
+            AppLog.i(TAG, "takeDose debounced slot=$slotId (within ${TAKE_DEBOUNCE_MS}ms of last tap)")
+            return false
+        }
+        lastTakeAtBySlot[slotId] = now
         viewModelScope.launch {
             AppLog.i(TAG, "takeDose start slot=$slotId")
             val app = getApplication<Application>()
@@ -457,6 +502,7 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
                     onFailure = { emitEvent(app.getString(R.string.today_err_op_failed)) }
                 )
         }
+        return true
     }
 
     fun undoDose(slotId: Long) {
@@ -468,7 +514,11 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
                 .fold(
                     onSuccess = { ok ->
                         AppLog.i(TAG, "undoDose done slot=$slotId ok=$ok")
-                        if (!ok) {
+                        if (ok) {
+                            // 撤销成功即解除该槽位的打卡防抖：用户撤回后立刻重打
+                            // 是合法动作，不该被 1.5s 窗口静默吞掉（见 takeDose KDoc）
+                            lastTakeAtBySlot.remove(slotId)
+                        } else {
                             emitEvent(app.getString(R.string.today_err_op_failed))
                         }
                     },
