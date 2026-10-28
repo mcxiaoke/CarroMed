@@ -57,6 +57,14 @@
     <string name="today_err_op_failed">操作失败，请重试</string>
     <string name="today_undo">撤销</string>
     <string name="today_dose_confirmed">已确认服药：%1$s</string>
+    <string name="today_group_dose_confirmed">已确认服药：%1$s 等 %2$d 种</string>
+    <string name="today_group_badge">%1$d 种待服</string>
+    <string name="today_group_confirm_all">一起确认</string>
+    <string name="today_expand">点击展开</string>
+    <string name="today_collapse">点击收起</string>
+    <string name="today_cd_expand">展开已完成列表</string>
+    <string name="today_cd_collapse">收起已完成列表</string>
+    <string name="today_due_soon_badge">即将服药</string>
 
     <!-- 未来槽位日期说明 -->
     <string name="today_future_tomorrow">明天</string>

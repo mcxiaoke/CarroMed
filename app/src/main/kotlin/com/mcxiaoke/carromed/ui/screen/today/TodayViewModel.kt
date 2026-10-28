@@ -505,6 +505,48 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
         return true
     }
 
+    /**
+     * 批量确认多条待服槽位（支持分组合并确认）。
+     *
+     * @return false 表示本批全部被防抖拦截；true 表示已至少放行并开始处理
+     */
+    fun takeDoses(slotIds: List<Long>): Boolean {
+        if (slotIds.isEmpty()) return false
+        val now = System.currentTimeMillis()
+        val actionableSlots = slotIds.filter { slotId ->
+            val last = lastTakeAtBySlot[slotId] ?: 0L
+            now - last >= TAKE_DEBOUNCE_MS
+        }
+        if (actionableSlots.isEmpty()) {
+            AppLog.i(TAG, "takeDoses debounced all slots=$slotIds")
+            return false
+        }
+        actionableSlots.forEach { lastTakeAtBySlot[it] = now }
+
+        viewModelScope.launch {
+            AppLog.i(TAG, "takeDoses start slots=$actionableSlots")
+            val app = getApplication<Application>()
+            var anyFuture = false
+            var anyFailed = false
+            for (slotId in actionableSlots) {
+                runCatching { actions.confirm(slotId) }
+                    .onFailure {
+                        anyFailed = true
+                        AppLog.e(TAG, "takeDoses failed slot=$slotId", it)
+                    }
+                    .onSuccess { result ->
+                        if (result == DoseActionResult.FUTURE_SLOT) anyFuture = true
+                    }
+            }
+            if (anyFuture) {
+                emitEvent(app.getString(R.string.today_err_future_slot))
+            } else if (anyFailed) {
+                emitEvent(app.getString(R.string.today_err_op_failed))
+            }
+        }
+        return true
+    }
+
     fun undoDose(slotId: Long) {
         viewModelScope.launch {
             AppLog.i(TAG, "undoDose start slot=$slotId")
@@ -524,6 +566,35 @@ class TodayViewModel(application: Application) : AndroidViewModel(application) {
                     },
                     onFailure = { emitEvent(app.getString(R.string.today_err_op_failed)) }
                 )
+        }
+    }
+
+    /**
+     * 批量撤销确认（撤销合并打卡）。
+     */
+    fun undoDoses(slotIds: List<Long>) {
+        if (slotIds.isEmpty()) return
+        viewModelScope.launch {
+            AppLog.i(TAG, "undoDoses start slots=$slotIds")
+            val app = getApplication<Application>()
+            var allOk = true
+            for (slotId in slotIds) {
+                runCatching { actions.undo(slotId) }
+                    .onFailure {
+                        allOk = false
+                        AppLog.e(TAG, "undoDoses failed slot=$slotId", it)
+                    }
+                    .onSuccess { ok ->
+                        if (ok) {
+                            lastTakeAtBySlot.remove(slotId)
+                        } else {
+                            allOk = false
+                        }
+                    }
+            }
+            if (!allOk) {
+                emitEvent(app.getString(R.string.today_err_op_failed))
+            }
         }
     }
 

@@ -2,6 +2,7 @@ package com.mcxiaoke.carromed.ui.screen.today
 import com.mcxiaoke.carromed.core.alarm.CompletionSoundPlayer
 import com.mcxiaoke.carromed.core.domain.model.Dose
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +27,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.WarningAmber
@@ -139,6 +142,76 @@ fun TodayScreen(
     }
 
     var showHistoryCalendarSheet by rememberSaveable { mutableStateOf(false) }
+    var isCompletedExpanded by rememberSaveable { mutableStateOf(false) }
+
+    val pendingGroups = remember(uiState.pendingItems, uiState.isActionable) {
+        TodayGrouping.groupPendingItems(
+            items = uiState.pendingItems,
+            isActionable = uiState.isActionable
+        )
+    }
+
+    val onTakeSingleDose: (DoseSlotItem) -> Unit = { item ->
+        val accepted = viewModel.takeDose(item.slot.id)
+        if (accepted) {
+            CompletionSoundPlayer.play(
+                context = context,
+                soundKey = uiState.completionSound,
+                soundEnabled = uiState.completionSound != "none",
+                hapticEnabled = uiState.completionHaptic
+            )
+            val medName = item.medication?.name ?: context.getString(R.string.today_fallback_medication)
+            val message = context.getString(R.string.today_dose_confirmed, medName)
+            val slotId = item.slot.id
+            undoJob?.cancel()
+            undoJob = coroutineScope.launch {
+                snackbarHostState.currentSnackbarData?.dismiss()
+                val result = withTimeoutOrNull(5000L) {
+                    snackbarHostState.showSnackbar(
+                        message = message,
+                        actionLabel = undoLabel,
+                        duration = SnackbarDuration.Indefinite
+                    )
+                }
+                if (result == SnackbarResult.ActionPerformed) {
+                    viewModel.undoDose(slotId)
+                } else {
+                    snackbarHostState.currentSnackbarData?.dismiss()
+                }
+            }
+        }
+    }
+
+    val onTakeGroupDoses: (PendingDoseGroup) -> Unit = { group ->
+        val accepted = viewModel.takeDoses(group.slotIds)
+        if (accepted) {
+            CompletionSoundPlayer.play(
+                context = context,
+                soundKey = uiState.completionSound,
+                soundEnabled = uiState.completionSound != "none",
+                hapticEnabled = uiState.completionHaptic
+            )
+            val firstName = group.firstItem.medication?.name ?: context.getString(R.string.today_fallback_medication)
+            val message = context.getString(R.string.today_group_dose_confirmed, firstName, group.items.size)
+            val slotIds = group.slotIds
+            undoJob?.cancel()
+            undoJob = coroutineScope.launch {
+                snackbarHostState.currentSnackbarData?.dismiss()
+                val result = withTimeoutOrNull(5000L) {
+                    snackbarHostState.showSnackbar(
+                        message = message,
+                        actionLabel = undoLabel,
+                        duration = SnackbarDuration.Indefinite
+                    )
+                }
+                if (result == SnackbarResult.ActionPerformed) {
+                    viewModel.undoDoses(slotIds)
+                } else {
+                    snackbarHostState.currentSnackbarData?.dismiss()
+                }
+            }
+        }
+    }
 
     // §二-26：标题三态 —— 顶栏与 selectedDate 绑定。此前标题恒为「今日用药」，
     // 用户选中过去/未来日期时顶栏说的是事实错误的话。
@@ -419,47 +492,27 @@ fun TodayScreen(
                     }
                 }
             } else {
-                items(uiState.pendingItems, key = { "slot-${it.slot.id}" }) { item ->
-                    PendingDoseCard(
-                        item = item,
-                        isActionable = uiState.isActionable,
-                        today = uiState.today,
-                        onTakeDose = {
-                            // P1-1（CODE-REVIEW-20261025）：VM 层同槽位防抖拒绝的
-                            // 重复点击不播声音、不重启撤销 Snackbar —— 否则第二击
-                            // 的 ALREADY_HANDLED 错误事件会撤掉第一击的撤销窗口，
-                            // 且成功音播两遍。拒绝是静默的（不是失败）。
-                            val accepted = viewModel.takeDose(item.slot.id)
-                            if (accepted) {
-                                CompletionSoundPlayer.play(
-                                    context = context,
-                                    soundKey = uiState.completionSound,
-                                    soundEnabled = uiState.completionSound != "none",
-                                    hapticEnabled = uiState.completionHaptic
-                                )
-                                val medName = item.medication?.name ?: context.getString(R.string.today_fallback_medication)
-                                val message = context.getString(R.string.today_dose_confirmed, medName)
-                                val slotId = item.slot.id
-                                undoJob?.cancel()
-                                undoJob = coroutineScope.launch {
-                                    snackbarHostState.currentSnackbarData?.dismiss()
-                                    val result = withTimeoutOrNull(5000L) {
-                                        snackbarHostState.showSnackbar(
-                                            message = message,
-                                            actionLabel = undoLabel,
-                                            duration = SnackbarDuration.Indefinite
-                                        )
-                                    }
-                                    if (result == SnackbarResult.ActionPerformed) {
-                                        viewModel.undoDose(slotId)
-                                    } else {
-                                        snackbarHostState.currentSnackbarData?.dismiss()
-                                    }
-                                }
-                            }
-                        },
-                        onClick = { onOpenDose(item.slot.id) }
-                    )
+                pendingGroups.forEach { group ->
+                    if (!group.isSingle) {
+                        item(key = "header-${group.key}") {
+                            PendingGroupHeader(
+                                group = group,
+                                isActionable = uiState.isActionable,
+                                onTakeAll = { onTakeGroupDoses(group) }
+                            )
+                        }
+                    }
+                    items(group.items, key = { "slot-${it.slot.id}" }) { item ->
+                        val cardUrgency = if (!group.isSingle) group.urgency else group.urgency
+                        PendingDoseCard(
+                            item = item,
+                            urgency = cardUrgency,
+                            isActionable = uiState.isActionable,
+                            today = uiState.today,
+                            onTakeDose = { onTakeSingleDose(item) },
+                            onClick = { onOpenDose(item.slot.id) }
+                        )
+                    }
                 }
             }
 
@@ -468,36 +521,58 @@ fun TodayScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 12.dp),
+                            .padding(top = 12.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { isCompletedExpanded = !isCompletedExpanded }
+                            .padding(vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                // 翻到 9-30 时写"今日已服"是**事实错误**：那天的记录不是今天服的。
+                                // 与"今日清单"这个页名无关 —— 它标的是当前查看的那一天。
+                                text = if (uiState.selectedDate == uiState.today) {
+                                    stringResource(R.string.today_completed_title, uiState.completedItems.size)
+                                } else {
+                                    stringResource(
+                                        R.string.today_completed_title_date,
+                                        uiState.selectedDate.monthValue,
+                                        uiState.selectedDate.dayOfMonth,
+                                        uiState.completedItems.size
+                                    )
+                                },
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Icon(
+                                imageVector = if (isCompletedExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = if (isCompletedExpanded) {
+                                    stringResource(R.string.today_cd_collapse)
+                                } else {
+                                    stringResource(R.string.today_cd_expand)
+                                },
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                         Text(
-                            // 翻到 9-30 时写"今日已服"是**事实错误**：那天的记录不是今天服的。
-                            // 与"今日清单"这个页名无关 —— 它标的是当前查看的那一天。
-                            text = if (uiState.selectedDate == uiState.today) {
-                                stringResource(R.string.today_completed_title, uiState.completedItems.size)
+                            text = if (isCompletedExpanded) {
+                                stringResource(R.string.today_collapse)
                             } else {
-                                stringResource(
-                                    R.string.today_completed_title_date,
-                                    uiState.selectedDate.monthValue,
-                                    uiState.selectedDate.dayOfMonth,
-                                    uiState.completedItems.size
-                                )
+                                stringResource(R.string.today_expand)
                             },
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = stringResource(R.string.today_completed_hint),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
-                items(uiState.completedItems, key = { "slot-${it.slot.id}" }) { item ->
-                    CompletedDoseCard(item = item, onClick = { onOpenDose(item.slot.id) })
+                if (isCompletedExpanded) {
+                    items(uiState.completedItems, key = { "slot-${it.slot.id}" }) { item ->
+                        CompletedDoseCard(item = item, onClick = { onOpenDose(item.slot.id) })
+                    }
                 }
             }
 
@@ -535,6 +610,7 @@ fun TodayScreen(
 @Composable
 private fun PendingDoseCard(
     item: DoseSlotItem,
+    urgency: DoseUrgencyState = DoseUrgencyState.NORMAL,
     isActionable: Boolean,
     today: LocalDate,
     onTakeDose: () -> Unit,
@@ -546,21 +622,26 @@ private fun PendingDoseCard(
         runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull()
     } ?: MaterialTheme.colorScheme.primary
 
-    val isOverdue = isActionable && when (item.slot.status) {
-        SlotStatus.SNOOZED -> (item.slot.snoozeUntilTs ?: item.slot.scheduledTs) < System.currentTimeMillis()
-        SlotStatus.EXPIRED -> true
-        else -> item.slot.scheduledTs < System.currentTimeMillis()
+    val isOverdue = urgency == DoseUrgencyState.OVERDUE
+    val isDueSoon = urgency == DoseUrgencyState.DUE_SOON
+
+    val cardBorder = when (urgency) {
+        DoseUrgencyState.OVERDUE -> BorderStroke(1.5.dp, MaterialTheme.colorScheme.error)
+        DoseUrgencyState.DUE_SOON -> BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+        DoseUrgencyState.NORMAL -> null
     }
 
-    ElevatedCard(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .testTag(TestTags.doseCard(item.slot.id))
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.elevatedCardColors(
+        border = cardBorder,
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        )
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier
@@ -614,7 +695,11 @@ private fun PendingDoseCard(
                         Icons.Default.Schedule,
                         contentDescription = stringResource(R.string.today_cd_scheduled_time),
                         modifier = Modifier.size(14.dp),
-                        tint = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = when {
+                            isOverdue -> MaterialTheme.colorScheme.error
+                            isDueSoon -> MaterialTheme.colorScheme.primary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
@@ -647,9 +732,9 @@ private fun PendingDoseCard(
                     }
                 }
 
-                // 状态徽标：已推迟 / 已逾期
-                when (item.slot.status) {
-                    SlotStatus.SNOOZED -> {
+                // 状态徽标：已推迟 / 已逾期 / 即将服药
+                when {
+                    item.slot.status == SlotStatus.SNOOZED -> {
                         Spacer(Modifier.height(4.dp))
                         StatusBadge(
                             icon = Icons.Default.Alarm,
@@ -658,7 +743,7 @@ private fun PendingDoseCard(
                         )
                     }
 
-                    SlotStatus.EXPIRED -> {
+                    item.slot.status == SlotStatus.EXPIRED -> {
                         Spacer(Modifier.height(4.dp))
                         StatusBadge(
                             icon = Icons.Default.WarningAmber,
@@ -672,40 +757,50 @@ private fun PendingDoseCard(
                         )
                     }
 
+                    isDueSoon -> {
+                        Spacer(Modifier.height(4.dp))
+                        StatusBadge(
+                            icon = Icons.Default.Schedule,
+                            text = stringResource(R.string.today_due_soon_badge),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
                     else -> Unit
                 }
             }
 
             // 未来槽位：**不渲染 ✓**，换一句只读说明。
-            //
-            // 按本项目既有约定**不置灰**（`DoseRecordDetailViewModel` 的 KDoc 记了理由）：
-            // 置灰会让人以为"再等等就能用"，而这条槽位今天永远不会变可用 ——
-            // 它要等到自己那天。卡片本体仍可点开，进详情页预览。
             if (isActionable) {
                 val confirmCd = stringResource(R.string.today_cd_confirm_dose)
+                val circleBorderColor = when {
+                    isOverdue -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.primary
+                }
+                val circleBorderWidth = when {
+                    isOverdue || isDueSoon -> 2.5.dp
+                    else -> 2.dp
+                }
                 IconButton(
                     onClick = onTakeDose,
                     modifier = Modifier
-                        // 全 App 最高频的动作，触摸目标 48dp（orsbf P1-15）
                         .size(48.dp)
                         .testTag(TestTags.doseConfirm(item.slot.id))
                         .semantics { contentDescription = confirmCd }
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(circleBorderColor.copy(alpha = if (isOverdue || isDueSoon) 0.08f else 0f))
                             .border(
-                                width = 2.dp,
-                                color = if (isOverdue) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.primary,
+                                width = circleBorderWidth,
+                                color = circleBorderColor,
                                 shape = CircleShape
                             )
                     )
                 }
             } else {
-                // 两行而不是一行滚动的长句：单行「明天 10:30 服用」在 44dp 的
-                // 右侧位宽里必然折行，而折行点落在"服用"两个字上时看起来像个孤儿
-                // （2026-09-30 走查截图实测）。这里显式分两行：日期一行、时点一行。
                 Column(
                     horizontalAlignment = Alignment.End,
                     modifier = Modifier
@@ -727,6 +822,124 @@ private fun PendingDoseCard(
                         textAlign = androidx.compose.ui.text.style.TextAlign.End
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 多药集合顶部的批量确认 Header（相差 10 分钟及以内的服药集合展示）。
+ *
+ * 保持下方各个单药卡片完整独立展示与单独确认功能，
+ * 仅在顶部提供时段提示与「大圆圈一起确认」的快捷操作。
+ */
+@Composable
+private fun PendingGroupHeader(
+    group: PendingDoseGroup,
+    isActionable: Boolean,
+    onTakeAll: () -> Unit
+) {
+    val urgency = group.urgency
+    val isOverdue = urgency == DoseUrgencyState.OVERDUE
+    val isDueSoon = urgency == DoseUrgencyState.DUE_SOON
+
+    val tintColor = when {
+        isOverdue -> MaterialTheme.colorScheme.error
+        isDueSoon -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Schedule,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp),
+                tint = tintColor
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = group.displayTimeRange,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = when {
+                    isOverdue -> MaterialTheme.colorScheme.error
+                    isDueSoon -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurface
+                }
+            )
+            Spacer(Modifier.width(8.dp))
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = when {
+                    isOverdue -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                    isDueSoon -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                }
+            ) {
+                Text(
+                    text = stringResource(R.string.today_group_badge, group.items.size),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = when {
+                        isOverdue -> MaterialTheme.colorScheme.onErrorContainer
+                        isDueSoon -> MaterialTheme.colorScheme.onPrimaryContainer
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+            if (isDueSoon) {
+                Spacer(Modifier.width(6.dp))
+                StatusBadge(
+                    icon = Icons.Default.Schedule,
+                    text = stringResource(R.string.today_due_soon_badge),
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        if (isActionable) {
+            val confirmColor = when {
+                isOverdue -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.primary
+            }
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onTakeAll)
+                    .testTag(TestTags.doseConfirm(group.firstItem.slot.id))
+                    .semantics {
+                        contentDescription = "一起确认服药（共${group.items.size}种）"
+                    }
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.today_group_confirm_all),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = confirmColor
+                )
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .border(
+                            width = 2.dp,
+                            color = confirmColor,
+                            shape = CircleShape
+                        )
+                )
             }
         }
     }
