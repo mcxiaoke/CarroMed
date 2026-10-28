@@ -2,6 +2,10 @@ package com.mcxiaoke.carromed.ui.screen.today
 import com.mcxiaoke.carromed.core.alarm.CompletionSoundPlayer
 import com.mcxiaoke.carromed.core.domain.model.Dose
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -60,11 +64,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -74,6 +80,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -143,6 +150,8 @@ fun TodayScreen(
 
     var showHistoryCalendarSheet by rememberSaveable { mutableStateOf(false) }
     var isCompletedExpanded by rememberSaveable { mutableStateOf(false) }
+    var animatingSlotIds by remember { mutableStateOf(setOf<Long>()) }
+    var isActionBlocked by remember { mutableStateOf(false) }
 
     val pendingGroups = remember(uiState.pendingItems, uiState.isActionable) {
         TodayGrouping.groupPendingItems(
@@ -152,62 +161,90 @@ fun TodayScreen(
     }
 
     val onTakeSingleDose: (DoseSlotItem) -> Unit = { item ->
-        val accepted = viewModel.takeDose(item.slot.id)
-        if (accepted) {
+        val slotId = item.slot.id
+        if (!isActionBlocked && slotId !in animatingSlotIds) {
+            isActionBlocked = true
+            animatingSlotIds = animatingSlotIds + slotId
+
             CompletionSoundPlayer.play(
                 context = context,
                 soundKey = uiState.completionSound,
                 soundEnabled = uiState.completionSound != "none",
                 hapticEnabled = uiState.completionHaptic
             )
-            val medName = item.medication?.name ?: context.getString(R.string.today_fallback_medication)
-            val message = context.getString(R.string.today_dose_confirmed, medName)
-            val slotId = item.slot.id
-            undoJob?.cancel()
-            undoJob = coroutineScope.launch {
-                snackbarHostState.currentSnackbarData?.dismiss()
-                val result = withTimeoutOrNull(5000L) {
-                    snackbarHostState.showSnackbar(
-                        message = message,
-                        actionLabel = undoLabel,
-                        duration = SnackbarDuration.Indefinite
-                    )
-                }
-                if (result == SnackbarResult.ActionPerformed) {
-                    viewModel.undoDose(slotId)
-                } else {
-                    snackbarHostState.currentSnackbarData?.dismiss()
+
+            coroutineScope.launch {
+                try {
+                    delay(380L)
+                    val accepted = viewModel.takeDose(slotId)
+                    if (accepted) {
+                        val medName = item.medication?.name ?: context.getString(R.string.today_fallback_medication)
+                        val message = context.getString(R.string.today_dose_confirmed, medName)
+                        undoJob?.cancel()
+                        undoJob = coroutineScope.launch {
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            val result = withTimeoutOrNull(5000L) {
+                                snackbarHostState.showSnackbar(
+                                    message = message,
+                                    actionLabel = undoLabel,
+                                    duration = SnackbarDuration.Indefinite
+                                )
+                            }
+                            if (result == SnackbarResult.ActionPerformed) {
+                                viewModel.undoDose(slotId)
+                            } else {
+                                snackbarHostState.currentSnackbarData?.dismiss()
+                            }
+                        }
+                    }
+                } finally {
+                    animatingSlotIds = animatingSlotIds - slotId
+                    isActionBlocked = false
                 }
             }
         }
     }
 
     val onTakeGroupDoses: (PendingDoseGroup) -> Unit = { group ->
-        val accepted = viewModel.takeDoses(group.slotIds)
-        if (accepted) {
+        val slotIds = group.slotIds
+        if (!isActionBlocked && slotIds.none { it in animatingSlotIds }) {
+            isActionBlocked = true
+            animatingSlotIds = animatingSlotIds + slotIds
+
             CompletionSoundPlayer.play(
                 context = context,
                 soundKey = uiState.completionSound,
                 soundEnabled = uiState.completionSound != "none",
                 hapticEnabled = uiState.completionHaptic
             )
-            val firstName = group.firstItem.medication?.name ?: context.getString(R.string.today_fallback_medication)
-            val message = context.getString(R.string.today_group_dose_confirmed, firstName, group.items.size)
-            val slotIds = group.slotIds
-            undoJob?.cancel()
-            undoJob = coroutineScope.launch {
-                snackbarHostState.currentSnackbarData?.dismiss()
-                val result = withTimeoutOrNull(5000L) {
-                    snackbarHostState.showSnackbar(
-                        message = message,
-                        actionLabel = undoLabel,
-                        duration = SnackbarDuration.Indefinite
-                    )
-                }
-                if (result == SnackbarResult.ActionPerformed) {
-                    viewModel.undoDoses(slotIds)
-                } else {
-                    snackbarHostState.currentSnackbarData?.dismiss()
+
+            coroutineScope.launch {
+                try {
+                    delay(380L)
+                    val accepted = viewModel.takeDoses(slotIds)
+                    if (accepted) {
+                        val firstName = group.firstItem.medication?.name ?: context.getString(R.string.today_fallback_medication)
+                        val message = context.getString(R.string.today_group_dose_confirmed, firstName, group.items.size)
+                        undoJob?.cancel()
+                        undoJob = coroutineScope.launch {
+                            snackbarHostState.currentSnackbarData?.dismiss()
+                            val result = withTimeoutOrNull(5000L) {
+                                snackbarHostState.showSnackbar(
+                                    message = message,
+                                    actionLabel = undoLabel,
+                                    duration = SnackbarDuration.Indefinite
+                                )
+                            }
+                            if (result == SnackbarResult.ActionPerformed) {
+                                viewModel.undoDoses(slotIds)
+                            } else {
+                                snackbarHostState.currentSnackbarData?.dismiss()
+                            }
+                        }
+                    }
+                } finally {
+                    animatingSlotIds = animatingSlotIds - slotIds.toSet()
+                    isActionBlocked = false
                 }
             }
         }
@@ -260,7 +297,7 @@ fun TodayScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = onNavigateToManualDose,
+                onClick = { if (!isActionBlocked) onNavigateToManualDose() },
                 modifier = Modifier.size(64.dp),
                 shape = RoundedCornerShape(20.dp),
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -303,7 +340,7 @@ fun TodayScreen(
                     dates = uiState.weekDates,
                     selectedDate = uiState.selectedDate,
                     today = uiState.today,
-                    onSelectDate = { viewModel.selectDate(it) }
+                    onSelectDate = { if (!isActionBlocked) viewModel.selectDate(it) }
                 )
             }
 
@@ -495,19 +532,25 @@ fun TodayScreen(
                 pendingGroups.forEach { group ->
                     if (!group.isSingle) {
                         item(key = "header-${group.key}") {
+                            val isGroupCompleting = group.slotIds.all { it in animatingSlotIds }
                             PendingGroupHeader(
                                 group = group,
                                 isActionable = uiState.isActionable,
+                                isCompleting = isGroupCompleting,
+                                isActionBlocked = isActionBlocked,
                                 onTakeAll = { onTakeGroupDoses(group) }
                             )
                         }
                     }
                     items(group.items, key = { "slot-${it.slot.id}" }) { item ->
                         val cardUrgency = if (!group.isSingle) group.urgency else group.urgency
+                        val isItemCompleting = item.slot.id in animatingSlotIds
                         PendingDoseCard(
                             item = item,
                             urgency = cardUrgency,
                             isActionable = uiState.isActionable,
+                            isCompleting = isItemCompleting,
+                            isActionBlocked = isActionBlocked,
                             today = uiState.today,
                             onTakeDose = { onTakeSingleDose(item) },
                             onClick = { onOpenDose(item.slot.id) }
@@ -612,6 +655,8 @@ private fun PendingDoseCard(
     item: DoseSlotItem,
     urgency: DoseUrgencyState = DoseUrgencyState.NORMAL,
     isActionable: Boolean,
+    isCompleting: Boolean = false,
+    isActionBlocked: Boolean = false,
     today: LocalDate,
     onTakeDose: () -> Unit,
     onClick: () -> Unit
@@ -635,7 +680,8 @@ private fun PendingDoseCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag(TestTags.doseCard(item.slot.id))
-            .clickable(onClick = onClick),
+            .clickable(enabled = !isActionBlocked, onClick = onClick)
+            .alpha(if (isCompleting) 0.65f else 1f),
         shape = RoundedCornerShape(16.dp),
         border = cardBorder,
         colors = CardDefaults.cardColors(
@@ -783,21 +829,19 @@ private fun PendingDoseCard(
                 }
                 IconButton(
                     onClick = onTakeDose,
+                    enabled = !isActionBlocked && !isCompleting,
                     modifier = Modifier
                         .size(48.dp)
                         .testTag(TestTags.doseConfirm(item.slot.id))
                         .semantics { contentDescription = confirmCd }
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
-                            .background(circleBorderColor.copy(alpha = if (isOverdue || isDueSoon) 0.08f else 0f))
-                            .border(
-                                width = circleBorderWidth,
-                                color = circleBorderColor,
-                                shape = CircleShape
-                            )
+                    CheckmarkCircle(
+                        isCompleting = isCompleting,
+                        borderColor = circleBorderColor,
+                        borderWidth = circleBorderWidth,
+                        size = 26.dp,
+                        checkSize = 16.dp,
+                        alphaIdle = if (isOverdue || isDueSoon) 0.08f else 0f
                     )
                 }
             } else {
@@ -837,6 +881,8 @@ private fun PendingDoseCard(
 private fun PendingGroupHeader(
     group: PendingDoseGroup,
     isActionable: Boolean,
+    isCompleting: Boolean = false,
+    isActionBlocked: Boolean = false,
     onTakeAll: () -> Unit
 ) {
     val urgency = group.urgency
@@ -916,7 +962,10 @@ private fun PendingGroupHeader(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClick = onTakeAll)
+                    .clickable(
+                        enabled = !isActionBlocked && !isCompleting,
+                        onClick = onTakeAll
+                    )
                     .testTag(TestTags.doseConfirm(group.firstItem.slot.id))
                     .semantics {
                         contentDescription = "一起确认服药（共${group.items.size}种）"
@@ -931,16 +980,49 @@ private fun PendingGroupHeader(
                     color = confirmColor
                 )
                 Spacer(Modifier.width(6.dp))
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .border(
-                            width = 2.dp,
-                            color = confirmColor,
-                            shape = CircleShape
-                        )
+                CheckmarkCircle(
+                    isCompleting = isCompleting,
+                    borderColor = confirmColor,
+                    borderWidth = 2.dp,
+                    size = 24.dp,
+                    checkSize = 15.dp,
+                    alphaIdle = 0f
                 )
             }
+        }
+    }
+}
+
+/**
+ * 确认打卡圆圈：点击后展示对勾过渡动画，避免直接闪退消失。
+ */
+@Composable
+private fun CheckmarkCircle(
+    isCompleting: Boolean,
+    borderColor: Color,
+    borderWidth: Dp,
+    size: Dp,
+    checkSize: Dp,
+    alphaIdle: Float = 0f
+) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(if (isCompleting) borderColor else borderColor.copy(alpha = alphaIdle))
+            .border(width = borderWidth, color = borderColor, shape = CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        AnimatedVisibility(
+            visible = isCompleting,
+            enter = fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.5f, animationSpec = tween(150))
+        ) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(checkSize)
+            )
         }
     }
 }
